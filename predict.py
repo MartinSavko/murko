@@ -27,7 +27,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument('-t', '--to_predict', type=str, default='image.jpg', help='to_predict')
-    parser.add_argument('-m', '--model', type=str, default='model.h5', help='model')
     parser.add_argument('-H', '--prediction_heigth', default=256, type=int, help='prediction_heigth')
     parser.add_argument('-W', '--prediction_width', default=320, type=int, help='prediction_width')
     parser.add_argument('-s', '--save', default=1, type=int, help='save')
