@@ -3,7 +3,7 @@ This projects aims to develop a tool to help make a sense of optical images of s
 
 ## Requirements
 We aim to have a tool that given an image such as this one:
-[![Example input](https://github.com/MartinSavko/murko/blob/main/image.jpg)]
+![Example input](https://github.com/MartinSavko/murko/blob/main/image.jpg)
 
 will be able to classify all of the pixels as representing salient higher level concepts such as crystal, mother liquor, loop, stem, pin, ice, most likely user click etc ... It should also fulfil the following requirements
 
@@ -16,4 +16,4 @@ will be able to classify all of the pixels as representing salient higher level 
 
 ## Current performance
 this is how it performs at the moment
-[![Result](https://github.com/MartinSavko/murko/blob/main/image_default_model_img_size_256x320_comparison.png)]
+![Result](https://github.com/MartinSavko/murko/blob/main/image_default_model_img_size_256x320_comparison.png)
