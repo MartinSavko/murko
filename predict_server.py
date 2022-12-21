@@ -11,7 +11,7 @@ import traceback
 import tensorflow as tf
 from tensorflow import keras
 from keras import backend as K
-from segmentation import predict_multihead, WSConv2D, WSSeparableConv2D, BinaryFocalCrossentropy, binary_focal_crossentropy, get_uncompiled_tiramisu
+from murko import predict_multihead, WSConv2D, WSSeparableConv2D, BinaryFocalCrossentropy, binary_focal_crossentropy, get_uncompiled_tiramisu
 
 
 def get_model(model_name='model.h5'):

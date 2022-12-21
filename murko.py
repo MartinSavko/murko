@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # based on F. Chollet's https://keras.io/examples/vision/oxford_pets_image_segmentation/
+# Model based on The One Hundred Layers Tiramisu: Fully convolutional DenseNets for Semantic Segmentation, arXiv:1611.09326
+# With main difference being use of SeparableConv2D instead of Conv2D and using GroupNormalization instead of BatchNormalization. Plus using additional Weight standardization (based on Qiao et al. Micro-Batch Training with Batch-Channel Normalization and Weight Standardization arXiv:1903.10520v2)
 
 import sys
 import os
@@ -53,11 +55,6 @@ from keras.metrics import BinaryCrossentropy
 from keras.losses import LossFunctionWrapper
 from keras.utils import losses_utils
 from tensorflow.python.util import dispatch
-
-#try:
-    #from keras.metrics import BinaryIoU
-#except ImportError:
-#from some_metrics import BinaryIoUm
 
 directory = 'images_and_labels_augmented'
 img_size = (1024, 1360)
@@ -423,8 +420,6 @@ def analyse_histories(notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 
         line = '%s: %s' % (best, history)
         print(line)
         os.system('echo "%s" >> histories.txt' % line)
-            
-        
     
 def resize_images(images, size, method='bilinear', align_corners=False):
     """ See https://www.tensorflow.org/versions/master/api_docs/python/tf/image/resize_images .
@@ -611,9 +606,6 @@ class ClickMetric(tf.keras.metrics.MeanAbsoluteError):
         )
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        #y_true = tf_center_of_mass(y_true)
-        #y_pred = tf_center_of_mass(y_pred)
-        
         return super().update_state(y_true, y_pred, sample_weight)
 
  
@@ -631,7 +623,6 @@ class ClickLoss(tf.keras.losses.MeanSquaredError):
         total = bcl*(1-click_present) + mse*(click_present)
         
         return total
-
 
 def gauss2d(x=0, y=0, mx=0, my=0, sx=1, sy=1):
     return np.exp(-((x - mx)**2. / (2. * sx**2.) + (y - my)**2. / (2. * sy**2.)))
@@ -653,19 +644,7 @@ def replacenan(t):
     return tf.where(tf.math.is_nan(t), tf.zeros_like(t), t)
     
 def click_loss(ci_true, ci_pred):
-    
-    #com_true = tf_center_of_mass(ci_true)
-    #com_pred = tf_center_of_mass(ci_pred)
-    #print(ci_true.shape)
-    mse = tf.keras.losses.mean_squared_error(ci_true, ci_pred)
-    #mse = replacenan(mse)
-    ##bcl = tf.reduce_mean(tf.keras.losses.binary_crossentropy(ci_true, ci_pred), axis=(1, 2))
-    #try:
-        #click_present = tf.reshape(K.max(ci_true, axis=(1, 2)), (-1))
-    #except:
-        #click_present = 1
-    #total = bcl*(1-click_present)  + mse * (click_present)
-    total = mse
+    total = tf.keras.losses.mean_squared_error(ci_true, ci_pred)
     return total
 
 def tf_center_of_mass(image_batch, threshold=0.5):
@@ -690,11 +669,9 @@ def tf_center_of_mass(image_batch, threshold=0.5):
 def click_image_loss(ci_true, ci_pred):
     if K.max(ci_true) == 0:
         return tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    
     y_true = centre_of_mass(ci_true)
     y_pred = centre_of_mass(ci_pred)
     return tf.keras.losses.mean_squared_error(y_true, y_pred)
-    #return np.sqrt(np.sum(np.square(y_true - y_pred)))
 
 def click_mean_absolute_error(ci_true, ci_pred):
     if K.max(ci_pred) < 0.5 and K.max(ci_true) == 0:
@@ -737,7 +714,6 @@ def display_target(target_array):
     normalized_array = (target_array.astype("uint8")) * 127
     plt.axis("off")
     plt.imshow(normalized_array[:, :, 0])
-
 
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
@@ -791,184 +767,6 @@ def get_transformed_img_and_target(img, target, default_transform_gang=[0, 0, 0,
         #target = image.apply_affine_transform(target, fill_mode='constant', cval=0, **transform_arguments)
     return img, target
 
-def augment_dataset(source_directory='images_and_labels', augmented_directory='images_and_labels_augmented', notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground']):
-    #dark_backgrounds = glob.glob('Backgrounds/background_zoom_*_gain_8.0_light_0.0_exposure_0.050.jpg')
-    #px1_backgrounds = glob.glob('Backgrounds/px1_background_zoom_*.jpg')
-    #mako_backgrounds = glob.glob('Backgrounds/background_mako_white_balance_px2*jpg')
-    
-    dark_backgrounds = dict([(zoom, img_to_array(load_img('Backgrounds/background_zoom_%d_gain_8.0_light_0.0_exposure_0.050.jpg' % zoom), dtype='float32')) for zoom in range(1, 11)])
-    px1_backgrounds = dict([(zoom, img_to_array(load_img('Backgrounds/px1_background_zoom_%d.jpg' % zoom), dtype='float32')) for zoom in range(1, 11)])
-    mako_backgrounds = dict([(zoom, img_to_array(load_img('Backgrounds/background_mako_white_balance_px2_zoom_%d.jpg' % zoom), dtype='float32')) for zoom in range(1, 11)])
-    
-    alternative_backgrounds = {'px1': px1_backgrounds, 'dark': dark_backgrounds, 'mako': mako_backgrounds}
-    img_paths, target_paths = get_paths(directory=source_directory)
-    total = len(img_paths)
-    print('found %d images to augment' % total)
-    for k, (img_path, target_path) in enumerate(zip(img_paths, target_paths)):
-        
-        for background in ['original', 'px1', 'dark', 'mako']:
-            for theta in [0, 90, 180, 270]:
-                destination_directory = '%s_theta_%d_background_%s' % (os.path.dirname(img_path).replace(source_directory, augmented_directory), theta, background)
-            hmhcfmc = os.path.join(destination_directory, "hierarchical_mask_high_contrast_fill_mode_constant.png")
-        if glob.glob(hmhcfmc):
-            continue
-        else:
-            print('processing %s, %d of %d' % (img_path, k+1, total))
-            
-        if 'background' in img_path:
-            os.system('rsync -av %s %s/' % (os.path.dirname(img_path), augmented_directory))
-            continue
-        img = img_to_array(load_img(img_path), dtype='float32')/255.
-        #target = img_to_array(load_img(target_path, color_mode='grayscale'), dtype='uint8')
-        masks_name = img_path.replace('img.jpg', 'masks.npy')
-        user_click_name = img_path.replace('img.jpg', 'user_click.npy')
-        target = np.load(masks_name)
-        user_click = np.load(user_click_name)
-        click_mask = np.zeros(target.shape[:2], dtype='uint8')
-        if all(user_click >= 0):
-            click_mask[int(user_click[0]), int(user_click[1])] = 1
-        click_mask = np.expand_dims(click_mask, axis=2)
-        target = np.concatenate([target, click_mask], axis=2)
-        guessed_zoom = int(re.findall('.*_zoom_([\d]*).*', img_path)[0])
-        for background in ['original', 'px1', 'dark', 'mako']:
-            if background != 'original' and 'background' not in img_path:
-                new_background = alternative_backgrounds[background][guessed_zoom]
-                img[target[:,:,notions.index('foreground')]==0] = new_background[target[:,:,notions.index('foreground')]==0]
-            for theta in [0, 90, 180, 270]:
-                destination_directory = '%s_theta_%d_background_%s' % (os.path.dirname(img_path).replace(source_directory, augmented_directory), theta, background)
-                if theta != 0:
-                    transformed_img = image.apply_affine_transform(img, **{'theta': theta})
-                    transformed_target = image.apply_affine_transform(target, fill_mode='constant', cval=0, **{'theta': theta})
-                else:
-                    transformed_img = img[::]
-                    transformed_target = target[::]
-                if not os.path.isdir(destination_directory):
-                    os.makedirs(destination_directory)
-                
-                save_img(os.path.join(destination_directory, 'img.jpg'), transformed_img)
-                transformed_masks = transformed_target[:,:,:8]
-                np.save(os.path.join(destination_directory, 'masks.npy'), transformed_masks)
-                if all(user_click >= 0):
-                    transformed_click = transformed_target[:,:,8]
-                    transformed_click = np.unravel_index(np.argmax(transformed_click), transformed_click.shape)
-                else:
-                    transformed_click = user_click[::]
-                np.save(os.path.join(destination_directory, 'user_click.npy'), transformed_click)
-                hierarchical_mask = np.zeros(target.shape[:2], dtype=np.uint8)
-                for notion in notions[::-1]:
-                    mask = transformed_masks[:,:,notions.index(notion)]
-                    if np.any(mask):
-                        hierarchical_mask[mask==1] = notions.index(notion) + 1
-                    mask_image = np.expand_dims(mask, 2)
-                    save_img(os.path.join(destination_directory, '%s.png' % notion), mask_image, scale=False)
-                hm = np.expand_dims(hierarchical_mask, 2)
-                save_img(os.path.join(destination_directory, "hierarchical_mask.png"), hm, scale=False)
-                y, x = transformed_click
-                try:
-                    d = disk(5)
-                    d *= len(notions)
-                    hm[y-5:y+6, x-5:x+6, 0] = d
-                except:
-                    pass
-                save_img(os.path.join(destination_directory, "hierarchical_mask_high_contrast_fill_mode_constant.png"), hm, scale=True)
-    
-
-class DataSetCreator(object):
-    '''https://rubikscode.net/2019/12/09/creating-custom-tensorflow-dataset/'''
-    def __init__(self, batch_size, img_size, img_paths, img_string='img.jpg', label_string='foreground.png', augment=False):
-        self.dataset = tf.data.Dataset.from_tensor_slices(img_paths)
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.img_paths = img_paths
-        self.img_string = img_string
-        self.label_string = label_string
-        self.augment = augment
-        self.zoom_factor = 0.2
-        self.shift_factor = 0.25
-        self.shear_factor = 15
-        self.default_transform_gang = np.array([0, 0, 0, 0, 1, 1])
-
-    def _load_image(self, path):
-        image = tf.io.read_file(path)
-        image = tf.image.decode_jpeg(image, channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
-        return tf.image.resize(image, self.img_size)
-    
-    def _load_label(self, path):
-        image = tf.io.read_file(path)
-        image = tf.image.decode_png(image, channels=1)
-        #if image.numpy().max() > 0:
-            #image //= image.numpy().max()
-        image = tf.image.convert_image_dtype(image, tf.uint8)
-        return tf.image.resize(image, self.img_size)
-    
-    def _load_labeled_data(self, path):
-        image = self._load_image(path)
-        label = self._load_label(path.replace(self.img_string, self.label_string))
-        return image, label
-    
-    def load_process(self, shuffle_size=1000):
-        self.loaded_dataset = self.dataset.map(self._load_labeled_data, num_parallel_calls=tf.data.AUTOTUNE)
-        self.loaded_dataset = self.loaded_dataset.cache()
-        # Shuffle data and create batches
-        #self.loaded_dataset = self.loaded_dataset.shuffle(buffer_size=shuffle_size)
-        self.loaded_dataset = self.loaded_dataset.repeat()
-        self.loaded_dataset = self.loaded_dataset.batch(self.batch_size)
-        if self.augment:
-            self.loaded_dataset = self.loaded_dataset.map(lambda x, y: tf.py_function(func=get_transformed_img_and_target, inp=[x, y], Tout=[tf.float32, tf.uint8]), num_parallel_calls=tf.data.AUTOTUNE)
-        # Make dataset fetch batches in the background during the training of the model.
-        self.loaded_dataset = self.loaded_dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
-        
-    def get_batch(self):
-        return next(iter(self.loaded_dataset))
-    
-    
-class CS230_image_pipeline(object):
-    '''https://cs230.stanford.edu/blog/datapipeline/'''
-    def __init__(self, batch_size, img_size, img_paths, img_string='img.jpg', label_string='masks.npy', augment=False):
-        self.dataset = tf.data.Dataset.from_tensor_slices(img_paths)
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.img_paths = img_paths
-        self.img_string = img_string
-        self.label_string = label_string
-        self.augment = augment
-        self.zoom_factor = 0.2
-        self.shift_factor = 0.25
-        self.shear_factor = 15
-        self.default_transform_gang = np.array([0, 0, 0, 0, 1, 1])
-    
-    def parse_function(filename, label):
-        image_string = tf.io.read_file(filename)
-        image = tf.image.decode_jpeg(image_string, channels=3)
-        image = tf.image.convert_image_dtype(image, tf.float32)
-        image = tf.image.resize_images(image, self.img_size)
-        label_filename = filename.replace(self.img_string, self.label_string)
-        label = np.load(label_filename)
-        label = tf.image.convert_image_dtype(label, tf.uint8)
-        label = tf.image.resize_images(label, self.img_size)
-        return image, label
-
-    def notes(self):
-        self.dataset = self.dataset.shuffle(len(self.img_paths))
-        self.dataset = self.dataset.map(parse_function, num_parallel_calls=tf.data.AUTOTUNE)
-        if self.augment:
-            #self.dataset = self.dataset.map(train_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
-            self.dataset = self.dataset.map(lambda x, y: tf.py_function(func=get_transformed_img_and_target, inp=[x, y], Tout=[tf.float32] + [tf.uint8]*8 + [tf.float32]), num_parallel_calls=tf.data.AUTOTUNE)
-        self.dataset = self.dataset.batch(self.batch_size)
-        self.dataset = self.dataset.prefetch(1)
-
-    def train_preprocess(image, label):
-        image = tf.image.random_flip_left_right(image)
-
-        image = tf.image.random_brightness(image, max_delta=32.0 / 255.0)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        
-        #Make sure the image is still in [0, 1]
-        image = tf.clip_by_value(image, 0.0, 1.0)
-
-        return image, label
-
 def get_dataset(batch_size, img_size, img_paths, augment=False):
     dataset = tf.data.Dataset.from_tensor_slices(img_paths)
     
@@ -1011,7 +809,6 @@ def get_batch(i, img_paths, batch_size):
     half, r = divmod(batch_size, 2)
     indices = np.arange(i-half, i+half+r)
     return [img_paths[divmod(item, len(img_paths))[1]] for item in indices]
-
 
 def load_ground_truth_image(path, target_size):
     ground_truth = np.expand_dims(load_img(path, target_size=target_size, color_mode="grayscale"), 2)
@@ -1371,11 +1168,6 @@ def get_cpi_from_user_click(user_click, img_size, resize_factor, img_path, click
         cpi = np.zeros(img_size, dtype='float32')
     cpi = np.expand_dims(cpi, axis=2)
     return cpi
-    #if all(np.array(user_click) >= 0):
-        #cpi = click_probability_image(user_click[1], user_click[0], final_img_size, click_radius=self.click_radius, zoom=zoom, resize_factor=resize_factor, scale_click=self.scale_click)
-    #else:
-        #cpi = np.zeros(final_img_size, dtype='float32')
-    #cpi = np.expand_dims(cpi, axis=2
     
 def get_data_augmentation():
     data_augmentation = keras.Sequential(
@@ -1420,7 +1212,6 @@ def get_convolutional_layer(x, convolution_type, filters, filter_size=3, padding
     
 
 def get_tiramisu_layer(x, filters, filter_size=3, padding='same', activation='relu', convolution_type='Conv2D', kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, use_bias=False,  normalization_type='GroupNormalization', bn_momentum=0.9, bn_epsilon=1.1e-5, gn_groups=16, dropout_rate=0.2, weight_standardization=True, invert=True):
-    
     if invert:
         x = get_convolutional_layer(x, convolution_type, filters, filter_size, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization)
         x = get_normalization_layer(x, normalization_type, bn_momentum=bn_momentum, bn_epsilon=bn_epsilon, gn_groups=gn_groups)
@@ -1443,9 +1234,6 @@ def get_dense_block(x, filters, number_of_layers, padding='same', activation='re
     return x, block_to_upsample
         
 def get_transition_down(x, filters, filter_size=(1, 1), padding='same', activation='relu', convolution_type='Conv2D', dropout_rate=0.2, use_bias=False, kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, bn_momentum=0.9, bn_epsilon=1.1e-5, pool_size=2, strides=2, normalization_type='GroupNormalization', weight_standardization=True):
-    #x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
-    #x = layers.Activation(activation=activation)(x)
-    #x = getattr(layers, convolution_type)(filters, filter_size, padding='same', use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=get_kernel_regularizer(kernel_regularizer, weight_decay))(x)
     if filter_size==(1, 1) or filter_size==1:
         convolution_type = 'Conv2D'
     x = get_tiramisu_layer(x, filters, filter_size=filter_size, padding=padding, activation=activation, convolution_type=convolution_type, dropout_rate=dropout_rate, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, bn_momentum=bn_momentum, bn_epsilon=bn_epsilon, normalization_type=normalization_type, weight_standardization=weight_standardization)
@@ -1475,14 +1263,7 @@ def get_uncompiled_tiramisu(nfilters=48, growth_rate=16, layers_scheme=[4, 5, 7,
     inputs = keras.Input(shape=(model_img_size) + (input_channels,))
     
     nfilters_start = nfilters
-    
-    #x = layers.Conv2D(nfilters, 3, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=get_kernel_regularizer(kernel_regularizer, weight_decay))(inputs)
-    
-    #x = get_convolutional_layer(inputs, 'Conv2D', nfilters, filter_size=3, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization)
 
-    #x = get_normalization_layer(x, normalization_type, bn_epsilon=bn_epsilon, gn_groups=gn_groups)
-
-    #x = layers.Activation(activation=activation)(x)
     if input_dropout > 0.:
         x = layers.Dropout(dropout_rate=input_dropout)(inputs)
     else:
@@ -1788,99 +1569,7 @@ def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patien
     plt.legend()
     plt.savefig(png_name)
     plot_history(png_name.replace('_losses.png', ''), history.history)
-    #plt.show()
- 
-def get_multihead_model_from_click_model(mc_name, normalization_type='BatchNormalization', convolution_type='SeparableConv2D', heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}]):
     
-    mm = get_tiramisu(heads=heads, normalization_type=normalization_type, convolution_type=convolution_type)
-    
-    mc = tf.keras.models.load_model(mc_name)
-    
-    mm.layers[-1].set_weights(mc.layers[-1].get_weights())
-    
-    for mml, mcl in zip(mm.layers[:len(mc.layers)-1], mm.layers[:-1]):
-        mml.set_weights(mcl.get_weights())
-    
-    del mc
-    return mm
-
-def get_click_model_from_multihead_model(mm_name, normalization_type='BatchNormalization', convolution_type='SeparableConv2D', heads=[{'name': 'click', 'type': 'click_regression'}]):
-    
-    
-    mc = get_tiramisu(heads=heads, normalization_type=normalization_type, convolution_type=convolution_type)
-
-    mm = tf.keras.models.load_model(mm_name)
-    
-    mc.layers[-1].set_weights(mm.layers[-1].get_weights())
-    
-    for mcl, mml in zip(mc.layers[:-1], mm.layers[:len(mc.layers)-1]):
-        mcl.set_weights(mml.get_weights())
-    
-    del mm
-    return mc
-
-    
-    
-'''
-heads=[{'name': 'click', 'type': 'click_segmentation'}]; notions=['click']
-
-convolution_type='SeparableConv2D'
-
-model_img_size = (256, 256)
-
-network='fcdn56'; network_parameters = networks[network]
-
-from segmentation import get_training_and_validation_datasets, get_tiramisu, MultiTargetDataset, networks
-
-
-base='/nfs/data2/Martin/Research/murko'
-epochs=25
-patience=5
-mixed_precision=False
-name='start'
-source_weights=None
-batch_size=4
-model_img_size=(512, 512)
-network='fcdn56'
-convolution_type='SeparableConv2D'
-
-if mixed_precision:
-    keras.mixed_precision.set_global_policy("mixed_float16")
-
-distinguished_name = "%s_%s_%s_epochs_%d_patience_%d" % (network, name, convolution_type, epochs, patience)
-model_name = os.path.join(base, "%s.model" % distinguished_name)
-history_name = os.path.join(base, "%s.history" % distinguished_name)
-train_paths, val_paths = get_training_and_validation_datasets()
-print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
-# data genrators
-train_gen = MultiTargetDataset(batch_size, model_img_size, train_paths)
-val_gen = MultiTargetDataset(batch_size, model_img_size, val_paths)
-# callbacks
-checkpointer = keras.callbacks.ModelCheckpoint(model_name, verbose=1, mode='min', save_best_only=True)
-earlystopper = keras.callbacks.EarlyStopping(patience=patience, verbose=1)
-callbacks = [checkpointer, earlystopper]
-network_parameters = networks[network]
-
-model = get_tiramisu(convolution_type=convolution_type, **network_parameters)
-
-history = model.fit(train_gen, epochs=epochs, validation_data=val_gen, callbacks=callbacks)
-
-f = open(history_name, "wb")
-pickle.dump(history.history, f)
-f.close()
-
-epochs = range(1, len(history.history["loss"]) + 1)
-loss = history.history["loss"]
-val_loss = history.history["val_loss"]
-plt.figure()
-plt.plot(epochs, loss, "bo-", label="Training loss")
-plt.plot(epochs, val_loss, "ro-", label="Validation loss")
-plt.title("Training and validation loss")
-plt.legend()
-plt.savefig('sample_foreground_segmentation_%s.png' % date)
-plt.show()
-    
-'''
 def segment(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=5):
     keras.mixed_precision.set_global_policy("mixed_float16")
     date = 'start'
@@ -1934,20 +1623,10 @@ def segment(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=5):
     plt.savefig('sample_foreground_segmentation_%s.png' % date)
     plt.show()
 
-def display_mask(pred):
-    mask = np.argmax(pred, axis=-1)
-    #mask *= 127
-    plt.axis("off")
-    print('mask', mask.shape)
-    plt.imshow(mask)
-    
-#def myBIoU(prediction, ground_truth):
 def efficient_resize(img, new_size, anti_aliasing=True):
     return img_to_array(array_to_img(img).resize(new_size[::-1]), dtype='float32')/255.
 
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
-    
-    #notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'capillary': 5, 'ice': 6, 'foreground': 7, 'click':-1}
     
     _start = time.time()
     if model is None:
@@ -2143,71 +1822,7 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         plt.close()
     end = time.time()
     print('%d predictions saved in %.4f seconds (%.4f per image)' % (len(input_images), end-_start, (end-_start)/len(input_images)))
-    
-def predict(test_image_path, date='2021-11-12_from_scratch_zoom123'):
-    
-    model = get_other_model(model_img_size, num_classes)
-    if os.path.isfile("sample_foreground_segmentation_%s.h5" % date):
-        model.load_weights("sample_foreground_segmentation_%s.h5" % date)
-    #model = keras.models.load_model("sample_foreground_segmentation_%s.h5" % date)
-
-    test_image = img_to_array(load_img(test_image_path, target_size=(512, 512)), dtype='float32')/255.
-    ground_truth = load_ground_truth_image(test_image_path.replace('img.jpg', 'foreground.png'), target_size=test_image.shape)
-     
-    print('test_image', test_image_path, 'shape', test_image.shape, 'min', test_image.min(), 'max', test_image.max())
-    #i = 4
-    #test_image = val_input_imgs[i]
-    fig, axes = plt.subplots(1, 2)
-    axes[0,0].set_title('input image')
-    axes[0,0].imshow(test_image)
-    #plt.show()
-    #plt.imshow(array_to_img(test_image))
-    #plt.show()
-    _start = time.time()
-    mask = model.predict(np.expand_dims(test_image, 0))[0]
-    print('prediction took %.4f' % (time.time() - _start))
-    #mask = mask.reshape(img_size)
-    print('mask.shape', mask.shape, 'min', mask.min(), 'max', mask.max())
-    axes[0,1].set_title('activations')
-    axes[0,1].imshow(mask[:,:,0])
-    axes[1,0].set_title('ground truth')
-    axes[1,0].imshow(ground_truth[:,:,0])
-    
-    axes[1,1].set_title('predicted mask')
-    binary_mask = mask[:,:,0]>0.5
-    axes[1,1].imshow(binary_mask.astype('uint8'))
-    for a in axes.flatten():
-        a.axis('off')
-    m = BinaryIoU()
-    m.update_state(mask, ground_truth)
-    biou = m.result().numpy()
-    l = BinaryCrossentropy()
-    l.update_state(mask, ground_truth)
-    loss = l.result().numpy()
-    
-    fig.suptitle('%s; IoU %.4f; BC %.4f' % (get_family(test_image_path), biou, loss))
-    plt.savefig(test_image_path.replace('.jpg', 'predicted_%s.png' % date))
-    #plt.show()
-    #for k in range(mask.shape[2]):
-        #print('layer', k)
-        #plt.imshow(mask[:,:,k])
-        #plt.show()
-    #display_mask(mask) #mask[:,:,1:])
-    #plt.show()
-
-## Display results for validation image #10
-#for i in range(50):
-
-    ## Display input image
-    #display(Image(filename=val_paths[i]))
-
-    ## Display ground-truth target mask
-    #img = PIL.ImageOps.autocontrast(load_img(val_target_img_paths[i]))
-    #display(img)
-
-    ## Display mask predicted by our model
-    #display_mask(i) 
-
+  
 def get_img_size_as_scale_of_pixel_budget(scale, pixel_budget=768*992, ratio=0.75, modulo=32):
     n = math.floor(math.sqrt(pixel_budget/ratio))
     new_n = n*scale
@@ -2274,100 +1889,5 @@ def plot_augment(img_path, ntransformations=14, figsize=(24, 16), zoom_factor=0.
     
     pylab.show()
     
-if __name__ == '__main__':
-    #augment_dataset()
-    #sys.exit()
-    #name='pc4_mp_128_all_heads',heads=[{'name': 'click', 'type': 'click_segmentation'}], notions=['click']name='pc4_mp_128_click_as_segment'
-   
-    import argparse
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-r", "--resize_factor", default=-1, type=float, help='resize factor to use, original size ~1024x1360')
-    parser.add_argument("-R", "--ratio", default=1.0, type=float, help='H/W ratio')
-    parser.add_argument("-n", "--network", default='fcdn103', help='network architecture')
-    parser.add_argument("-t", "--train_images", default=-1, type=int, help='number of training images')
-    parser.add_argument("-v", "--valid_images", default=10000, type=int, help='number of validation images')
-    parser.add_argument("-s", "--scale_click", default=0, type=int, help='scale the click with the zoom')
-    parser.add_argument("-m", "--mixed_precision", default=1, type=int, help='use mixed_precision')
-    parser.add_argument("-b", "--batch_size", default=-1, type=int, help='batch size to use (-1 by default -- will try to do something intelligent about choosing the right size, either maximum that fix into memory or a dynamic one, again based on an model image size and available memory).')
-    parser.add_argument("-c", "--click_radius", default=0.320, type=float, help='click radius in mm')
-    parser.add_argument("-a", "--augment", default=1, type=int, help='augment during training')
-    parser.add_argument("-e", "--epochs", default=1, type=int, help='numbers of epochs')
-    parser.add_argument("-l", "--learning_rate", default=0.001, type=float, help='initial learning rate')
-    parser.add_argument("-p", "--pixel_budget", default=768*992, type=int, help='pixel budget')
-    parser.add_argument("-I", "--pixel_budget_modifier", default=1., type=float, help='pixel budget modifier')
-    parser.add_argument("-N", "--normalization_type", default="GroupNormalization", type=str, help='normalization type to use')
-    parser.add_argument("-A", "--name", default='all_clicks_18_static_bn', type=str, help='name of the model')
-    parser.add_argument("-f", "--finetune", default=0, type=int, help='finetune')
-    parser.add_argument("-P", "--patience", default=2, type=int, help='patience for lrreducer')
-    parser.add_argument("-M", "--multihead", default=1, type=int, help='multihead?')
-    parser.add_argument("-i", "--artificial_size_increase", default=1, type=int, help='artificial size increase, integer')
-    parser.add_argument("-H", "--include_plate_images", default=0, type=int, help='include plate images? integer')
-    parser.add_argument("-C", "--include_capillary_images", default=0, type=int, help='include capillary images? integer')
-    parser.add_argument("-T", "--convolution_type", default='SeparableConv2D', type=str, help='convolution_type')
-    parser.add_argument("-W", "--weight_standardization", default=1, type=int, help='whether to apply weight standardization')
-    parser.add_argument("-D", "--dropout_rate", default=0.2, type=float, help='dropout_rate')
-    parser.add_argument("-L", "--limit_loss", default=1, type=int, help='limit loss')
-    parser.add_argument("-w", "--weight_decay", default=1e-4, type=float, help='weight_decay')
-    args = parser.parse_args()
-    print('args', args)
-    #batch_sizes = {1: 4, 2: 2, 3: 1, 4: 1}
-    if args.multihead == 1:
-        heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'segmentation'}]
-    elif args.multihead == 2:
-        heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}]
-    elif args.multihead == 3:
-        heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}]
-    elif args.multihead == 4:
-        heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}]
-    elif args.multihead == 5:
-        heads=[{'name': 'click', 'type': 'click_segmentation'}]
-    elif args.multihead == 6:
-        heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}]
-    else:
-        heads=[{'name': 'click', 'type': 'click_regression'}]
-    
-    notions = ['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click']
-    
-    base_img_size = np.array([1024, 1360])
-    
-    pixel_budget = int(args.pixel_budget*args.pixel_budget_modifier)
-    #name = 'multihead_from_scratch_bn'
-    if args.batch_size == -1 and args.resize_factor != -1:
-        model_img_size = get_img_size(args.resize_factor)
-        if args.ratio == 1.:
-            model_img_size = (model_img_size[0], model_img_size[0])
-        batch_size = get_dynamic_batch_size(model_img_size, pixel_budget)
-        dynamic_batch_size = False
-    elif args.batch_size == -1:
-        dynamic_batch_size = True
-        model_img_size = -1
-        batch_size = args.batch_size
-    else:
-        dynamic_batch_size = False
-    print('model_img_size', model_img_size)
-    print('batch_size', batch_size)
-    print('name: %s' % args.name)
-    
-    os.system('cp segmentation.py %s_%s.py' % (args.network, args.name))
-    f = open('%s_%s.args' % (args.network, args.name), 'wb')
-    pickle.dump(args, f)
-    f.close()
-    
-    segment_multihead(model_img_size=model_img_size, network=args.network, epochs=args.epochs, patience=args.patience, batch_size=batch_size, heads=heads, notions=notions, name=args.name, mixed_precision=args.mixed_precision, augment=bool(args.augment), train_images=args.train_images, valid_images=args.valid_images, scale_click=bool(args.scale_click), click_radius=args.click_radius, learning_rate=args.learning_rate, pixel_budget=pixel_budget, normalization_type=args.normalization_type, dynamic_batch_size=dynamic_batch_size, finetune=bool(args.finetune), artificial_size_increase=args.artificial_size_increase, include_plate_images=bool(args.include_plate_images), include_capillary_images=bool(args.include_capillary_images), convolution_type=args.convolution_type, dropout_rate=args.dropout_rate, weight_standardization=bool(args.weight_standardization), limit_loss=bool(args.limit_loss), weight_decay=args.weight_decay)
-    sys.exit() 
-    #model = get_tiramisu(convolution_type='Conv2D', model_img_size=(512, 512))
-    #model = get_model(model_img_size, num_classes)    #print(model.summary())
-    #sys.exit()
-    import argparse
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--image_path", default=None, help='Path to the image')
-    parser.add_argument("-t", "--train", action='store_true', help='Train the model')
-    args = parser.parse_args()
-    print('args', args)
-    if args.image_path is None:
-        segment()
-    else:
-        predict(args.image_path)
+
         
