@@ -1,5 +1,5 @@
 # Goal
-This projects aims to develop a tool to help make a sense of optical images of samples people typically work with in macromolecular crystallography experiments. An approach employed at the current stage is a one using an artificial neural network.
+This projects aims to develop a tool to help make a sense of optical images of samples people typically work with in macromolecular crystallography experiments. An approach employed at the current stage is the one using an artificial neural network.
 
 ## Requirements
 We aim to have a tool that given an image such as this one:
@@ -17,3 +17,5 @@ will be able to classify all of the pixels as representing salient higher level 
 ## Current performance
 this is how it performs at the moment
 ![Result](https://github.com/MartinSavko/murko/blob/main/image_default_model_img_size_256x320_comparison.png)
+
+## More details can be learned from the following [presentation](https://bit.ly/murko_isac).
