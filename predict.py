@@ -46,16 +46,12 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
     if np.any(notion_prediction):
         labeled_image = notion_prediction.astype('uint8')
         properties = regionprops(labeled_image)[0]
-        try:
-            if properties.convex_area > min_size:
-                present = 1
-                area = properties.convex_area
-            else:
-                present = 0
-        except:
-            traceback.print_exc()
+        
+        if properties.convex_area > min_size:
             present = 1
-            print(dir(properties))
+            area = properties.convex_area
+        else:
+            present = 0
         bbox = properties.bbox
         h = bbox[2] - bbox[0]
         w = bbox[3] - bbox[1]
