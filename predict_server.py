@@ -16,11 +16,9 @@ from murko import predict_multihead, WSConv2D, WSSeparableConv2D, BinaryFocalCro
 
 def get_model(model_name='model.h5'):
     _start = time.time()
-    model = keras.models.load_model(model_name, compile=False, custom_objects={'WSConv2D': WSConv2D, 'WSSeparableConv2D': WSSeparableConv2D, 'BinaryFocalCrossentropy': BinaryFocalCrossentropy, 'binary_focal_crossentropy': binary_focal_crossentropy})
-    #model = get_uncompiled_tiramisu()
-    #model.load_weights(model_name)
+    model = get_uncompiled_tiramisu()
+    model.load_weights(model_name)
     _end = time.time()
-    #model.compile()
     print('model loaded in %.4f seconds' % (_end-_start))
     return model
 
