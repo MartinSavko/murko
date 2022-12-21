@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import traceback
 import zmq
 import time
 import pickle
@@ -45,11 +46,16 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
     if np.any(notion_prediction):
         labeled_image = notion_prediction.astype('uint8')
         properties = regionprops(labeled_image)[0]
-        if properties.area_convex > min_size:
+        try:
+            if properties.convex_area > min_size:
+                present = 1
+                area = properties.convex_area
+            else:
+                present = 0
+        except:
+            traceback.print_exc()
             present = 1
-            area = properties.area_convex
-        else:
-            present = 0
+            print(dir(properties))
         bbox = properties.bbox
         h = bbox[2] - bbox[0]
         w = bbox[3] - bbox[1]
@@ -57,13 +63,13 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
         c_max = bbox[3]
         r_max = ndi.center_of_mass(labeled_image[:, c_max-5:c_max])[0]
         if notion == 'foreground' or type(notion) is list:
-            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.image_filled
+            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
         else:
-            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.image_convex
+            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     return present, r, c, h, w, r_max, c_max, area, notion_prediction
 
 def get_most_likely_click(predictions):
-    shape=predictions[0].shape[1, 2]
+    shape=predictions[0].shape[1: 3]
     for notion in ['crystal', 'loop']:
         notion_prediction = get_notion_prediction(predictions, notion)
         if notion_prediction[0] == 1:
@@ -104,4 +110,5 @@ if __name__ == '__main__':
     predictions = get_predictions(request_arguments)
     
     print('Client got all predictions')
+    print('Most likely click', get_most_likely_click(predictions))
     print()
