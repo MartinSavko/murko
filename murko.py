@@ -15,6 +15,7 @@ import traceback
 import pylab
 import seaborn as sns
 import simplejpeg
+import scipy.ndimage as ndi
 sns.set(color_codes=True)
 #from matplotlib import rc
 #rc('font', **{'family':'serif','serif':['Palatino']})
@@ -1626,6 +1627,66 @@ def segment(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=5):
 def efficient_resize(img, new_size, anti_aliasing=True):
     return img_to_array(array_to_img(img).resize(new_size[::-1]), dtype='float32')/255.
 
+def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
+    
+    present, r, c, h, w, r_max, c_max, area, notion_prediction = [np.nan] * 9
+    
+    if type(notion) is list:
+        notion_prediction = np.zeros(predictions[0].shape[1:3], dtype=bool)
+        for n in notion:
+            index = notion_indices[n]
+            noti_pred = predictions[index][k,:,:,0]>threshold
+            noti_pred = remove_small_objects(noti_pred, min_size=min_size)
+            notion_prediction = np.logical_or(notion_prediction, noti_pred)
+            
+    elif type(notion) is str:
+        index = notion_indices[notion]
+        
+        notion_prediction = predictions[index][k,:,:,0]>threshold
+        notion_prediction = remove_small_objects(notion_prediction, min_size=min_size)
+        
+    if np.any(notion_prediction):
+        labeled_image = notion_prediction.astype('uint8')
+        properties = regionprops(labeled_image)[0]
+        
+        if properties.convex_area > min_size:
+            present = 1
+            area = properties.convex_area
+        else:
+            present = 0
+        bbox = properties.bbox
+        h = bbox[2] - bbox[0]
+        w = bbox[3] - bbox[1]
+        r, c = properties.centroid
+        c_max = bbox[3]
+        r_max = ndi.center_of_mass(labeled_image[:, c_max-5:c_max])[0]
+        if notion == 'foreground' or type(notion) is list:
+            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        else:
+            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+    return present, r, c, h, w, r_max, c_max, area, notion_prediction
+
+def get_most_likely_click(predictions, verbose=False):
+    _start = time.time()
+    gmlc = False
+    most_likely_click = -1, -1
+    shape=predictions[0].shape[1: 3]
+    for notion in ['crystal', 'loop_inside', 'loop']:
+        notion_prediction = get_notion_prediction(predictions, notion)
+        if notion_prediction[0] == 1:
+            most_likely_click = notion_prediction[1]/shape[0], notion_prediction[2]/shape[1]
+            if verbose:
+                print('%s found!' % notion)
+            gmlc = True
+            break
+    if gmlc is False:
+        foreground = get_notion_prediction(predictions, 'foreground')
+        if foreground[0] == 1:
+            most_likely_click = foreground[5]/shape[0], foreground[6]/shape[1]
+    if verbose:
+        print('most likely click determined in %.4f seconds' % (time.time() - _start))
+    return most_likely_click
+
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
     
     _start = time.time()
@@ -1650,7 +1711,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
     elif not type(to_predict) is list and os.path.isdir(to_predict):
         to_predict = glob.glob(os.path.join(to_predict, '*.jpg'))
     elif not type(to_predict) is list and os.path.isfile(to_predict):
-        all_image_paths.append('/tmp/%s' % os.path.basename(to_predict))
+        all_image_paths.append(os.path.realpath(to_predict))
         to_predict = np.expand_dims(get_img(to_predict, size=model_img_size), 0)
     elif type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
         img_array = simplejpeg.decode_jpeg(to_predict)
@@ -1817,6 +1878,17 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
             
         for a in axes.flatten():
             a.axis('off')
+            
+        most_likely_click = np.array(get_most_likely_click(predictions))
+        
+        mlc_ii = most_likely_click*np.array(input_image.shape[:2])
+        click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
+        axes[0].add_patch(click_patch_ii)
+        
+        mlc_hm = most_likely_click*np.array(hierarchical_mask.shape)
+        click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
+        axes[1].add_patch(click_patch_hm)
+        
         comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
         plt.savefig(comparison_path)
         plt.close()

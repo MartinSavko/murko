@@ -8,10 +8,7 @@ import sys
 import json
 import pickle
 import traceback
-import tensorflow as tf
-from tensorflow import keras
-from keras import backend as K
-from murko import predict_multihead, WSConv2D, WSSeparableConv2D, BinaryFocalCrossentropy, binary_focal_crossentropy, get_uncompiled_tiramisu
+from murko import predict_multihead, get_uncompiled_tiramisu
 
 
 def get_model(model_name='model.h5'):
@@ -23,10 +20,6 @@ def get_model(model_name='model.h5'):
     return model
 
 def serve(port=8099, model_name='model.h5'):
-    for gpu in tf.config.list_physical_devices('GPU'): 
-        print('setting memory_growth on', gpu)
-        tf.config.experimental.set_memory_growth(gpu, True)
-        
     model = get_model(model_name=model_name)
     context = zmq.Context()
     socket = context.socket(zmq.REP)
