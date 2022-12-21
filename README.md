@@ -18,4 +18,5 @@ will be able to classify all of the pixels as representing salient higher level 
 this is how it performs at the moment
 ![Result](https://github.com/MartinSavko/murko/blob/main/image_default_model_img_size_256x320_comparison.png)
 
-## More details can be learned from the following [presentation](https://bit.ly/murko_isac).
+More details can be gleaned from the following [presentation](https://bit.ly/murko_isac).
+If you find the code useful or want to learn more about how to deploy it at your beamline please drop me a line.
