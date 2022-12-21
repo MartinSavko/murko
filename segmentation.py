@@ -50,7 +50,9 @@ import matplotlib.pyplot as plt
 import time
 
 from keras.metrics import BinaryCrossentropy
-
+from keras.losses import LossFunctionWrapper
+from keras.utils import losses_utils
+from tensorflow.python.util import dispatch
 
 #try:
     #from keras.metrics import BinaryIoU
@@ -137,6 +139,236 @@ loss_weights_from_stats =\
      'ice': 15.9,
      'foreground': 1.0,
      'click': 1.0}
+
+from tensorflow.python.util.tf_export import keras_export
+@keras_export('keras.losses.BinaryFocalCrossentropy')
+class BinaryFocalCrossentropy(LossFunctionWrapper):
+  """Computes the focal cross-entropy loss between true labels and predictions.
+
+  Binary cross-entropy loss is often used for binary (0 or 1) classification
+  tasks. The loss function requires the following inputs:
+
+  - `y_true` (true label): This is either 0 or 1.
+  - `y_pred` (predicted value): This is the model's prediction, i.e, a single
+    floating-point value which either represents a
+    [logit](https://en.wikipedia.org/wiki/Logit), (i.e, value in [-inf, inf]
+    when `from_logits=True`) or a probability (i.e, value in `[0., 1.]` when
+    `from_logits=False`).
+
+  According to [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf), it
+  helps to apply a "focal factor" to down-weight easy examples and focus more on
+  hard examples. By default, the focal tensor is computed as follows:
+
+  `focal_factor = (1 - output) ** gamma` for class 1
+  `focal_factor = output ** gamma` for class 0
+  where `gamma` is a focusing parameter. When `gamma=0`, this function is
+  equivalent to the binary crossentropy loss.
+
+  With the `compile()` API:
+
+  ```python
+  model.compile(
+    loss=tf.keras.losses.BinaryFocalCrossentropy(gamma=2.0, from_logits=True),
+    ....
+  )
+  ```
+
+  As a standalone function:
+
+  >>> # Example 1: (batch_size = 1, number of samples = 4)
+  >>> y_true = [0, 1, 0, 0]
+  >>> y_pred = [-18.6, 0.51, 2.94, -12.8]
+  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=2, from_logits=True)
+  >>> loss(y_true, y_pred).numpy()
+  0.691
+
+  >>> # Example 2: (batch_size = 2, number of samples = 4)
+  >>> y_true = [[0, 1], [0, 0]]
+  >>> y_pred = [[-18.6, 0.51], [2.94, -12.8]]
+  >>> # Using default 'auto'/'sum_over_batch_size' reduction type.
+  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=3, from_logits=True)
+  >>> loss(y_true, y_pred).numpy()
+  0.647
+
+  >>> # Using 'sample_weight' attribute
+  >>> loss(y_true, y_pred, sample_weight=[0.8, 0.2]).numpy()
+  0.133
+
+  >>> # Using 'sum' reduction` type.
+  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=4, from_logits=True,
+  ...     reduction=tf.keras.losses.Reduction.SUM)
+  >>> loss(y_true, y_pred).numpy()
+  1.222
+
+  >>> # Using 'none' reduction type.
+  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=5, from_logits=True,
+  ...     reduction=tf.keras.losses.Reduction.NONE)
+  >>> loss(y_true, y_pred).numpy()
+  array([0.0017 1.1561], dtype=float32)
+
+  Args:
+    gamma: A focusing parameter used to compute the focal factor, default is
+      `2.0` as mentioned in the reference
+      [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf).
+    from_logits: Whether to interpret `y_pred` as a tensor of
+      [logit](https://en.wikipedia.org/wiki/Logit) values. By default, we
+      assume that `y_pred` are probabilities (i.e., values in `[0, 1]`).
+    label_smoothing: Float in `[0, 1]`. When `0`, no smoothing occurs. When >
+      `0`, we compute the loss between the predicted labels and a smoothed
+      version of the true labels, where the smoothing squeezes the labels
+      towards `0.5`. Larger values of `label_smoothing` correspond to heavier
+      smoothing.
+    axis: The axis along which to compute crossentropy (the features axis).
+      Defaults to `-1`.
+    reduction: Type of `tf.keras.losses.Reduction` to apply to
+      loss. Default value is `AUTO`. `AUTO` indicates that the reduction
+      option will be determined by the usage context. For almost all cases
+      this defaults to `SUM_OVER_BATCH_SIZE`. When used with
+      `tf.distribute.Strategy`, outside of built-in training loops such as
+      `tf.keras`, `compile()` and `fit()`, using `SUM_OVER_BATCH_SIZE` or
+      `AUTO` will raise an error. Please see this custom training [tutorial](
+      https://www.tensorflow.org/tutorials/distribute/custom_training) for
+      more details.
+    name: Name for the op. Defaults to 'binary_focal_crossentropy'.
+  """
+
+  def __init__(
+      self,
+      gamma=2.0,
+      from_logits=False,
+      label_smoothing=0.,
+      axis=-1,
+      reduction=losses_utils.ReductionV2.AUTO,
+      name='binary_focal_crossentropy',
+  ):
+    """Initializes `BinaryFocalCrossentropy` instance."""
+    super().__init__(
+        binary_focal_crossentropy,
+        gamma=gamma,
+        name=name,
+        reduction=reduction,
+        from_logits=from_logits,
+        label_smoothing=label_smoothing,
+        axis=axis)
+    self.from_logits = from_logits
+    self.gamma = gamma
+
+  def get_config(self):
+    config = {
+        'gamma': self.gamma,
+    }
+    base_config = super(BinaryFocalCrossentropy, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
+
+
+@keras_export('keras.metrics.binary_focal_crossentropy',
+              'keras.losses.binary_focal_crossentropy')
+@tf.__internal__.dispatch.add_dispatch_support
+def binary_focal_crossentropy(
+    y_true,
+    y_pred,
+    gamma=2.0,
+    from_logits=False,
+    label_smoothing=0.,
+    axis=-1,
+):
+  """Computes the binary focal crossentropy loss.
+
+  According to [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf), it
+  helps to apply a focal factor to down-weight easy examples and focus more on
+  hard examples. By default, the focal tensor is computed as follows:
+
+  `focal_factor = (1 - output)**gamma` for class 1
+  `focal_factor = output**gamma` for class 0
+  where `gamma` is a focusing parameter. When `gamma` = 0, this function is
+  equivalent to the binary crossentropy loss.
+
+  Standalone usage:
+
+  >>> y_true = [[0, 1], [0, 0]]
+  >>> y_pred = [[0.6, 0.4], [0.4, 0.6]]
+  >>> loss = tf.keras.losses.binary_focal_crossentropy(y_true, y_pred, gamma=2)
+  >>> assert loss.shape == (2,)
+  >>> loss.numpy()
+  array([0.330, 0.206], dtype=float32)
+
+  Args:
+    y_true: Ground truth values, of shape `(batch_size, d0, .. dN)`.
+    y_pred: The predicted values, of shape `(batch_size, d0, .. dN)`.
+    gamma: A focusing parameter, default is `2.0` as mentioned in the reference.
+    from_logits: Whether `y_pred` is expected to be a logits tensor. By default,
+      we assume that `y_pred` encodes a probability distribution.
+    label_smoothing: Float in `[0, 1]`. If higher than 0 then smooth the labels
+      by squeezing them towards `0.5`, i.e., using `1. - 0.5 * label_smoothing`
+      for the target class and `0.5 * label_smoothing` for the non-target class.
+    axis: The axis along which the mean is computed. Defaults to `-1`.
+
+  Returns:
+    Binary focal crossentropy loss value. shape = `[batch_size, d0, .. dN-1]`.
+  """
+  y_pred = tf.convert_to_tensor(y_pred)
+  y_true = tf.cast(y_true, y_pred.dtype)
+  label_smoothing = tf.convert_to_tensor(label_smoothing, dtype=y_pred.dtype)
+
+  def _smooth_labels():
+    return y_true * (1.0 - label_smoothing) + 0.5 * label_smoothing
+
+  y_true = tf.__internal__.smart_cond.smart_cond(label_smoothing,
+                                                 _smooth_labels, lambda: y_true)
+
+  return backend.mean(
+      backend.binary_focal_crossentropy(
+          target=y_true,
+          output=y_pred,
+          gamma=gamma,
+          from_logits=from_logits,
+      ),
+      axis=axis,
+  )
+
+
+@dispatch.dispatch_for_types(binary_focal_crossentropy, tf.RaggedTensor)
+def _ragged_tensor_binary_focal_crossentropy(
+    y_true,
+    y_pred,
+    gamma=2.0,
+    from_logits=False,
+    label_smoothing=0.,
+    axis=-1,
+):
+  """Implements support for handling RaggedTensors.
+
+  Expected shape: `(batch, sequence_len)` with sequence_len being variable per
+  batch.
+  Return shape: `(batch,)`; returns the per batch mean of the loss values.
+
+  When used by BinaryFocalCrossentropy() with the default reduction
+  (SUM_OVER_BATCH_SIZE), the reduction averages the per batch losses over
+  the number of batches.
+
+  Args:
+    y_true: Tensor of one-hot true targets.
+    y_pred: Tensor of predicted targets.
+    gamma: A focusing parameter, default is `2.0` as mentioned in the reference
+      [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf).
+    from_logits: Whether `y_pred` is expected to be a logits tensor. By default,
+      we assume that `y_pred` encodes a probability distribution.
+    label_smoothing: Float in `[0, 1]`. If > `0` then smooth the labels. For
+      example, if `0.1`, use `0.1 / num_classes` for non-target labels
+      and `0.9 + 0.1 / num_classes` for target labels.
+    axis: Axis along which to compute crossentropy.
+
+  Returns:
+    Binary focal crossentropy loss value.
+  """
+  fn = functools.partial(
+      binary_focal_crossentropy,
+      gamma=gamma,
+      from_logits=from_logits,
+      label_smoothing=label_smoothing,
+      axis=axis,
+  )
+  return _ragged_tensor_apply_loss(fn, y_true, y_pred)
 
 def compare(h1, h2, what='crystal'):
     pylab.figure(1)
@@ -1236,7 +1468,7 @@ def get_normalization_layer(x, normalization_type, bn_momentum=0.9, bn_epsilon=1
         x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
-def get_uncompiled_tiramisu(nfilters=48, growth_rate=16, layers_scheme=[4, 5, 7, 10, 12], bottleneck=15, activation='relu', convolution_type='Conv2D', padding='same', last_convolution=False, dropout_rate=0.2, weight_standardization=True, model_img_size=(None, None), input_channels=3, use_bias=False, kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'regression'}, {'name': 'vertical_click', 'type': 'regression'}, {'name': 'horizontal_click', 'type': 'regression'}], verbose=False, name='model', normalization_type='GroupNormalization', gn_groups=16, bn_momentum=0.9, bn_epsilon=1.1e-5, input_dropout=0.):
+def get_uncompiled_tiramisu(nfilters=48, growth_rate=16, layers_scheme=[4, 5, 7, 10, 12], bottleneck=15, activation='relu', convolution_type='SeparableConv2D', padding='same', last_convolution=False, dropout_rate=0.2, weight_standardization=True, model_img_size=(None, None), input_channels=3, use_bias=False, kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'regression'}, {'name': 'vertical_click', 'type': 'regression'}, {'name': 'horizontal_click', 'type': 'regression'}], verbose=False, name='model', normalization_type='GroupNormalization', gn_groups=16, bn_momentum=0.9, bn_epsilon=1.1e-5, input_dropout=0.):
     print('get_uncompiled_tiramisu heads', heads)
     boilerplate={'activation': activation, 'convolution_type': convolution_type, 'padding': padding, 'dropout_rate': dropout_rate, 'use_bias': use_bias, 'kernel_initializer': kernel_initializer, 'kernel_regularizer': kernel_regularizer, 'weight_decay': weight_decay, 'normalization_type': normalization_type, 'weight_standardization': weight_standardization}
     
