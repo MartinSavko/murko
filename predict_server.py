@@ -8,11 +8,16 @@ import sys
 import json
 import pickle
 import traceback
+import tensorflow as tf
+
 from murko import predict_multihead, get_uncompiled_tiramisu
 
 
 def get_model(model_name='model.h5'):
     _start = time.time()
+    for gpu in tf.config.list_physical_devices('GPU'): 
+        print('setting memory_growth on', gpu)
+        tf.config.experimental.set_memory_growth(gpu, True)
     model = get_uncompiled_tiramisu()
     model.load_weights(model_name)
     _end = time.time()
@@ -46,6 +51,6 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model_name', type=str, default='model.h5', help='model')
     
     args = parser.parse_args()
-    
+    print('args', args)
     serve(port=args.port, model_name=args.model_name)
 
