@@ -10,7 +10,7 @@ will be able to classify all of the pixels as representing salient higher level 
 * is invariant to scale
 * is invariant to wide range of illumination conditions
 * is invariant to sample orientation 
-  * multi axis goniometry
+  * supporting multi axis goniometry
   * supporting both horizontally and vertically mounted goniometers
 * is fast -- it has to work in real time
 
