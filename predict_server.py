@@ -34,10 +34,12 @@ def get_model(model_name='model.h5'):
     return model
 
 def serve(port=8099, model_name='model.h5'):
+    _start = time.time()
     model = get_model(model_name=model_name)
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port )
+    print('Model load and warmup took %.4f seconds' % (time.time() - _start))
     print('predict_server ready to serve')
     while True:
         request_arguments = socket.recv()
