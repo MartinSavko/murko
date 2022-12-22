@@ -1709,9 +1709,9 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
             to_predict = train_paths
         else:
             to_predict = val_paths
-    elif not type(to_predict) is list and os.path.isdir(to_predict):
+    elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isdir(to_predict):
         to_predict = glob.glob(os.path.join(to_predict, '*.jpg'))
-    elif not type(to_predict) is list and os.path.isfile(to_predict):
+    elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isfile(to_predict):
         all_image_paths.append(os.path.realpath(to_predict))
         to_predict = np.expand_dims(get_img(to_predict, size=model_img_size), 0)
     elif type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
@@ -1719,8 +1719,8 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         to_predict = np.expand_dims(img_array, 0)
     elif type(to_predict) is list:
         if simplejpeg.is_jpeg(to_predict[0]):
-            to_predict = [simplejpeg.decode_jpeg(jpeg).astype("float32") for jpeg in to_predict]
-        if os.path.isfile(to_predict[0]):
+            to_predict = [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
+        elif os.path.isfile(to_predict[0]):
             to_predict = [img_to_array(load_img(img, target_size=model_img_size), dtype='float32') for img in to_predict]
         if type(to_predict[0]) is np.ndarray:
             to_predict = [img.astype("float32")/255. for img in to_predict]
@@ -1882,9 +1882,9 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
             
         most_likely_click = np.array(get_most_likely_click(predictions))
         
-        mlc_ii = most_likely_click*np.array(input_image.shape[:2])
-        click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
-        axes[0].add_patch(click_patch_ii)
+        #mlc_ii = most_likely_click*np.array(input_image.shape[:2])
+        #click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
+        #axes[0].add_patch(click_patch_ii)
         
         mlc_hm = most_likely_click*np.array(hierarchical_mask.shape)
         click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
