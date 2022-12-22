@@ -1,5 +1,9 @@
 # Goal
-This projects aims to develop a tool to help make sense of optical images of samples people typically work with in macromolecular crystallography experiments. An approach employed at the current stage is the one using an artificial neural network.
+This projects aims to develop a tool to help make sense of optical images of samples people typically work with in macromolecular crystallography experiments. An approach employed at the current stage is the one using an artificial neural network. The current model is based on the architecture, normalization technique, loss definition and other key ideas from the research described in the following papers: 
+* The One Hundred Layers Tiramisu: Fully convolutional DenseNets for Semantic Segmentation, [arXiv:1611.09326](https://arxiv.org/abs/1611.09326])
+* Xception: Deep Learning with Depthwise Separable Convolutions, [arXiv:1610.02357](https://arxiv.org/abs/1610.02357)
+* Micro-Batch Training with Batch-Channel Normalization and Weight Standardization [arXiv:1903.10520](https://arxiv.org/abs/)
+* Focal loss: Focal loss for Dense Object Detection [arXiv:1708.02002](https://arxiv.org/abs/1708.02002)
 
 ## Requirements
 We aim to have a tool that given an image such as this one:
