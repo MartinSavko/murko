@@ -56,4 +56,10 @@ predicitions = get_predictions(request_arguments, port=port)
 
 most_likely_click = get_most_likely_click(predictions)
 loop_present, r, c, h, w = get_loop_bbox(predictions)
+if loop_present:
+   print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
+else:
+   print('Loop not found.')
+print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
+
 ```
