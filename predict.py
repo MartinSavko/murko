@@ -30,12 +30,10 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--to_predict', type=str, default='image.jpg', help='to_predict')
     parser.add_argument('-H', '--prediction_heigth', default=256, type=int, help='prediction_heigth')
     parser.add_argument('-W', '--prediction_width', default=320, type=int, help='prediction_width')
-    parser.add_argument('-s', '--save', default=1, type=int, help='save')
+    parser.add_argument('-s', '--save', action='store_true', help='save')
     parser.add_argument('-P', '--prefix', type=str, default='test', help='prefix')
     parser.add_argument('-p', '--port', type=int, default=8099, help='port')
     args = parser.parse_args()
-    
-    print('args', args)
     
     model_img_size = (args.prediction_heigth, args.prediction_width)
     
@@ -53,9 +51,9 @@ if __name__ == '__main__':
     print('Client got all predictions in %.4f seconds' % (time.time() - _start))
     loop_present, r, c, h, w = get_loop_bbox(predictions)
     if loop_present:
-        print('loop found! bounding box center (r, c): %.3f, %.3f, height %.3f, width %.3f' % (r, c, h, w))
+        print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
     else:
         print('loop not found.')
-    print('Most likely click: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
+    print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
     
     print()
