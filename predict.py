@@ -7,21 +7,12 @@ import zmq
 import time
 import pickle
 
-from murko import get_most_likely_click, get_loop_bbox
+from murko import ( 
+    get_predictions,
+    get_most_likely_click,
+    get_loop_bbox
+    )
 
-def get_predictions(request_arguments, port=8099, verbose=False):
-    start = time.time()
-    context = zmq.Context()
-    if verbose:
-        print('Connecting to server ...')
-    socket = context.socket(zmq.REQ)
-    socket.connect('tcp://localhost:%d' % port)
-    socket.send(pickle.dumps(request_arguments))
-    predictions = pickle.loads(socket.recv())
-    if verbose:
-        print('Received predictions in %.4f seconds' % (time.time() - start))
-    return predictions
-                   
 if __name__ == '__main__':
     import argparse
     
@@ -50,7 +41,7 @@ if __name__ == '__main__':
     predictions = get_predictions(request_arguments, port=args.port)
     print('Client got all predictions in %.4f seconds' % (time.time() - _start))
     loop_present, r, c, h, w = get_loop_bbox(predictions)
-    if loop_present:
+    if loop_present == 1:
         print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
     else:
         print('loop not found.')
