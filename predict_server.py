@@ -31,7 +31,6 @@ def get_model(model_name='model.h5'):
     all_predictions = predict_multihead(to_predict=[warmup_image.tobytes()], model_img_size=(256, 320), model=model, save=False)
     _end_warmup = time.time()
     print('server warmup run took %.4f seconds' % (_end_warmup - _start_warmup))
-    
     return model
 
 def serve(port=8099, model_name='model.h5'):
@@ -39,6 +38,7 @@ def serve(port=8099, model_name='model.h5'):
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port )
+    print('predict_server ready to serve')
     while True:
         request_arguments = socket.recv()
         request = pickle.loads(request_arguments)
