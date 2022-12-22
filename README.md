@@ -24,3 +24,16 @@ This is how it performs at the moment
 
 More details can be gleaned from the following [presentation](https://bit.ly/murko_isac).
 If you find the code useful or want to learn more about how to deploy it at your beamline please drop me a line.
+
+## Usage
+1. Start server
+```
+./predict_server.py
+```
+model loading and warmup run will take about 10 seconds.
+
+2. query the server
+```
+./predict.py -t examples/image.jpg --save
+
+```
