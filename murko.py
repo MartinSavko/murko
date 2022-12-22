@@ -1691,7 +1691,6 @@ def get_most_likely_click(predictions, verbose=False):
 def get_loop_bbox(predictions):
     loop_present, r, c, h, w, r_max, c_max, area, notion_prediction = get_notion_prediction(predictions, 'loop')
     shape = predictions[0].shape[1:3]
-    print('get_loop_bbox shape %s' % str(shape))
     r /= shape[0]
     c /= shape[1]
     h /= shape[0]
