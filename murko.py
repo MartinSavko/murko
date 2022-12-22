@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # based on F. Chollet's https://keras.io/examples/vision/oxford_pets_image_segmentation/
 # Model based on The One Hundred Layers Tiramisu: Fully convolutional DenseNets for Semantic Segmentation, arXiv:1611.09326
 # With main difference being use of SeparableConv2D instead of Conv2D and using GroupNormalization instead of BatchNormalization. Plus using additional Weight standardization (based on Qiao et al. Micro-Batch Training with Batch-Channel Normalization and Weight Standardization arXiv:1903.10520v2)

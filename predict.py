@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 
 import os
 import zmq
