@@ -7,6 +7,7 @@
 
 import sys
 import os
+import zmq
 import glob
 import numpy as np
 import random
@@ -1631,6 +1632,7 @@ def efficient_resize(img, new_size, anti_aliasing=True):
 def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
     
     present, r, c, h, w, r_max, c_max, area, notion_prediction = [np.nan] * 9
+    present = -1
     
     if type(notion) is list:
         notion_prediction = np.zeros(predictions[0].shape[1:3], dtype=bool)
@@ -1689,13 +1691,26 @@ def get_most_likely_click(predictions, verbose=False):
     return most_likely_click
 
 def get_loop_bbox(predictions):
-    loop_present, r, c, h, w, r_max, c_max, area, notion_prediction = get_notion_prediction(predictions, 'loop')
+    loop_present, r, c, h, w, r_max, c_max, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'])
     shape = predictions[0].shape[1:3]
     r /= shape[0]
     c /= shape[1]
     h /= shape[0]
     w /= shape[1]
     return loop_present, r, c, h, w
+
+def get_predictions(request_arguments, port=8099, verbose=False):
+    start = time.time()
+    context = zmq.Context()
+    if verbose:
+        print('Connecting to server ...')
+    socket = context.socket(zmq.REQ)
+    socket.connect('tcp://localhost:%d' % port)
+    socket.send(pickle.dumps(request_arguments))
+    predictions = pickle.loads(socket.recv())
+    if verbose:
+        print('Received predictions in %.4f seconds' % (time.time() - start))
+    return predictions
 
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
     
@@ -1906,7 +1921,9 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
             c *= original_shape[1]
             h *= original_shape[0]
             w *= original_shape[1]
-            loop_bbox_patch = plt.Rectangle((c-w/2, r-h/2), w, h, linewidth=1, edgecolor='green', facecolor='none')
+            C, R = int(c-w/2), int(r-h/2)
+            W, H = int(w), int(h)
+            loop_bbox_patch = plt.Rectangle((C, R), W, H, linewidth=1, edgecolor='green', facecolor='none')
             axes[0].add_patch(loop_bbox_patch)
             
         comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
