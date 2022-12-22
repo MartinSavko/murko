@@ -1631,7 +1631,7 @@ def efficient_resize(img, new_size, anti_aliasing=True):
 
 def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
     
-    present, r, c, h, w, r_max, c_max, area, notion_prediction = [np.nan] * 9
+    present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = [np.nan] * 12
     present = -1
     
     if type(notion) is list:
@@ -1663,11 +1663,13 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
         r, c = properties.centroid
         c_max = bbox[3]
         r_max = ndi.center_of_mass(labeled_image[:, c_max-5:c_max])[0]
+        c_min = bbox[1]
+        r_min = ndi.center_of_mass(labeled_image[:, c_min: c_min+5])[0]
         if notion == 'foreground' or type(notion) is list:
             notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
         else:
             notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
-    return present, r, c, h, w, r_max, c_max, area, notion_prediction
+    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction
 
 def get_most_likely_click(predictions, verbose=False):
     _start = time.time()
@@ -1691,8 +1693,11 @@ def get_most_likely_click(predictions, verbose=False):
     return most_likely_click
 
 def get_loop_bbox(predictions):
-    loop_present, r, c, h, w, r_max, c_max, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'])
+    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'])
     shape = predictions[0].shape[1:3]
+    if bbox is not np.nan:
+        r = bbox[0] + h/2
+        c = bbox[1] + w/2
     r /= shape[0]
     c /= shape[1]
     h /= shape[0]
