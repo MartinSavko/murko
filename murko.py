@@ -1654,7 +1654,7 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
             present = 1
             area = properties.convex_area
         else:
-            present = 0
+            present = -1
         bbox = properties.bbox
         h = bbox[2] - bbox[0]
         w = bbox[3] - bbox[1]
@@ -1687,6 +1687,16 @@ def get_most_likely_click(predictions, verbose=False):
     if verbose:
         print('most likely click determined in %.4f seconds' % (time.time() - _start))
     return most_likely_click
+
+def get_loop_bbox(predictions):
+    loop_present, r, c, h, w, r_max, c_max, area, notion_prediction = get_notion_prediction(predictions, 'loop')
+    shape = predictions[0].shape[1:3]
+    print('get_loop_bbox shape %s' % str(shape))
+    r /= shape[0]
+    c /= shape[1]
+    h /= shape[0]
+    w /= shape[1]
+    return loop_present, r, c, h, w
 
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
     
@@ -1766,7 +1776,6 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         save_predictions(all_input_images, all_predictions, all_image_paths, all_ground_truths, notions, notion_indices, model_img_size, train=train, target=target)
     
     return all_predictions 
-
 
 def get_hierarchical_mask_from_target(target, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'capillary': 5, 'ice': 6, 'foreground': 7, 'click':-1}):
     hierarchical_mask = np.zeros(target.shape[:2], dtype=np.uint8)
@@ -1869,9 +1878,9 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         fig.set_size_inches(16, 9)
         title = name
         fig.suptitle(title)
-        axes[0].set_title('input image')
+        axes[0].set_title('input image with predicted click and loop bounding box (if any)')
         axes[0].imshow(input_image)
-        axes[1].set_title('prediction')
+        axes[1].set_title('raw segmentation result with most likely click (if any)')
         axes[1].imshow(hierarchical_mask)
         if target:
             axes[2].set_title('ground truth')
@@ -1880,16 +1889,27 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         for a in axes.flatten():
             a.axis('off')
             
+        original_shape = np.array(input_image.shape[:2])
+        prediction_shape = np.array(hierarchical_mask.shape)
         most_likely_click = np.array(get_most_likely_click(predictions))
-        
-        #mlc_ii = most_likely_click*np.array(input_image.shape[:2])
-        #click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
-        #axes[0].add_patch(click_patch_ii)
-        
-        mlc_hm = most_likely_click*np.array(hierarchical_mask.shape)
-        click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
-        axes[1].add_patch(click_patch_hm)
-        
+        if -1 not in most_likely_click:
+            mlc_ii = most_likely_click*original_shape
+            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
+            axes[0].add_patch(click_patch_ii)
+            
+            mlc_hm = most_likely_click*prediction_shape
+            click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
+            axes[1].add_patch(click_patch_hm)
+
+        loop_present, r, c, h, w = get_loop_bbox(predictions)
+        if loop_present != -1:
+            r *= original_shape[0]
+            c *= original_shape[1]
+            h *= original_shape[0]
+            w *= original_shape[1]
+            loop_bbox_patch = plt.Rectangle((c-w/2, r-h/2), w, h, linewidth=1, edgecolor='green', facecolor='none')
+            axes[0].add_patch(loop_bbox_patch)
+            
         comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
         plt.savefig(comparison_path)
         plt.close()
