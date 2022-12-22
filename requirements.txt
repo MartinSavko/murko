@@ -1,0 +1,12 @@
+tensorflow>=2.0.0
+keras
+tensorflow_addons
+numpy
+scipy
+matplotlib
+skimage
+zmq
+simplejpeg
+json
+seaborn
+
