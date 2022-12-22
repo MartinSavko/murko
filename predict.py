@@ -7,7 +7,7 @@ import zmq
 import time
 import pickle
 
-from murko import get_most_likely_click
+from murko import get_most_likely_click, get_loop_bbox
 
 def get_predictions(request_arguments, port=8099, verbose=False):
     start = time.time()
@@ -48,8 +48,14 @@ if __name__ == '__main__':
     request_arguments['model_img_size'] = model_img_size
     request_arguments['save'] = bool(args.save)
     request_arguments['prefix'] = args.prefix
+    _start = time.time()
     predictions = get_predictions(request_arguments, port=args.port)
+    print('Client got all predictions in %.4f seconds' % (time.time() - _start))
+    loop_present, r, c, h, w = get_loop_bbox(predictions)
+    if loop_present:
+        print('loop found! bounding box center (r, c): %.3f, %.3f, height %.3f, width %.3f' % (r, c, h, w))
+    else:
+        print('loop not found.')
+    print('Most likely click: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
     
-    print('Client got all predictions')
-    print('Most likely click: (vertical %.2f, horizontal %.2f)' % (get_most_likely_click(predictions)))
     print()
