@@ -37,3 +37,20 @@ model loading and warmup run will take about 10 seconds.
 ./predict.py -t examples/image.jpg --save
 
 ```
+In practice you will most likely use from your own python client. You might have a look in predict.py to get more precise idea of how to use it. Here is an example
+```python
+from murko import ( 
+    get_predictions,
+    get_most_likely_click,
+    get_loop_bbox
+    )
+request_arguments = {}
+request_arguments['to_predict'] = 'examples/image.jpg' # may be a path to an image, directory, jpeg string, list of jpegs, list of ndarrays, to_predict, etc... (have a look at segment_multihead() method in murko.py to see how is it handled
+request_arguments['model_img_size'] = model_img_size # what resolution will be the prediction run at. May be arbitrary, (256, 320) is the default.
+request_arguments['save'] = True # Whether to save predictions or not.
+port = 8099 # port on which the server is listening
+predicitions = get_predictions(request_arguments, port=port)
+
+most_likely_click = get_most_likely_click(predictions)
+loop_present, r, c, h, w = get_loop_bbox(predictions)
+```
