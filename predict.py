@@ -44,7 +44,7 @@ if __name__ == '__main__':
     if loop_present == 1:
         print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
     else:
-        print('loop not found.')
+        print('Loop not found.')
     print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
     
     print()
