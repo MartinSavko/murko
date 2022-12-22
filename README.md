@@ -28,7 +28,7 @@ If you find the code useful or want to learn more about how to deploy it at your
 ## Usage
 1. Start server
 ```
-./predict_server.py
+./predict_server.py &
 ```
 model loading and warmup run will take about 10 seconds.
 
@@ -37,7 +37,9 @@ model loading and warmup run will take about 10 seconds.
 ./predict.py -t examples/image.jpg --save
 
 ```
-In practice you will most likely use from your own python client. You might have a look in predict.py to get more precise idea of how to use it. Here is an example
+
+In practice you will most likely use the code from your own python client. You might want to have a look in predict.py to get a more precise idea of how to use it. Here is an example
+
 ```python
 from murko import ( 
     get_predictions,
@@ -49,6 +51,7 @@ request_arguments['to_predict'] = 'examples/image.jpg' # may be a path to an ima
 request_arguments['model_img_size'] = model_img_size # what resolution will be the prediction run at. May be arbitrary, (256, 320) is the default.
 request_arguments['save'] = True # Whether to save predictions or not.
 port = 8099 # port on which the server is listening
+
 predicitions = get_predictions(request_arguments, port=port)
 
 most_likely_click = get_most_likely_click(predictions)
