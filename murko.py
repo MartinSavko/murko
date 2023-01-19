@@ -1675,7 +1675,7 @@ def get_most_likely_click(predictions, k=0, verbose=False):
     _start = time.time()
     gmlc = False
     most_likely_click = -1, -1
-    shape=predictions[k].shape[1: 3]
+    shape=predictions[0].shape[1: 3]
     for notion in ['crystal', 'loop_inside', 'loop']:
         notion_prediction = get_notion_prediction(predictions, notion, k=k)
         if notion_prediction[0] == 1:
@@ -1694,7 +1694,7 @@ def get_most_likely_click(predictions, k=0, verbose=False):
 
 def get_loop_bbox(predictions, k=0):
     loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k)
-    shape = predictions[k].shape[1:3]
+    shape = predictions[0].shape[1:3]
     if bbox is not np.nan:
         r = bbox[0] + h/2
         c = bbox[1] + w/2
@@ -1777,13 +1777,21 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         gen = MultiTargetDataset(batch_size, model_img_size, to_predict, notions=notions, augment=augment, target=target)
         for i, (input_images, ground_truths) in enumerate(gen):
             _start = time.time()
-            predictions = model.predict(input_images)
+            predictions = np.array(model.predict(input_images))
             #, use_multiprocessing=True, workers=batch_size, max_queue_size=2*batch_size)
-            all_input_images = np.vstack([all_input_images, input_images]) if all_input_images else input_images
-            all_ground_truths = np.vstack([all_ground_truths, ground_truths]) if all_ground_truths else ground_truths
-            all_predictions = np.vstack([all_predictions, predictions]) if all_predictions else predictions
+            if type(all_input_images) is list:
+                all_input_images = input_images
+            else:
+                all_input_images = np.vstack([all_input_images, input_images])
+            if type(all_ground_truths) is list:
+                all_ground_truths = ground_truths
+            else:
+                all_ground_truths = np.vstack([all_ground_truths, ground_truths])
+            if type(all_predictions) is list:
+                all_predictions = predictions
+            else:
+                all_predictions = np.hstack([all_predictions, predictions])
             all_image_paths += gen.batch_img_paths
-    
     end = time.time()
     print('%d images predicted in %.4f seconds (%.4f per image)' % (len(to_predict), end-_start_predict, (end-_start_predict)/len(to_predict)))
     

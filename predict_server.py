@@ -35,12 +35,19 @@ def get_model(model_name='model.h5'):
 
 def serve(port=8099, model_name='model.h5'):
     _start = time.time()
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        if tf.config.experimental.get_device_details(gpus[0])['compute_capability'][0]>=7:
+            tf.keras.mixed_precision.set_global_policy("mixed_float16")
+        for gpu in tf.config.list_physical_devices('GPU'): 
+            print('setting memory_growth on', gpu)
+            tf.config.experimental.set_memory_growth(gpu, True)
     model = get_model(model_name=model_name)
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port )
     print('Model load and warmup took %.4f seconds' % (time.time() - _start))
-    print('predict_server ready to serve')
+    print('predict_server ready to serve\n')
     while True:
         request_arguments = socket.recv()
         request = pickle.loads(request_arguments)
