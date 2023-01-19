@@ -1671,13 +1671,13 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
             notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction
 
-def get_most_likely_click(predictions, verbose=False):
+def get_most_likely_click(predictions, k=0, verbose=False):
     _start = time.time()
     gmlc = False
     most_likely_click = -1, -1
-    shape=predictions[0].shape[1: 3]
+    shape=predictions[k].shape[1: 3]
     for notion in ['crystal', 'loop_inside', 'loop']:
-        notion_prediction = get_notion_prediction(predictions, notion)
+        notion_prediction = get_notion_prediction(predictions, notion, k=k)
         if notion_prediction[0] == 1:
             most_likely_click = notion_prediction[1]/shape[0], notion_prediction[2]/shape[1]
             if verbose:
@@ -1685,16 +1685,16 @@ def get_most_likely_click(predictions, verbose=False):
             gmlc = True
             break
     if gmlc is False:
-        foreground = get_notion_prediction(predictions, 'foreground')
+        foreground = get_notion_prediction(predictions, 'foreground', k=k)
         if foreground[0] == 1:
             most_likely_click = foreground[5]/shape[0], foreground[6]/shape[1]
     if verbose:
         print('most likely click determined in %.4f seconds' % (time.time() - _start))
     return most_likely_click
 
-def get_loop_bbox(predictions):
-    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'])
-    shape = predictions[0].shape[1:3]
+def get_loop_bbox(predictions, k=0):
+    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k)
+    shape = predictions[k].shape[1:3]
     if bbox is not np.nan:
         r = bbox[0] + h/2
         c = bbox[1] + w/2
@@ -1761,7 +1761,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
             to_predict = np.expand_dims(to_predict, 0)
         if size_differs(to_predict[0].shape[:2], model_img_size):
             to_predict = np.array([efficient_resize(img, model_img_size, anti_aliasing=True) for img in to_predict])
-    print('all_images ready for prediction in %.4f seconds' % (time.time()-_start))
+    print('all images (%d) ready for prediction in %.4f seconds' % (len(to_predict), time.time()-_start))
     
     all_input_images = []
     all_ground_truths = []
@@ -1788,9 +1788,9 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
     print('%d images predicted in %.4f seconds (%.4f per image)' % (len(to_predict), end-_start_predict, (end-_start_predict)/len(to_predict)))
     
     if save:
-        if not all_image_paths:
+        if all_image_paths == []:
             all_image_paths = ['/tmp/%d_%s.jpg' % (k, prefix) for k in range(len(to_predict))]
-        if not all_input_images:
+        if all_input_images == []:
             all_input_images = to_predict
         save_predictions(all_input_images, all_predictions, all_image_paths, all_ground_truths, notions, notion_indices, model_img_size, train=train, target=target)
     
@@ -1910,17 +1910,17 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
             
         original_shape = np.array(input_image.shape[:2])
         prediction_shape = np.array(hierarchical_mask.shape)
-        most_likely_click = np.array(get_most_likely_click(predictions))
+        most_likely_click = np.array(get_most_likely_click(predictions, k=k))
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click*original_shape
-            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='red')
+            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='green')
             axes[0].add_patch(click_patch_ii)
             
             mlc_hm = most_likely_click*prediction_shape
             click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
             axes[1].add_patch(click_patch_hm)
 
-        loop_present, r, c, h, w = get_loop_bbox(predictions)
+        loop_present, r, c, h, w = get_loop_bbox(predictions, k=k)
         if loop_present != -1:
             r *= original_shape[0]
             c *= original_shape[1]
