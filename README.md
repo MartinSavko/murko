@@ -25,6 +25,11 @@ This is how it performs at the moment
 More details can be gleaned from the following [presentation](https://bit.ly/murko_isac).
 If you find the code useful or want to learn more about how to deploy it at your beamline please drop me a line.
 
+## Installation
+
+```
+pip install -r requirements
+```
 ## Usage
 1. Start server
 ```

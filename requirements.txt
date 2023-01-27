@@ -4,9 +4,7 @@ tensorflow_addons
 numpy
 scipy
 matplotlib
-skimage
+scikit-image
 zmq
 simplejpeg
-json
 seaborn
-
