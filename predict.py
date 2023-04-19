@@ -24,6 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--save', action='store_true', help='save')
     parser.add_argument('-P', '--prefix', type=str, default='test', help='prefix')
     parser.add_argument('-p', '--port', type=int, default=8099, help='port')
+    parser.add_argument('-m', '--min_size', type=int, default=64, help='minimum object size')
+
     args = parser.parse_args()
     
     model_img_size = (args.prediction_heigth, args.prediction_width)
@@ -31,20 +33,22 @@ if __name__ == '__main__':
     request_arguments = {}
     to_predict = None
     if os.path.isdir(args.to_predict) or os.path.isfile(args.to_predict):
-        to_predict = args.to_predict
+        to_predict = os.path.realpath(args.to_predict)
     
     request_arguments['to_predict'] = to_predict
     request_arguments['model_img_size'] = model_img_size
     request_arguments['save'] = bool(args.save)
     request_arguments['prefix'] = args.prefix
+    
+    print('request_arguments: %s' % request_arguments)
     _start = time.time()
     predictions = get_predictions(request_arguments, port=args.port)
     print('Client got all predictions in %.4f seconds' % (time.time() - _start))
-    loop_present, r, c, h, w = get_loop_bbox(predictions)
+    loop_present, r, c, h, w = get_loop_bbox(predictions, min_size=args.min_size)
     if loop_present == 1:
         print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
     else:
         print('Loop not found.')
-    print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions)))
+    print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (get_most_likely_click(predictions, min_size=args.min_size)))
     
     print()
