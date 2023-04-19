@@ -1477,7 +1477,7 @@ def get_training_and_validation_datasets_for_clicks(basedir='./', seed=1, backgr
         train_paths = [item for item in train_paths if item not in forbidden]
     return train_paths, val_paths
 
-def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=3, mixed_precision=False, name='start', source_weights=None, batch_size=16, model_img_size=(512, 512), network='fcdn56', convolution_type='SeparableConv2D',  heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}], notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], last_convolution=False, augment=False, train_images=-1, valid_images=1000, scale_click=False, click_radius=320e-3, learning_rate=0.001, pixel_budget=768*992, normalization_type='GroupNormalization', validation_scale=0.4, dynamic_batch_size=True, finetune=False, seed=12345, artificial_size_increase=1, include_plate_images=False, include_capillary_images=False, dropout_rate=0.2, weight_standardization=True, limit_loss=True, weight_decay=1.e-4):
+def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=3, mixed_precision=False, name='start', source_weights=None, batch_size=16, model_img_size=(512, 512), network='fcdn56', convolution_type='SeparableConv2D',  heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}], notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], last_convolution=False, augment=False, train_images=-1, valid_images=1000, scale_click=False, click_radius=320e-3, learning_rate=0.001, pixel_budget=768*992, normalization_type='GroupNormalization', validation_scale=0.4, dynamic_batch_size=True, finetune=False, seed=12345, artificial_size_increase=1, include_plate_images=False, include_capillary_images=False, dropout_rate=0.2, weight_standardization=True, limit_loss=True, weight_decay=1.e-4, activation='relu'):
     
     if mixed_precision:
         print('setting mixed_precision')
@@ -1537,7 +1537,7 @@ def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patien
     if os.path.isdir(model_name) or os.path.isfile(model_name):
         print('model exists, loading weights ...')
         #model = keras.models.load_model(model_name)
-        model = get_tiramisu(convolution_type=convolution_type, model_img_size=(None, None), heads=heads, last_convolution=last_convolution, name=network, learning_rate=learning_rate, dropout_rate=dropout_rate, weight_standardization=weight_standardization,normalization_type=normalization_type, finetune=finetune, finetune_model=model_name, limit_loss=limit_loss, weight_decay=weight_decay, **network_parameters)
+        model = get_tiramisu(convolution_type=convolution_type, model_img_size=(None, None), heads=heads, last_convolution=last_convolution, name=network, learning_rate=learning_rate, dropout_rate=dropout_rate, weight_standardization=weight_standardization,normalization_type=normalization_type, finetune=finetune, finetune_model=model_name, limit_loss=limit_loss, weight_decay=weight_decay, activation=activation, **network_parameters)
         if not finetune:
             model.load_weights(model_name)
         history_name = history_name.replace('.history', '_next_superepoch.history')
@@ -1546,7 +1546,7 @@ def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patien
         print(model_name, 'does not exist')
         #custom_objects = {"click_loss": click_loss, "ClickMetric": ClickMetric}
         #with keras.utils.custom_object_scope(custom_objects):
-        model = get_tiramisu(convolution_type=convolution_type, model_img_size=(None, None), heads=heads, last_convolution=last_convolution, name=network, learning_rate=learning_rate, dropout_rate=dropout_rate, weight_standardization=weight_standardization, normalization_type=normalization_type, limit_loss=limit_loss, weight_decay=weight_decay, **network_parameters)
+        model = get_tiramisu(convolution_type=convolution_type, model_img_size=(None, None), heads=heads, last_convolution=last_convolution, name=network, learning_rate=learning_rate, dropout_rate=dropout_rate, weight_standardization=weight_standardization, normalization_type=normalization_type, limit_loss=limit_loss, weight_decay=weight_decay, activation=activation, **network_parameters)
         #sys.exit()
     print(model.summary())
         
@@ -1629,27 +1629,12 @@ def segment(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=5):
 def efficient_resize(img, new_size, anti_aliasing=True):
     return img_to_array(array_to_img(img).resize(new_size[::-1]), dtype='float32')/255.
 
-def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
-    
-    present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = [np.nan] * 12
+def get_notion_description(mask, min_size=32):
+    present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties = [np.nan] * 12
     present = -1
     
-    if type(notion) is list:
-        notion_prediction = np.zeros(predictions[0].shape[1:3], dtype=bool)
-        for n in notion:
-            index = notion_indices[n]
-            noti_pred = predictions[index][k,:,:,0]>threshold
-            noti_pred = remove_small_objects(noti_pred, min_size=min_size)
-            notion_prediction = np.logical_or(notion_prediction, noti_pred)
-            
-    elif type(notion) is str:
-        index = notion_indices[notion]
-        
-        notion_prediction = predictions[index][k,:,:,0]>threshold
-        notion_prediction = remove_small_objects(notion_prediction, min_size=min_size)
-        
-    if np.any(notion_prediction):
-        labeled_image = notion_prediction.astype('uint8')
+    if np.any(mask):
+        labeled_image = mask.astype('uint8')
         properties = regionprops(labeled_image)[0]
         
         if properties.convex_area > min_size:
@@ -1665,35 +1650,84 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
         r_max = ndi.center_of_mass(labeled_image[:, c_max-5:c_max])[0]
         c_min = bbox[1]
         r_min = ndi.center_of_mass(labeled_image[:, c_min: c_min+5])[0]
-        if notion == 'foreground' or type(notion) is list:
-            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
-        else:
-            notion_prediction[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
-    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction
 
-def get_most_likely_click(predictions, k=0, verbose=False):
+    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties
+
+
+def get_notion_mask_from_predictions(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
+        
+    notion_mask = np.zeros(predictions[0].shape[1:3], dtype=bool)
+    
+    if type(notion) is list:
+        for n in notion:
+            index = notion_indices[n]
+            noti_pred = predictions[index][k,:,:,0]>threshold
+            noti_pred = remove_small_objects(noti_pred, min_size=min_size)
+            notion_mask = np.logical_or(notion_mask, noti_pred)
+            
+    elif type(notion) is str:
+        index = notion_indices[notion]
+        notion_mask = predictions[index][k,:,:,0]>threshold
+        notion_mask = remove_small_objects(notion_mask, min_size=min_size)
+    return notion_mask
+    
+    
+def get_notion_mask_from_masks(masks, notion, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, min_size=32):
+    
+    notion_mask = np.zeros(masks.shape[:2], dtype=bool)
+    
+    if type(notion) is list:
+        for n in notion:
+            index = notion_indices[n]
+            noti_mask = masks[:,:,index]
+            noti_mask = remove_small_objects(noti_mask>0, min_size=min_size)
+            notion_mask = np.logical_or(notion_mask, noti_mask)
+    elif type(notion) is str:
+        index = notion_indices[notion]
+        notion_mask = masks[:,:,index]
+        notion_mask = remove_small_objects(notion_mask>0, min_size=min_size)
+    return notion_mask
+
+def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
+    
+    if type(predictions) is list:
+        notion_mask = get_notion_mask_from_predictions(predictions, notion, k=k, notion_indices=notion_indices, threshold=threshold, min_size=min_size)
+    elif type(predictions) is np.ndarray and len(predictions.shape) == 3:
+        notion_mask = get_notion_mask_from_masks(predictions, notion, notion_indices=notion_indices, min_size=min_size)
+        
+    present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties = get_notion_description(notion_mask, min_size=min_size)
+    
+    if type(properties) != float:
+        if notion == 'foreground' or type(notion) is list:
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        else:
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+    
+    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask
+
+def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
     _start = time.time()
     gmlc = False
     most_likely_click = -1, -1
-    shape=predictions[0].shape[1: 3]
+        
     for notion in ['crystal', 'loop_inside', 'loop']:
-        notion_prediction = get_notion_prediction(predictions, notion, k=k)
+        notion_prediction = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
         if notion_prediction[0] == 1:
-            most_likely_click = notion_prediction[1]/shape[0], notion_prediction[2]/shape[1]
+            most_likely_click = notion_prediction[1]/notion_prediction[-1].shape[0], notion_prediction[2]/notion_prediction[-1].shape[1]
             if verbose:
                 print('%s found!' % notion)
             gmlc = True
             break
     if gmlc is False:
-        foreground = get_notion_prediction(predictions, 'foreground', k=k)
+        foreground = get_notion_prediction(predictions, 'foreground', k=k, min_size=min_size)
         if foreground[0] == 1:
-            most_likely_click = foreground[5]/shape[0], foreground[6]/shape[1]
+            most_likely_click = foreground[5]/foreground[-1].shape[0], foreground[6]/foreground[-1].shape[1]
     if verbose:
         print('most likely click determined in %.4f seconds' % (time.time() - _start))
     return most_likely_click
 
-def get_loop_bbox(predictions, k=0):
-    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k)
+def get_loop_bbox(predictions, k=0, min_size=32):
+    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k, min_size=min_size)
     shape = predictions[0].shape[1:3]
     if bbox is not np.nan:
         r = bbox[0] + h/2
@@ -1718,7 +1752,6 @@ def get_predictions(request_arguments, port=8099, verbose=False):
     return predictions
 
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
-    
     _start = time.time()
     if model is None:
         model = keras.models.load_model(os.path.join(base, model_name), custom_objects={'WSConv2D': WSConv2D, 'WSSeparableConv2D': WSSeparableConv2D})
@@ -1741,6 +1774,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
     elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isdir(to_predict):
         to_predict = glob.glob(os.path.join(to_predict, '*.jpg'))
     elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isfile(to_predict):
+        print('we seem to have received a single imagename to do our analysis on')
         all_image_paths.append(os.path.realpath(to_predict))
         to_predict = np.expand_dims(get_img(to_predict, size=model_img_size), 0)
     elif type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
@@ -1762,7 +1796,6 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         if size_differs(to_predict[0].shape[:2], model_img_size):
             to_predict = np.array([efficient_resize(img, model_img_size, anti_aliasing=True) for img in to_predict])
     print('all images (%d) ready for prediction in %.4f seconds' % (len(to_predict), time.time()-_start))
-    
     all_input_images = []
     all_ground_truths = []
     all_predictions = []
