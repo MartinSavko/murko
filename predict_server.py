@@ -14,7 +14,6 @@ import tensorflow as tf
 
 from murko import predict_multihead, get_uncompiled_tiramisu
 
-
 def get_model(model_name='model.h5'):
     _start_load = time.time()
     for gpu in tf.config.list_physical_devices('GPU'): 
@@ -26,9 +25,11 @@ def get_model(model_name='model.h5'):
     print('model loaded in %.4f seconds' % (_end_load-_start_load))
     _start_warmup = time.time()
     m = h5py.File(model_name, 'r')
-    warmup_image = m['warmup_image'][()][0]
+    if 'warmup_image' in m:
+        warmup_image = m['warmup_image'][()][0]
+        all_predictions = predict_multihead(to_predict=[warmup_image.tobytes()], model_img_size=(256, 320), model=model, save=False)
     m.close()
-    all_predictions = predict_multihead(to_predict=[warmup_image.tobytes()], model_img_size=(256, 320), model=model, save=False)
+    
     _end_warmup = time.time()
     print('server warmup run took %.4f seconds' % (_end_warmup - _start_warmup))
     return model
@@ -67,8 +68,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument('-p', '--port', type=int, default=8099, help='port')
-    parser.add_argument('-m', '--model_name', type=str, default='model.h5', help='model')
-    
+    parser.add_argument('-m', '--model_name', type=str, default='model.h5', help='model name')
+    parser.add_argument('-d', '--directory', default=None, type=str, help='optional model directory')
+    args = parser.parse_args()
+    if args.directory is not None:
+        model_name = os.path.join(args.directory, args.model_name)
+    else:
+        model_name = args.model_name
     args = parser.parse_args()
     print('args', args)
     serve(port=args.port, model_name=args.model_name)
