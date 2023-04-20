@@ -14,7 +14,7 @@ import tensorflow as tf
 
 from murko import predict_multihead, get_uncompiled_tiramisu
 
-def get_model(model_name='model.h5'):
+def get_model(model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_dynamic.h5', model_img_size=(256, 320)):
     _start_load = time.time()
     for gpu in tf.config.list_physical_devices('GPU'): 
         print('setting memory_growth on', gpu)
@@ -26,8 +26,10 @@ def get_model(model_name='model.h5'):
     _start_warmup = time.time()
     m = h5py.File(model_name, 'r')
     if 'warmup_image' in m:
-        warmup_image = m['warmup_image'][()][0]
-        all_predictions = predict_multihead(to_predict=[warmup_image.tobytes()], model_img_size=(256, 320), model=model, save=False)
+        to_predict = [m['warmup_image'][()][0].tobytes()]
+    else:
+        to_predict = [np.zeros(model_img_size+(3,), dtype='uint8')]
+    all_predictions = predict_multihead(to_predict=to_predict, model_img_size=model_img_size, model=model, save=False)
     m.close()
     
     _end_warmup = time.time()
