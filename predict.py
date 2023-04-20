@@ -20,10 +20,7 @@ def get_predictions(request_arguments, port=8099, verbose=False):
     socket.connect('tcp://localhost:%d' % port)
     socket.send(pickle.dumps(request_arguments))
     raw_predictions = socket.recv()
-    print('client received raw_predictions')
-    print(type(raw_predictions))
-    print(raw_predictions[:10])
-    predictions = pickle.loads(str(raw_predictions))
+    predictions = pickle.loads(raw_predictions)
     if verbose:
         print('Received predictions in %.4f seconds' % (time.time() - start))
     return predictions
