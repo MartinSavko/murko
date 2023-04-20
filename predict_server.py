@@ -60,7 +60,7 @@ def serve(port=8099, model_name='model.h5'):
         except:
             print(traceback.print_exc())
             all_predictions = []
-        predictions = pickle.dumps(all_predictions)
+        predictions = pickle.dumps(all_predictions, protocol=2)
         socket.send(predictions)
         print()
         
