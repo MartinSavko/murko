@@ -11,6 +11,7 @@ import json
 import pickle
 import traceback
 import tensorflow as tf
+import numpy as np
 
 from murko import predict_multihead, get_uncompiled_tiramisu
 
