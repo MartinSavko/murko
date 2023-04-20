@@ -1705,52 +1705,6 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
     
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask
 
-def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
-    _start = time.time()
-    gmlc = False
-    most_likely_click = -1, -1
-        
-    for notion in ['crystal', 'loop_inside', 'loop']:
-        notion_prediction = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
-        if notion_prediction[0] == 1:
-            most_likely_click = notion_prediction[1]/notion_prediction[-1].shape[0], notion_prediction[2]/notion_prediction[-1].shape[1]
-            if verbose:
-                print('%s found!' % notion)
-            gmlc = True
-            break
-    if gmlc is False:
-        foreground = get_notion_prediction(predictions, 'foreground', k=k, min_size=min_size)
-        if foreground[0] == 1:
-            most_likely_click = foreground[5]/foreground[-1].shape[0], foreground[6]/foreground[-1].shape[1]
-    if verbose:
-        print('most likely click determined in %.4f seconds' % (time.time() - _start))
-    return most_likely_click
-
-def get_loop_bbox(predictions, k=0, min_size=32):
-    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k, min_size=min_size)
-    shape = predictions[0].shape[1:3]
-    if bbox is not np.nan:
-        r = bbox[0] + h/2
-        c = bbox[1] + w/2
-    r /= shape[0]
-    c /= shape[1]
-    h /= shape[0]
-    w /= shape[1]
-    return loop_present, r, c, h, w
-
-def get_predictions(request_arguments, port=8099, verbose=False):
-    start = time.time()
-    context = zmq.Context()
-    if verbose:
-        print('Connecting to server ...')
-    socket = context.socket(zmq.REQ)
-    socket.connect('tcp://localhost:%d' % port)
-    socket.send(pickle.dumps(request_arguments))
-    predictions = pickle.loads(socket.recv())
-    if verbose:
-        print('Received predictions in %.4f seconds' % (time.time() - start))
-    return predictions
-
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
     _start = time.time()
     if model is None:
