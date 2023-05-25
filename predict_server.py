@@ -10,6 +10,7 @@ import sys
 import json
 import pickle
 import traceback
+import numpy as np
 import tensorflow as tf
 import numpy as np
 
@@ -80,5 +81,5 @@ if __name__ == '__main__':
         model_name = args.model_name
     args = parser.parse_args()
     print('args', args)
-    serve(port=args.port, model_name=args.model_name)
+    serve(port=args.port, model_name=model_name)
 
