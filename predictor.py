@@ -62,7 +62,6 @@ def get_model(model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_dynamic.
         to_predict = np.zeros((1,) + model_img_size+(3,), dtype='uint8')
     m.close()
     
-    #to_predict = tf.convert_to_tensor(to_predict, dtype=tf.float16)
     predictions = integrated_resize_model.predict(to_predict)
     _end_warmup = time.time()
     print('server warmup run took %.4f seconds' % (_end_warmup - _start_warmup))
@@ -93,7 +92,6 @@ def serve(port=8901, model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_d
         to_predict = request['to_predict']
         if type(to_predict) is list:
             to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
-        #to_predict = tf.convert_to_tensor(to_predict, dtype=tf.float16)
         analysis = {}
         analysis['original_image_shape'] = to_predict[0].shape
         raw_projections={}
