@@ -90,8 +90,11 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         _start = time.time()
         print("%s received request" % (time.asctime(), ))
         to_predict = request['to_predict']
-        if type(to_predict) is list:
-            to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
+        if type(to_predict) is list and len(to_predict[0].shape) != 3 :
+            try:
+                to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
+            except:
+                pass
         elif type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
             to_predict = np.expand_dims(to_predict, 0)
         analysis = {}
