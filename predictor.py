@@ -34,7 +34,7 @@ def print_memory_use():
     memoryUse = py.memory_info()[0]/2.**30  # memory use in GB...I think
     print('memory use:', memoryUse)
     
-def get_model(model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_dynamic.h5', model_img_size=(256, 320), default_gpu='0'):
+def get_model(model_name='model.h5', model_img_size=(256, 320), default_gpu='0'):
     _start_load = time.time()
 
     if 'CUDA_VISIBLE_DEVICES' not in os.environ:
@@ -67,7 +67,7 @@ def get_model(model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_dynamic.
     print('server warmup run took %.4f seconds' % (_end_warmup - _start_warmup))
     return integrated_resize_model
 
-def serve(port=8901, model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_dynamic.h5', default_gpu='0', batch_size=16, model_img_size=(256, 320)):
+def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, model_img_size=(256, 320)):
     _start = time.time()
     if 'CUDA_VISIBLE_DEVICES' not in os.environ:
         os.environ['CUDA_VISIBLE_DEVICES'] = default_gpu
@@ -123,7 +123,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument('-p', '--port', type=int, default=8901, help='port')
-    parser.add_argument('-m', '--model_name', type=str, default='/usr/local/bin/fcdn103_many_backgrounds_flips_and_turns_and_black_and_white.h5', help='model')
+    parser.add_argument('-m', '--model_name', type=str, default='model.h5', help='model')
     parser.add_argument('-s', '--model_img_size', type=str, default='(256, 320)', help='working image resolution')
     parser.add_argument('-d', '--directory', default=None, type=str, help='optional model directory')
     args = parser.parse_args()
