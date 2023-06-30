@@ -1774,6 +1774,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
             to_predict = val_paths
     elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isdir(to_predict):
         to_predict = glob.glob(os.path.join(to_predict, '*.jpg'))
+        all_image_paths = [os.path.realpath(t) for t in to_predict]
     elif not type(to_predict) is list and not type(to_predict) is np.ndarray and os.path.isfile(to_predict):
         print('we seem to have received a single imagename to do our analysis on')
         all_image_paths.append(os.path.realpath(to_predict))
@@ -1785,6 +1786,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         if simplejpeg.is_jpeg(to_predict[0]):
             to_predict = [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
         elif os.path.isfile(to_predict[0]):
+            all_image_paths = [img_path for img_path in to_predict]
             to_predict = [img_to_array(load_img(img, target_size=model_img_size), dtype='float32') for img in to_predict]
         if type(to_predict[0]) is np.ndarray:
             to_predict = [img.astype("float32")/255. for img in to_predict]
@@ -1834,7 +1836,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
             all_image_paths = ['/tmp/%d_%s.jpg' % (k, prefix) for k in range(len(to_predict))]
         if all_input_images == []:
             all_input_images = to_predict
-        save_predictions(all_input_images, all_predictions, all_image_paths, all_ground_truths, notions, notion_indices, model_img_size, train=train, target=target)
+        save_predictions(all_input_images, all_predictions, all_image_paths, all_ground_truths, notions, notion_indices, model_img_size, model_name=prefix, train=train, target=target)
     
     return all_predictions 
 
@@ -1923,7 +1925,6 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         
         if train:
             prefix += '_train'
-        
         template = '%s_%s_model_img_size_%dx%d' % (prefix, model_name.replace('.h5', ''), model_img_size[0], model_img_size[1])
         
         prediction_img_path = os.path.join(directory, '%s_hierarchical_mask_high_contrast_predicted.png' % (template))
@@ -1976,7 +1977,9 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
         plt.savefig(comparison_path)
         plt.close()
+        print('saving %s' % comparison_path)
     end = time.time()
+    
     print('%d predictions saved in %.4f seconds (%.4f per image)' % (len(input_images), end-_start, (end-_start)/len(input_images)))
   
 def get_img_size_as_scale_of_pixel_budget(scale, pixel_budget=768*992, ratio=0.75, modulo=32):

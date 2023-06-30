@@ -12,7 +12,7 @@ import pickle
 import traceback
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras 
+from tensorflow import keras
 import psutil
 import gc
 
@@ -92,6 +92,8 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         to_predict = request['to_predict']
         if type(to_predict) is list:
             to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
+        elif type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
+            to_predict = np.expand_dims(to_predict, 0)
         analysis = {}
         analysis['original_image_shape'] = to_predict[0].shape
         raw_projections={}
@@ -102,13 +104,12 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
             all_predictions = []
         analysis['predicitons'] = all_predictions
         if 'raw_projections' in request and request['raw_projections'] is not False:
-            for key in request['raw_projections']:
-                raw_projections[key] = get_raw_projections(all_predictions, notion=key)
+            for notion in request['raw_projections']:
+                raw_projections[','.join(notion) if type(notion) is list else notion] = get_raw_projections(all_predictions, notion=notion)
             analysis['raw_projections'] = raw_projections
         
         socket.send(pickle.dumps(analysis))
         print('all predictions took %.4f seconds' % (time.time() - _start))
-        print_memory_use()
         del all_predictions
         del raw_projections
         del analysis
