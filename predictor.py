@@ -21,8 +21,8 @@ from murko import get_uncompiled_tiramisu, get_notion_prediction
 
 def get_raw_projections(predictions, notion='foreground', notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
     raw_projections = []
-    for k in range(len(predictions[notion_indices[notion]])):
-        present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask = get_notion_prediction(predictions, notion, k=k)
+    for k in range(len(predictions[0])):
+        present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
         if present:
             raw_projections.append((present, (r, c, h, w), notion_mask))
     return raw_projections
