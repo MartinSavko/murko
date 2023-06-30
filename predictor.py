@@ -101,7 +101,7 @@ def serve(port=8901, model_name='fcdn103_test_GN_WS_M2_D0_2nd_not_from_scratch_d
             print(traceback.print_exc())
             all_predictions = []
         analysis['predicitons'] = all_predictions
-        if request['raw_projections'] is not False:
+        if 'raw_projections' in request and request['raw_projections'] is not False:
             for key in request['raw_projections']:
                 raw_projections[key] = get_raw_projections(all_predictions, notion=key)
             analysis['raw_projections'] = raw_projections
