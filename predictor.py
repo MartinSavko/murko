@@ -105,12 +105,13 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         except:
             print(traceback.print_exc())
             all_predictions = []
-        analysis['predicitons'] = all_predictions
+        analysis['predictions'] = all_predictions
         if 'raw_projections' in request and request['raw_projections'] is not False:
             for notion in request['raw_projections']:
                 raw_projections[','.join(notion) if type(notion) is list else notion] = get_raw_projections(all_predictions, notion=notion)
             analysis['raw_projections'] = raw_projections
-        
+        else:
+            analysis = analysis['predictions']
         socket.send(pickle.dumps(analysis))
         print('all predictions took %.4f seconds' % (time.time() - _start))
         del all_predictions
