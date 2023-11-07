@@ -17,7 +17,7 @@ import psutil
 import gc
 
 import simplejpeg
-from murko import get_uncompiled_tiramisu, get_descriptions, get_notion_string
+from murko import get_uncompiled_tiramisu, get_descriptions, get_notion_string, plot_analysis
 
 def print_memory_use():
     # https://stackoverflow.com/questions/44327803/memory-leak-with-tensorflow
@@ -85,15 +85,23 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         _start = time.time()
         print("%s received request" % (time.asctime(), ))
         to_predict = request['to_predict']
-        if type(to_predict) is list and len(to_predict[0].shape) != 3 :
+        image_paths = []
+        if type(to_predict) is str and (to_predict.lower().endswith('.jpg') or to_predict.lower().endswith('.jpeg')):
+            image_paths = [to_predict[:]]
+            to_predict = np.array(simplejpeg.decode_jpeg(open(to_predict, 'rb').read()))
+        elif type(to_predict) is list and os.path.isfile(to_predict[0]):
+            image_paths = to_predict[:]
+            to_predict = np.array([simplejpeg.decode_jpeg(open(item, 'rb').read()) for item in to_predict])
+        elif type(to_predict) is list and len(to_predict[0].shape) != 3 :
             try:
                 to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
             except:
                 pass
-        elif type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
+        if type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
             to_predict = np.expand_dims(to_predict, 0)
         original_image_shape = to_predict[0].shape
         analysis = {'original_image_shape': original_image_shape}
+        print('to_predict.shape', to_predict.shape)
         try:
             all_predictions = model.predict(to_predict, batch_size=min([len(to_predict), batch_size]))
         except:
@@ -104,7 +112,7 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         print('%d predictions took %.3f seconds (%.3f per image)' % (N, duration, duration/N))
         if 'description' in request and request['description'] is not False:
             _start_description = time.time()
-            descriptions = get_descriptions(all_predictions, notions=request['description'], original_image_shape=original_image_shape)
+            descriptions = get_descriptions(all_predictions, notions=request['description'], original_image_shape=original_image_shape, min_size=request['min_size'])
             analysis['descriptions'] = descriptions
             print('descriptions took %.3f seconds' % (time.time() - _start_description))
             if 'raw_predictions' in request and request['raw_predictions'] is True:
@@ -112,6 +120,9 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         else:
             descriptions = []
             analysis = all_predictions
+        if 'save' in request and request['save']:
+            plot_analysis(to_predict, analysis, image_paths=image_paths)
+            
         socket.send(pickle.dumps(analysis))
         print('complete analysis took %.3f seconds' % (time.time() - _start))
         del all_predictions
