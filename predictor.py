@@ -113,7 +113,7 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         else:
             analysis = analysis['predictions']
         socket.send(pickle.dumps(analysis))
-        print('all predictions took %.4f seconds' % (time.time() - _start))
+        print('all %d predictions took %.4f seconds' % (len(all_predictions[0]), time.time() - _start))
         del all_predictions
         del raw_projections
         del analysis
