@@ -17,22 +17,14 @@ import psutil
 import gc
 
 import simplejpeg
-from murko import get_uncompiled_tiramisu, get_notion_prediction
-
-def get_raw_projections(predictions, notion='foreground', notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, min_size=32):
-    raw_projections = []
-    for k in range(len(predictions[0])):
-        present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
-        if present:
-            raw_projections.append((present, (r, c, h, w), notion_mask))
-    return raw_projections
+from murko import get_uncompiled_tiramisu, get_descriptions, get_notion_string
 
 def print_memory_use():
     # https://stackoverflow.com/questions/44327803/memory-leak-with-tensorflow
     pid = os.getpid()
     py = psutil.Process(pid)
     memoryUse = py.memory_info()[0]/2.**30  # memory use in GB...I think
-    print('memory use:', memoryUse)
+    print('memory use: %.3f GB' % memoryUse)
     
 def get_model(model_name='model.h5', model_img_size=(256, 320), default_gpu='0'):
     _start_load = time.time()
@@ -53,7 +45,7 @@ def get_model(model_name='model.h5', model_img_size=(256, 320), default_gpu='0')
     integrated_resize_model = keras.Model(inputs=inputs, outputs=outputs)
     
     _end_load = time.time()
-    print('model loaded in %.4f seconds' % (_end_load-_start_load))
+    print('model loaded in %.3f seconds' % (_end_load-_start_load))
     _start_warmup = time.time()
     m = h5py.File(model_name, 'r')
     if 'warmup_image' in m:
@@ -64,7 +56,10 @@ def get_model(model_name='model.h5', model_img_size=(256, 320), default_gpu='0')
     
     predictions = integrated_resize_model.predict(to_predict)
     _end_warmup = time.time()
-    print('server warmup run took %.4f seconds' % (_end_warmup - _start_warmup))
+    del predictions
+    gc.collect()
+    print_memory_use()
+    print('server warmup run took %.3f seconds' % (_end_warmup - _start_warmup))
     return integrated_resize_model
 
 def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, model_img_size=(256, 320)):
@@ -82,7 +77,7 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port )
-    print('Model load and warmup took %.4f seconds' % (time.time() - _start))
+    print('Model load and warmup took %.3f seconds' % (time.time() - _start))
     print('predict_server ready to serve\n')
     while True:
         requests = socket.recv()
@@ -97,25 +92,31 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
                 pass
         elif type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
             to_predict = np.expand_dims(to_predict, 0)
-        analysis = {}
-        analysis['original_image_shape'] = to_predict[0].shape
-        raw_projections={}
+        original_image_shape = to_predict[0].shape
+        analysis = {'original_image_shape': original_image_shape}
         try:
             all_predictions = model.predict(to_predict, batch_size=min([len(to_predict), batch_size]))
         except:
             print(traceback.print_exc())
             all_predictions = []
-        analysis['predictions'] = all_predictions
-        if 'raw_projections' in request and request['raw_projections'] is not False:
-            for notion in request['raw_projections']:
-                raw_projections[','.join(notion) if type(notion) is list else notion] = get_raw_projections(all_predictions, notion=notion)
-            analysis['raw_projections'] = raw_projections
+        duration = time.time() - _start
+        N = len(all_predictions[0])
+        print('%d predictions took %.3f seconds (%.3f per image)' % (N, duration, duration/N))
+        if 'description' in request and request['description'] is not False:
+            _start_description = time.time()
+            descriptions = get_descriptions(all_predictions, notions=request['description'], original_image_shape=original_image_shape)
+            analysis['descriptions'] = descriptions
+            print('descriptions took %.3f seconds' % (time.time() - _start_description))
+            if 'raw_predictions' in request and request['raw_predictions'] is True:
+                analysis['predictions'] = all_predictions
         else:
-            analysis = analysis['predictions']
+            descriptions = []
+            analysis = all_predictions
         socket.send(pickle.dumps(analysis))
-        print('all %d predictions took %.4f seconds' % (len(all_predictions[0]), time.time() - _start))
+        print('complete analysis took %.3f seconds' % (time.time() - _start))
         del all_predictions
-        del raw_projections
+        if descriptions:
+            del descriptions
         del analysis
         gc.collect()
         print_memory_use()

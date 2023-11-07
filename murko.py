@@ -17,6 +17,8 @@ import traceback
 import pylab
 import seaborn as sns
 import simplejpeg
+import copy
+
 import scipy.ndimage as ndi
 sns.set(color_codes=True)
 #from matplotlib import rc
@@ -35,11 +37,7 @@ from tensorflow.keras.preprocessing.image import save_img, load_img, img_to_arra
 from tensorflow.keras.preprocessing import image
 
 from keras.models import Model, load_model
-from keras.layers import Input
-from keras.layers.core import Dropout, Lambda
-from keras.layers.convolutional import Conv2D, SeparableConv2D, Conv2DTranspose
-from keras.layers.pooling import MaxPooling2D
-#from keras.layers.merge import concatenate
+from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras import backend as K
 
@@ -53,11 +51,6 @@ except:
     from skimage.morphology.selem import disk
 import matplotlib.pyplot as plt
 import time
-
-from keras.metrics import BinaryCrossentropy
-from keras.losses import LossFunctionWrapper
-from keras.utils import losses_utils
-from tensorflow.python.util import dispatch
 
 directory = 'images_and_labels_augmented'
 img_size = (1024, 1360)
@@ -139,236 +132,6 @@ loss_weights_from_stats =\
      'ice': 15.9,
      'foreground': 1.0,
      'click': 1.0}
-
-from tensorflow.python.util.tf_export import keras_export
-@keras_export('keras.losses.BinaryFocalCrossentropy')
-class BinaryFocalCrossentropy(LossFunctionWrapper):
-  """Computes the focal cross-entropy loss between true labels and predictions.
-
-  Binary cross-entropy loss is often used for binary (0 or 1) classification
-  tasks. The loss function requires the following inputs:
-
-  - `y_true` (true label): This is either 0 or 1.
-  - `y_pred` (predicted value): This is the model's prediction, i.e, a single
-    floating-point value which either represents a
-    [logit](https://en.wikipedia.org/wiki/Logit), (i.e, value in [-inf, inf]
-    when `from_logits=True`) or a probability (i.e, value in `[0., 1.]` when
-    `from_logits=False`).
-
-  According to [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf), it
-  helps to apply a "focal factor" to down-weight easy examples and focus more on
-  hard examples. By default, the focal tensor is computed as follows:
-
-  `focal_factor = (1 - output) ** gamma` for class 1
-  `focal_factor = output ** gamma` for class 0
-  where `gamma` is a focusing parameter. When `gamma=0`, this function is
-  equivalent to the binary crossentropy loss.
-
-  With the `compile()` API:
-
-  ```python
-  model.compile(
-    loss=tf.keras.losses.BinaryFocalCrossentropy(gamma=2.0, from_logits=True),
-    ....
-  )
-  ```
-
-  As a standalone function:
-
-  >>> # Example 1: (batch_size = 1, number of samples = 4)
-  >>> y_true = [0, 1, 0, 0]
-  >>> y_pred = [-18.6, 0.51, 2.94, -12.8]
-  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=2, from_logits=True)
-  >>> loss(y_true, y_pred).numpy()
-  0.691
-
-  >>> # Example 2: (batch_size = 2, number of samples = 4)
-  >>> y_true = [[0, 1], [0, 0]]
-  >>> y_pred = [[-18.6, 0.51], [2.94, -12.8]]
-  >>> # Using default 'auto'/'sum_over_batch_size' reduction type.
-  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=3, from_logits=True)
-  >>> loss(y_true, y_pred).numpy()
-  0.647
-
-  >>> # Using 'sample_weight' attribute
-  >>> loss(y_true, y_pred, sample_weight=[0.8, 0.2]).numpy()
-  0.133
-
-  >>> # Using 'sum' reduction` type.
-  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=4, from_logits=True,
-  ...     reduction=tf.keras.losses.Reduction.SUM)
-  >>> loss(y_true, y_pred).numpy()
-  1.222
-
-  >>> # Using 'none' reduction type.
-  >>> loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=5, from_logits=True,
-  ...     reduction=tf.keras.losses.Reduction.NONE)
-  >>> loss(y_true, y_pred).numpy()
-  array([0.0017 1.1561], dtype=float32)
-
-  Args:
-    gamma: A focusing parameter used to compute the focal factor, default is
-      `2.0` as mentioned in the reference
-      [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf).
-    from_logits: Whether to interpret `y_pred` as a tensor of
-      [logit](https://en.wikipedia.org/wiki/Logit) values. By default, we
-      assume that `y_pred` are probabilities (i.e., values in `[0, 1]`).
-    label_smoothing: Float in `[0, 1]`. When `0`, no smoothing occurs. When >
-      `0`, we compute the loss between the predicted labels and a smoothed
-      version of the true labels, where the smoothing squeezes the labels
-      towards `0.5`. Larger values of `label_smoothing` correspond to heavier
-      smoothing.
-    axis: The axis along which to compute crossentropy (the features axis).
-      Defaults to `-1`.
-    reduction: Type of `tf.keras.losses.Reduction` to apply to
-      loss. Default value is `AUTO`. `AUTO` indicates that the reduction
-      option will be determined by the usage context. For almost all cases
-      this defaults to `SUM_OVER_BATCH_SIZE`. When used with
-      `tf.distribute.Strategy`, outside of built-in training loops such as
-      `tf.keras`, `compile()` and `fit()`, using `SUM_OVER_BATCH_SIZE` or
-      `AUTO` will raise an error. Please see this custom training [tutorial](
-      https://www.tensorflow.org/tutorials/distribute/custom_training) for
-      more details.
-    name: Name for the op. Defaults to 'binary_focal_crossentropy'.
-  """
-
-  def __init__(
-      self,
-      gamma=2.0,
-      from_logits=False,
-      label_smoothing=0.,
-      axis=-1,
-      reduction=losses_utils.ReductionV2.AUTO,
-      name='binary_focal_crossentropy',
-  ):
-    """Initializes `BinaryFocalCrossentropy` instance."""
-    super().__init__(
-        binary_focal_crossentropy,
-        gamma=gamma,
-        name=name,
-        reduction=reduction,
-        from_logits=from_logits,
-        label_smoothing=label_smoothing,
-        axis=axis)
-    self.from_logits = from_logits
-    self.gamma = gamma
-
-  def get_config(self):
-    config = {
-        'gamma': self.gamma,
-    }
-    base_config = super(BinaryFocalCrossentropy, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
-
-
-@keras_export('keras.metrics.binary_focal_crossentropy',
-              'keras.losses.binary_focal_crossentropy')
-@tf.__internal__.dispatch.add_dispatch_support
-def binary_focal_crossentropy(
-    y_true,
-    y_pred,
-    gamma=2.0,
-    from_logits=False,
-    label_smoothing=0.,
-    axis=-1,
-):
-  """Computes the binary focal crossentropy loss.
-
-  According to [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf), it
-  helps to apply a focal factor to down-weight easy examples and focus more on
-  hard examples. By default, the focal tensor is computed as follows:
-
-  `focal_factor = (1 - output)**gamma` for class 1
-  `focal_factor = output**gamma` for class 0
-  where `gamma` is a focusing parameter. When `gamma` = 0, this function is
-  equivalent to the binary crossentropy loss.
-
-  Standalone usage:
-
-  >>> y_true = [[0, 1], [0, 0]]
-  >>> y_pred = [[0.6, 0.4], [0.4, 0.6]]
-  >>> loss = tf.keras.losses.binary_focal_crossentropy(y_true, y_pred, gamma=2)
-  >>> assert loss.shape == (2,)
-  >>> loss.numpy()
-  array([0.330, 0.206], dtype=float32)
-
-  Args:
-    y_true: Ground truth values, of shape `(batch_size, d0, .. dN)`.
-    y_pred: The predicted values, of shape `(batch_size, d0, .. dN)`.
-    gamma: A focusing parameter, default is `2.0` as mentioned in the reference.
-    from_logits: Whether `y_pred` is expected to be a logits tensor. By default,
-      we assume that `y_pred` encodes a probability distribution.
-    label_smoothing: Float in `[0, 1]`. If higher than 0 then smooth the labels
-      by squeezing them towards `0.5`, i.e., using `1. - 0.5 * label_smoothing`
-      for the target class and `0.5 * label_smoothing` for the non-target class.
-    axis: The axis along which the mean is computed. Defaults to `-1`.
-
-  Returns:
-    Binary focal crossentropy loss value. shape = `[batch_size, d0, .. dN-1]`.
-  """
-  y_pred = tf.convert_to_tensor(y_pred)
-  y_true = tf.cast(y_true, y_pred.dtype)
-  label_smoothing = tf.convert_to_tensor(label_smoothing, dtype=y_pred.dtype)
-
-  def _smooth_labels():
-    return y_true * (1.0 - label_smoothing) + 0.5 * label_smoothing
-
-  y_true = tf.__internal__.smart_cond.smart_cond(label_smoothing,
-                                                 _smooth_labels, lambda: y_true)
-
-  return backend.mean(
-      backend.binary_focal_crossentropy(
-          target=y_true,
-          output=y_pred,
-          gamma=gamma,
-          from_logits=from_logits,
-      ),
-      axis=axis,
-  )
-
-
-@dispatch.dispatch_for_types(binary_focal_crossentropy, tf.RaggedTensor)
-def _ragged_tensor_binary_focal_crossentropy(
-    y_true,
-    y_pred,
-    gamma=2.0,
-    from_logits=False,
-    label_smoothing=0.,
-    axis=-1,
-):
-  """Implements support for handling RaggedTensors.
-
-  Expected shape: `(batch, sequence_len)` with sequence_len being variable per
-  batch.
-  Return shape: `(batch,)`; returns the per batch mean of the loss values.
-
-  When used by BinaryFocalCrossentropy() with the default reduction
-  (SUM_OVER_BATCH_SIZE), the reduction averages the per batch losses over
-  the number of batches.
-
-  Args:
-    y_true: Tensor of one-hot true targets.
-    y_pred: Tensor of predicted targets.
-    gamma: A focusing parameter, default is `2.0` as mentioned in the reference
-      [Lin et al., 2018](https://arxiv.org/pdf/1708.02002.pdf).
-    from_logits: Whether `y_pred` is expected to be a logits tensor. By default,
-      we assume that `y_pred` encodes a probability distribution.
-    label_smoothing: Float in `[0, 1]`. If > `0` then smooth the labels. For
-      example, if `0.1`, use `0.1 / num_classes` for non-target labels
-      and `0.9 + 0.1 / num_classes` for target labels.
-    axis: Axis along which to compute crossentropy.
-
-  Returns:
-    Binary focal crossentropy loss value.
-  """
-  fn = functools.partial(
-      binary_focal_crossentropy,
-      gamma=gamma,
-      from_logits=from_logits,
-      label_smoothing=label_smoothing,
-      axis=axis,
-  )
-  return _ragged_tensor_apply_loss(fn, y_true, y_pred)
 
 def compare(h1, h2, what='crystal'):
     pylab.figure(1)
@@ -544,53 +307,6 @@ class WSSeparableConv2D(tf.keras.layers.SeparableConv2D):
         self.depthwise_kernel.assign(self.standardize_kernel(self.depthwise_kernel))
         
         return super().call(inputs)
-
-
-def get_predictions(request_arguments, port=8099, verbose=False):
-    start = time.time()
-    context = zmq.Context()
-    if verbose:
-        print('Connecting to server ...')
-    socket = context.socket(zmq.REQ)
-    socket.connect('tcp://localhost:%d' % port)
-    socket.send(pickle.dumps(request_arguments))
-    predictions = pickle.loads(socket.recv())
-    if verbose:
-        print('Received predictions in %.4f seconds' % (time.time() - start))
-    return predictions
-
-def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
-    _start = time.time()
-    gmlc = False
-    most_likely_click = -1, -1
-        
-    for notion in ['crystal', 'loop_inside', 'loop']:
-        notion_prediction = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
-        if notion_prediction[0] == 1:
-            most_likely_click = notion_prediction[1]/notion_prediction[-1].shape[0], notion_prediction[2]/notion_prediction[-1].shape[1]
-            if verbose:
-                print('%s found!' % notion)
-            gmlc = True
-            break
-    if gmlc is False:
-        foreground = get_notion_prediction(predictions, 'foreground', k=k, min_size=min_size)
-        if foreground[0] == 1:
-            most_likely_click = foreground[5]/foreground[-1].shape[0], foreground[6]/foreground[-1].shape[1]
-    if verbose:
-        print('most likely click determined in %.4f seconds' % (time.time() - _start))
-    return most_likely_click
-
-def get_loop_bbox(predictions, k=0, min_size=32):
-    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k, min_size=min_size)
-    shape = predictions[0].shape[1:3]
-    if bbox is not np.nan:
-        r = bbox[0] + h/2
-        c = bbox[1] + w/2
-    r /= shape[0]
-    c /= shape[1]
-    h /= shape[0]
-    w /= shape[1]
-    return loop_present, r, c, h, w
 
 def generate_click_loss_and_metric_figures(click_radius=360e-3, image_shape=(1024, 1360), nclicks=10, ntries=1000, display=True):
     resize_factor = np.array(image_shape)/np.array((1024, 1360))
@@ -1678,7 +1394,7 @@ def efficient_resize(img, new_size, anti_aliasing=True):
 
 def get_notion_description(mask, min_size=32):
     present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties = [np.nan] * 12
-    present = -1
+    present = 0
     
     if np.any(mask):
         labeled_image = mask.astype('uint8')
@@ -1688,7 +1404,7 @@ def get_notion_description(mask, min_size=32):
             present = 1
             area = properties.convex_area
         else:
-            present = -1
+            present = 0
         bbox = properties.bbox
         h = bbox[2] - bbox[0]
         w = bbox[3] - bbox[1]
@@ -1750,7 +1466,246 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
         else:
             notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     
-    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask
+    return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask.astype('uint8')
+
+def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
+    _start = time.time()
+    gmlc = False
+    most_likely_click = -1, -1
+        
+    for notion in ['crystal', 'loop_inside', 'loop']:
+        notion_prediction = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
+        if notion_prediction[0] == 1:
+            most_likely_click = notion_prediction[1]/notion_prediction[-1].shape[0], notion_prediction[2]/notion_prediction[-1].shape[1]
+            if verbose:
+                print('%s found!' % notion)
+            gmlc = True
+            break
+    if gmlc is False:
+        foreground = get_notion_prediction(predictions, 'foreground', k=k, min_size=min_size)
+        if foreground[0] == 1:
+            most_likely_click = foreground[5]/foreground[-1].shape[0], foreground[6]/foreground[-1].shape[1]
+    if verbose:
+        print('most likely click determined in %.4f seconds' % (time.time() - _start))
+    return most_likely_click
+
+def get_bbox_from_description(description, notions=[['crystal', 'loop'], 'foreground']):
+    shape = description['hierarchical_mask'].shape
+    for notion in notions:
+        notion_description = description[get_notion_string(['crystal', 'loop'])]
+        present = notion_description['present'] 
+        if present:
+            r = notion_description['r']
+            c = notion_description['c']
+            h = notion_description['h']
+            w = notion_description['w']
+            r /= shape[0]
+            c /= shape[1]
+            h /= shape[0]
+            w /= shape[1]
+            break
+        else:
+            r, c, h, w = 4*[np.nan]
+    return present, r, c, h, w
+
+
+def get_notion_string(notion):
+    if type(notion) is list:
+        notion_string = ','.join(notion)
+    else:
+        notion_string = notion
+    return notion_string
+
+def get_loop_bbox(predictions, k=0, min_size=32):
+    loop_present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_prediction = get_notion_prediction(predictions, ['crystal', 'loop_inside', 'loop'], k=k, min_size=min_size)
+    shape = predictions[0].shape[1:3]
+    if bbox is not np.nan:
+        r = bbox[0] + h/2
+        c = bbox[1] + w/2
+    r /= shape[0]
+    c /= shape[1]
+    h /= shape[0]
+    w /= shape[1]
+    return loop_present, r, c, h, w
+
+def get_raw_projections(predictions, notion='foreground', threshold=0.5, min_size=32):
+    raw_projections = []
+    for k in range(len(predictions[0])):
+        present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
+        raw_projections.append((present, (r, c, h, w), notion_mask))
+    return raw_projections
+
+def get_descriptions(predictions, notions=['foreground', 'crystal', 'loop_inside', 'loop', ['crystal', 'loop'], ['crystal', 'loop', 'stem']], threshold=0.5, min_size=32, original_image_shape=(1200, 1600)):
+    descriptions = []
+    foreground = get_notion_string('foreground')
+    crystal_loop = get_notion_string(['crystal', 'loop'])
+    possible = get_notion_string(['crystal', 'loop', 'stem'])
+    prediction_shape = np.array(predictions[0].shape[1:3])
+    original_shape = np.array(original_image_shape[:2])
+    for k in range(len(predictions[0])):
+        description = {}
+        description['original_shape'] = original_shape
+        description['prediction_shape'] = prediction_shape
+        description['hierarchical_mask'] = get_hierarchical_mask_from_predictions(predictions, k=k)
+        for notion in notions:
+            present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask = get_notion_prediction(predictions, notion, k=k, min_size=min_size)
+            if present:
+                epo, epi, epooa, epioa, pa = get_extreme_point(notion_mask)
+            else:
+                epo, epi, epooa, epioa = 4 * [(-1, -1)]
+                pa = np.nan
+            #description[get_notion_string(notion)] = (present, (r, c, h, w, area), (epo, epi, epooa, epioa, pa), notion_mask)
+            description[get_notion_string(notion)] =   {'present': present,
+                                                        'r': r,
+                                                        'c': c,
+                                                        'h': h,
+                                                        'w': w,
+                                                        'area': area,
+                                                        'epo': epo,
+                                                        'epi': epi,
+                                                        'epooa': epooa,
+                                                        'epioa': epioa,
+                                                        'pa': pa,
+                                                        'notion_mask': notion_mask}
+        
+        epo_cil, epi_cil, epooa_cil, epioa_cil, pa_cil = get_extreme_point(description[crystal_loop]['notion_mask'], pa=description[possible]['pa'])
+        description['present'] = description[foreground]['present']
+        description['most_likely_click'] = get_most_likely_click_from_description(description)
+        description['aoi_bbox'] = get_bbox_from_description(description, notions=[['crystal', 'loop'], 'foreground'])
+        description['crystal_bbox'] = get_bbox_from_description(description, notions=['crystal'])
+        description['extreme'] = description[foreground]['epo']/prediction_shape
+        description['end_likely'] = description[crystal_loop]['epooa']/prediction_shape
+        description['start_likely'] = epioa_cil/prediction_shape #description[crystal_loop]['epioa']
+        description['start_possible'] = description[possible]['epioa']/prediction_shape
+        descriptions.append(description)
+    return descriptions
+
+def get_most_likely_click_from_description(description, verbose=False):
+    _start = time.time()
+    gmlc = False
+    most_likely_click = -1, -1
+    shape = np.array(description['hierarchical_mask'].shape)
+    for notion in ['crystal', 'loop_inside', 'loop']:
+        notion_description = description[get_notion_string(notion)]
+        if notion_description['present']:
+            r = notion_description['r']
+            c = notion_description['c']
+            most_likely_click = np.array((r, c))/shape
+            if verbose:
+                print('%s found!' % notion)
+            gmlc = True
+            break
+    if gmlc is False:
+        notion_description = description['foreground']
+        if notion_description['present']:
+            epo = notion_description['epo']
+            most_likely_click = np.array(epo)/shape
+    if verbose:
+        print('most likely click determined in %.4f seconds' % (time.time() - _start))
+    return most_likely_click
+
+
+def principal_axes(array, verbose=False):
+    #https://github.com/pierrepo/principal_axes/blob/master/principal_axes.py
+    _start = time.time()
+    if array.shape[1] != 3:
+        xyz = np.argwhere(array==1)
+    else:
+        xyz = array[:, :]
+    
+    coord = np.array(xyz, float)
+    center = np.mean(coord, 0)
+    coord = coord - center
+    inertia = np.dot(coord.transpose(), coord)
+    e_values, e_vectors = np.linalg.eig(inertia)
+    order = np.argsort(e_values)[::-1]
+    eigenvalues = np.array(e_values[order])
+    eigenvectors = np.array(e_vectors[:, order])
+    _end = time.time()
+    if verbose:
+        print('principal axes')
+        print('intertia tensor')
+        print(inertia)
+        print('eigenvalues')
+        print(eigenvalues)
+        print('eigenvectors')
+        print(eigenvectors)
+        print('principal_axes calculated in %.4f seconds' % (_end-_start))
+        print()
+    return inertia, eigenvalues, eigenvectors, center
+
+def get_extreme_point(projection, pa=None, orientation='horizontal', extreme_direction=1):
+    try:
+        xyz = np.argwhere(projection != 0)
+        if pa is None:
+            pa = principal_axes(projection)
+    
+        S = pa[-2]
+        center = pa[-1]
+        
+        xyz_0 = xyz - center
+        
+        xyz_S = np.dot(xyz_0, S)
+        xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
+        
+        mino = xyz_S[np.argmin(xyz_S[:, 0])]
+        try:
+            mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
+        except:
+            print(traceback.print_exc())
+            mino_on_axis = copy.copy(mino)
+        maxo = xyz_S[np.argmax(xyz_S[:, 0])]
+        try:
+            maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
+        except:
+            print(traceback.print_exc())
+            maxo_on_axis = copy.copy(maxo)
+            
+        mino_0_s = np.dot(mino, np.linalg.inv(S)) + center
+        maxo_0_s = np.dot(maxo, np.linalg.inv(S)) + center
+
+        mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
+        maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
+        
+        if orientation == 'horizontal':
+            if extreme_direction*mino_0_s[1] > extreme_direction*maxo_0_s[1]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+        else:
+            if extreme_direction*mino_0_s[0] > extreme_direction*maxo_0_s[0]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+    except:
+        print(traceback.print_exc())
+        extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis = [[np.nan, np.nan]] * 4
+    return extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis, pa
+
+def get_predictions(request_arguments, port=8099, verbose=False):
+    start = time.time()
+    context = zmq.Context()
+    if verbose:
+        print('Connecting to server ...')
+    socket = context.socket(zmq.REQ)
+    socket.connect('tcp://localhost:%d' % port)
+    socket.send(pickle.dumps(request_arguments))
+    predictions = pickle.loads(socket.recv())
+    if verbose:
+        print('Received predictions in %.4f seconds' % (time.time() - start))
+    return predictions
 
 def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin/Research/murko', model_name='fcdn103_256x320_loss_weights.h5', directory='images_and_labels', nimages=-1, batch_size=16, model_img_size=(224, 224), augment=False, threshold=0.5, train=False, split=0.2, target=False, model=None, save=True, prefix='prefix'):
     _start = time.time()
@@ -1850,7 +1805,44 @@ def get_hierarchical_mask_from_target(target, notions=['crystal', 'loop_inside',
         hierarchical_mask[0, notions.index(notion)] = notions.index(notion) + 1
     return hierarchical_mask
 
-def get_kth_prediction_from_predictions(k, predictions):
+def get_hierarchical_mask_from_prediction(prediction, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'foreground'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, notion_values={'crystal': 6, 'loop_inside': 5, 'loop': 4, 'stem': 3, 'pin': 2, 'foreground': 1}, min_size=32, massage=True):
+    hierarchical_mask = np.zeros(prediction.shape[:2])
+    for notion in notions:
+        notion_value = notion_values[notion]
+        l = notion_indices[notion]
+        mask = prediction[:,:,l]>threshold
+        if massage:
+            if notion in ['crystal', 'loop', 'loop_inside', 'stem', 'pin']:
+                massager = 'convex'
+            else:
+                massager = 'filled'
+            mask = massage_mask(mask, min_size=min_size, massager=massager)
+        if np.any(mask):
+            hierarchical_mask[mask==1] = notion_value
+    return hierarchical_mask
+
+def get_hierarchical_mask_from_kth_prediction(predictions, k):
+    prediction = get_kth_prediction_from_predictions(predictions, k)
+    hierarchical_mask = get_hierarchical_mask_from_prediction(prediction)
+    return hierarchical_mask
+
+def get_hierarchical_mask_from_predictions(predictions, k=0, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'foreground'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, notion_values={'crystal': 6, 'loop_inside': 5, 'loop': 4, 'stem': 3, 'pin': 2, 'foreground': 1}, min_size=32, massage=True):
+    hierarchical_mask = np.zeros(predictions[0].shape[1:3], dtype=np.uint8)
+    for notion in notions[::-1]:
+        notion_value = notion_values[notion]
+        l = notion_indices[notion]
+        mask = predictions[l][k,:,:,0]>threshold
+        if massage:
+            if notion in ['crystal', 'loop', 'loop_inside', 'stem', 'pin']:
+                massager = 'convex'
+            else:
+                massager = 'filled'
+            mask = massage_mask(mask, min_size=min_size, massager=massager)
+        if np.any(mask):
+            hierarchical_mask[mask==1] = notion_value
+    return hierarchical_mask
+
+def get_kth_prediction_from_predictions(predictions, k):
     prediction = np.zeros(predictions.shape[1:3] + predictions.shape[0], dtype=np.uint8)
     for n, notion in enumerate(predictions):
         prediction[:,:,n] = predictions[n][k][:,:,0]
@@ -1869,22 +1861,6 @@ def massage_mask(mask, min_size=32, massager='convex'):
         mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
     return mask
 
-def get_hierarchical_mask_from_predictions(predictions, k=0, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'foreground'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'foreground': 5}, threshold=0.5, notion_values={'crystal': 7, 'loop_inside': 6, 'loop': 5, 'stem': 4, 'pin': 3, 'foreground': 8}, min_size=32, massage=True):
-    hierarchical_mask = np.zeros(predictions[0].shape[1:3], dtype=np.uint8)
-    for notion in notions[::-1]:
-        notion_value = notion_values[notion]**2
-        l = notion_indices[notion]
-        mask = predictions[l][k,:,:,0]>threshold
-        if massage:
-            if notion in ['crystal', 'loop', 'loop_inside', 'stem', 'pin']:
-                massager = 'convex'
-            else:
-                massager = 'filled'
-            mask = massage_mask(mask, min_size=min_size, massager=massager)
-        if np.any(mask):
-            hierarchical_mask[mask==1] = notion_value
-    return hierarchical_mask
-    
 def save_predictions(input_images, predictions, image_paths, ground_truths, notions, notion_indices, model_img_size, model_name='default', train=False, target=False, threshold=0.5, click_threshold=0.95):
     _start = time.time()
     for k, input_image in enumerate(input_images):
