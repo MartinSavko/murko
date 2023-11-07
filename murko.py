@@ -1500,10 +1500,11 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
     present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties = get_notion_description(notion_mask, min_size=min_size)
     
     if type(properties) != float:
-        if notion == 'foreground' or type(notion) is list:
-            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
-        else:
-            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+        notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        #if notion == 'foreground' or type(notion) is list:
+            #notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        #else:
+            #notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask.astype('uint8')
 
@@ -1900,6 +1901,72 @@ def massage_mask(mask, min_size=32, massager='convex'):
         mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
     return mask
 
+def plot_analysis(input_images, analysis, figsize=(16, 9), model_name='default', image_paths=None):
+    
+    _start = time.time()
+    descriptions = analysis['descriptions']
+    
+    for k, input_image in enumerate(input_images):
+        hierarchical_mask = descriptions[k]['hierarchical_mask']
+        
+        if image_paths is not None:
+            name = os.path.basename(image_paths[k])
+            prefix = name[:-4]
+            directory = os.path.dirname(image_paths[k])
+        else:
+            name='test_default'
+        template = '%s_%s_model_img_size_%dx%d' % (prefix, model_name.replace('.h5', ''), hierarchical_mask.shape[0], hierarchical_mask.shape[1])
+        
+        prediction_img_path = os.path.join(directory, '%s_hierarchical_mask_high_contrast_predicted.png' % (template))
+        #save_img(prediction_img_path, np.expand_dims(hierarchical_mask, axis=2), scale=True)
+        
+        #predicted_masks_name = os.path.join(directory, '%s.npy' % template)
+        #np.save(predicted_masks_name, predicted_masks)
+        
+        fig, axes = plt.subplots(1, 2)
+        fig.set_size_inches(figsize)
+        fig.suptitle(name)
+        axes[0].set_title('input image with predicted click and loop bounding box (if any)')
+        axes[0].imshow(input_image)
+        axes[1].set_title('raw segmentation result with most likely click (if any)')
+        axes[1].imshow(hierarchical_mask)
+            
+        for a in axes.flatten():
+            a.axis('off')
+        
+        prediction_shape = np.array(hierarchical_mask.shape)
+        most_likely_click = descriptions[k]['most_likely_click']
+        original_shape = descriptions[k]['original_shape']
+        
+        if -1 not in most_likely_click:
+            mlc_ii = most_likely_click*original_shape
+            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color='green')
+            axes[0].add_patch(click_patch_ii)
+            
+            mlc_hm = most_likely_click*prediction_shape
+            click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color='green')
+            axes[1].add_patch(click_patch_hm)
+
+        loop_present, r, c, h, w = descriptions[k]['aoi_bbox']
+        if loop_present != -1:
+            r *= original_shape[0]
+            c *= original_shape[1]
+            h *= original_shape[0]
+            w *= original_shape[1]
+            C, R = int(c-w/2), int(r-h/2)
+            W, H = int(w), int(h)
+            loop_bbox_patch = plt.Rectangle((C, R), W, H, linewidth=1, edgecolor='green', facecolor='none')
+            axes[0].add_patch(loop_bbox_patch)
+            
+        comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
+        plt.savefig(comparison_path)
+        plt.close()
+        print('saving %s' % comparison_path)
+    end = time.time()
+    
+    print('%d predictions saved in %.4f seconds (%.4f per image)' % (len(input_images), end-_start, (end-_start)/len(input_images)))
+    
+    
 def save_predictions(input_images, predictions, image_paths, ground_truths, notions, notion_indices, model_img_size, model_name='default', train=False, target=False, threshold=0.5, click_threshold=0.95):
     _start = time.time()
     for k, input_image in enumerate(input_images):
@@ -1997,7 +2064,7 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
     end = time.time()
     
     print('%d predictions saved in %.4f seconds (%.4f per image)' % (len(input_images), end-_start, (end-_start)/len(input_images)))
-  
+
 def get_img_size_as_scale_of_pixel_budget(scale, pixel_budget=768*992, ratio=0.75, modulo=32):
     n = math.floor(math.sqrt(pixel_budget/ratio))
     new_n = n*scale
