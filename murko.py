@@ -37,7 +37,14 @@ from tensorflow.keras.preprocessing.image import save_img, load_img, img_to_arra
 from tensorflow.keras.preprocessing import image
 
 from keras.models import Model, load_model
-from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D
+try:
+    from keras.layers import Input
+    from keras.layers.core import Dropout, Lambda
+    from keras.layers.convolutional import Conv2D, SeparableConv2D, Conv2DTranspose
+    from keras.layers.pooling import MaxPooling2D
+except:
+    from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D
+
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras import backend as K
 
@@ -500,7 +507,7 @@ def get_flipped_img_and_target(img, target):
     target = flip_axis(target, axis)
     return img, target
 
-def get_transformed_img_and_target(img, target, default_transform_gang=[0, 0, 0, 0, 1, 1], zoom_factor=0.5, shift_factor=0.5, shear_factor=45, size=(512, 512), rotate_probability=1, shift_probability=1, shear_probability=1, zoom_probability=1, theta_min=-180., theta_max=180., resize=False, random_brightness=True, random_saturation=True):
+def get_transformed_img_and_target(img, target, default_transform_gang=[0, 0, 0, 0, 1, 1], zoom_factor=0.25, shift_factor=0.25, shear_factor=45, size=(512, 512), rotate_probability=1, shift_probability=1, shear_probability=1, zoom_probability=1, theta_min=-30., theta_max=30., resize=False):
     if resize:
         img = resize(img, size, anti_aliasing=True)
         target = resize(target, size, anti_aliasing=True)
@@ -520,11 +527,6 @@ def get_transformed_img_and_target(img, target, default_transform_gang=[0, 0, 0,
     if random.random() < zoom_probability:
         zx = random.uniform(1-zoom_factor, 1+zoom_factor)
         zy = zx
-    #brightness
-    if random_brightness:
-        img = image.random_brightness(img, [0.75, 1.25])/255.
-    if random_saturation:
-        img = image.random_channel_shift(img, 0.5, channel_axis=2)
         
     if np.any(np.array([theta, tx, ty, shear, zx, zy]) != default_transform_gang):
         transform_arguments = {'theta': theta, 'tx': tx, 'ty': ty, 'shear': shear, 'zx': zx, 'zy': zy}
@@ -585,7 +587,7 @@ def load_ground_truth_image(path, target_size):
     return ground_truth
     
 class MultiTargetDataset(keras.utils.Sequence):
-    def __init__(self, batch_size, img_size, img_paths, img_string='img.jpg', label_string='masks.npy', click_string='user_click.npy', augment=False, transpose=True, flip=True, swap_backgrounds=True, zoom_factor=0.5, shift_factor=0.5, shear_factor=45, default_transform_gang=[0, 0, 0, 0, 1, 1], scale_click=False, click_radius=320e-3, min_scale=0.15, max_scale=1.0, dynamic_batch_size=False, number_batch_size_scales=32, possible_ratios=[0.75, 1.], pixel_budget=768*992, artificial_size_increase=1, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'capillary': 5, 'ice': 6, 'foreground': 7, 'click':-1}, shuffle_at_0=False, click='segmentation', target=True, black_and_wight=False):
+    def __init__(self, batch_size, img_size, img_paths, img_string='img.jpg', label_string='masks.npy', click_string='user_click.npy', augment=False, transform=True, transpose=True, flip=True, swap_backgrounds=True, zoom_factor=0.25, shift_factor=0.25, shear_factor=45, default_transform_gang=[0, 0, 0, 0, 1, 1], scale_click=False, click_radius=320e-3, min_scale=0.15, max_scale=1.0, dynamic_batch_size=False, number_batch_size_scales=32, possible_ratios=[0.75, 1.], pixel_budget=768*992, artificial_size_increase=1, notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], notion_indices={'crystal': 0, 'loop_inside': 1, 'loop': 2, 'stem': 3, 'pin': 4, 'capillary': 5, 'ice': 6, 'foreground': 7, 'click':-1}, shuffle_at_0=False, click='segmentation', target=True, black_and_white=True, random_brightness=True, random_channel_shift=False, verbose=False):
         self.batch_size = batch_size
         self.img_size = img_size
         if artificial_size_increase > 1:
@@ -597,6 +599,7 @@ class MultiTargetDataset(keras.utils.Sequence):
         self.label_string = label_string
         self.click_string = click_string
         self.augment = augment
+        self.transform = transform
         self.transpose = transpose
         self.flip = flip
         self.swap_backgrounds = swap_backgrounds
@@ -629,7 +632,10 @@ class MultiTargetDataset(keras.utils.Sequence):
         self.shuffle_at_0 = shuffle_at_0
         self.click = click
         self.target = target
-        self.black_and_wight = black_and_wight
+        self.black_and_white = black_and_white
+        self.random_brightness = random_brightness
+        self.random_channel_shift = random_channel_shift
+        self.verbose = verbose
         
     def __len__(self):
         return math.ceil(len(self.img_paths)/self.batch_size)
@@ -662,20 +668,44 @@ class MultiTargetDataset(keras.utils.Sequence):
         do_transpose = False
         do_transform = False
         do_swap_backgrounds = False
-        do_black_and_wight = False
-            
+        do_black_and_white = False
+        do_random_brightness = False
+        do_random_channel_shift = False
         if self.augment:
-            if self.transpose and random.random() > 0.5:
+            if self.transform and random.random() < 0.5:
+                do_transform = True
+                if self.verbose:
+                    print('do_transform')
+            if self.transpose and random.random() < 0.5:
                 final_img_size = img_size[::-1]
                 do_transpose = True
-            if self.flip and random.random() > 0.5:
-                do_flip = True
-            if self.augment and random.random() > 0.1:
-                do_transform = True
-            if self.swap_backgrounds and random.random() > 0.25:
+                if self.verbose:
+                    print('do_transpose')
+                if self.flip and random.random() < 0.5:
+                    do_flip = True
+                    if self.verbose:
+                        print('do_flip')
+            else:
+                if self.flip and random.random() < 0.5:
+                    do_flip = True
+                    if self.verbose:
+                        print('do_flip')
+            if self.swap_backgrounds and random.random() < 0.25:
                 do_swap_backgrounds = True
-            if self.black_and_wight and random.random() > 0.5:
-                do_black_and_wight = True
+                if self.verbose:
+                    print('do_swap_backgrounds')
+            if self.black_and_white and random.random() < 0.25:
+                do_black_and_white = True
+                if self.verbose:
+                    print('do_black_and_white')
+            if self.random_brightness and random.random() < 0.25:
+                do_random_brightness = True
+                if self.verbose:
+                    print('do_random_brightness')
+            if not do_black_and_white and self.random_channel_shift and random.random() < 0.25:
+                do_random_channel_shift = True
+                if self.verbose:
+                    print('do_random_channel_shift')
                 
         x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
         y = [np.zeros((batch_size,) + final_img_size + (1,), dtype="uint8") for notion in self.notions if 'click' not in notion]
@@ -716,20 +746,26 @@ class MultiTargetDataset(keras.utils.Sequence):
             if self.target and np.all(target[:,:,self.notions.index('foreground')] == 0):
                 do_swap_backgrounds = False
                 
-            if self.augment and do_transpose is True:
+            if do_transpose is True:
                 img, target = get_transposed_img_and_target(img, target)
-            
-            if self.augment and do_flip is True:
+                
+            if do_flip is True:
                 img, target = get_flipped_img_and_target(img, target)
                 
             if do_transform is True:
                 img, target = get_transformed_img_and_target(img, target, zoom_factor=self.zoom_factor, shift_factor=self.shift_factor, shear_factor=self.shear_factor)
 
-            if self.augment and do_swap_backgrounds is True and 'background' not in img_path:
+            if do_swap_backgrounds is True and 'background' not in img_path:
                 new_background = random.choice(self.candidate_backgrounds[zoom])
                 if size_differs(img.shape[:2], new_background.shape[:2]):
                     new_background = resize(new_background, img.shape[:2], anti_aliasing=True)
                 img[target[:,:,self.notions.index('foreground')]==0] = new_background[target[:,:,self.notions.index('foreground')]==0]
+            
+            if do_random_brightness is True:
+                img = image.random_brightness(img, [0.75, 1.25])/255.
+            
+            if do_random_channel_shift is True:
+                img = image.random_channel_shift(img, 0.5, channel_axis=2)
                 
             if size_differs(img.shape[:2], final_img_size):
                 img = resize(img, final_img_size, anti_aliasing=True)
@@ -751,9 +787,9 @@ class MultiTargetDataset(keras.utils.Sequence):
                 y_click, x_click = user_click_frac
             elif self.target:
                 target = (target>0).astype('uint8')
-            if do_black_and_wight:
+            if do_black_and_white:
                 img_bw = img.mean(axis=2)
-                img = np.expand_dims(img_bw, axis=2)
+                img = np.stack([img_bw]*3, axis=2)
             x[j] = img
             if self.target:
                 for k, notion in enumerate(self.notions):
@@ -767,7 +803,10 @@ class MultiTargetDataset(keras.utils.Sequence):
                 
         if self.target and len(y) == 1:
             y = y[0]
-        return x, y
+        if self.target:
+            return x, y
+        else:
+            return x
                 
 class SampleSegmentationDataset(keras.utils.Sequence):
     """Helper to iterate over the data (as Numpy arrays)."""
@@ -1240,7 +1279,7 @@ def get_training_and_validation_datasets_for_clicks(basedir='./', seed=1, backgr
         train_paths = [item for item in train_paths if item not in forbidden]
     return train_paths, val_paths
 
-def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=3, mixed_precision=False, name='start', source_weights=None, batch_size=16, model_img_size=(512, 512), network='fcdn56', convolution_type='SeparableConv2D',  heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}], notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], last_convolution=False, augment=False, train_images=-1, valid_images=1000, scale_click=False, click_radius=320e-3, learning_rate=0.001, pixel_budget=768*992, normalization_type='GroupNormalization', validation_scale=0.4, dynamic_batch_size=True, finetune=False, seed=12345, artificial_size_increase=1, include_plate_images=False, include_capillary_images=False, dropout_rate=0.2, weight_standardization=True, limit_loss=True, weight_decay=1.e-4, activation='relu'):
+def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patience=3, mixed_precision=False, name='start', source_weights=None, batch_size=16, model_img_size=(512, 512), network='fcdn56', convolution_type='SeparableConv2D',  heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'capillary', 'type': 'segmentation'}, {'name': 'ice', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}, {'name': 'click', 'type': 'click_segmentation'}], notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground', 'click'], last_convolution=False, augment=True, train_images=-1, valid_images=1000, scale_click=False, click_radius=320e-3, learning_rate=0.001, pixel_budget=768*992, normalization_type='GroupNormalization', validation_scale=0.4, dynamic_batch_size=True, finetune=False, seed=12345, artificial_size_increase=1, include_plate_images=False, include_capillary_images=False, dropout_rate=0.2, weight_standardization=True, limit_loss=True, weight_decay=1.e-4, activation='relu', train_dev_split=0.2, val_model_img_size=(256, 320)):
     
     if mixed_precision:
         print('setting mixed_precision')
@@ -1508,7 +1547,6 @@ def get_bbox_from_description(description, notions=[['crystal', 'loop'], 'foregr
             r, c, h, w = 4*[np.nan]
     return present, r, c, h, w
 
-
 def get_notion_string(notion):
     if type(notion) is list:
         notion_string = ','.join(notion)
@@ -1754,6 +1792,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         if size_differs(to_predict[0].shape[:2], model_img_size):
             to_predict = np.array([efficient_resize(img, model_img_size, anti_aliasing=True) for img in to_predict])
     print('all images (%d) ready for prediction in %.4f seconds' % (len(to_predict), time.time()-_start))
+    
     all_input_images = []
     all_ground_truths = []
     all_predictions = []
@@ -1901,6 +1940,7 @@ def save_predictions(input_images, predictions, image_paths, ground_truths, noti
         
         if train:
             prefix += '_train'
+
         template = '%s_%s_model_img_size_%dx%d' % (prefix, model_name.replace('.h5', ''), model_img_size[0], model_img_size[1])
         
         prediction_img_path = os.path.join(directory, '%s_hierarchical_mask_high_contrast_predicted.png' % (template))
@@ -2012,9 +2052,10 @@ def plot_augment(img_path, ntransformations=14, figsize=(24, 16), zoom_factor=0.
         wimg = img[::]
         wtarget = target[::]
         if random.random()>0.5:
-            wimg, wtarget = get_transposed_img_and_target(wimg, wtarget)
-        if random.random()>0.5:
             wimg, wtarget = get_flipped_img_and_target(wimg, wtarget)
+        if random.random()>0.5:
+            wimg, wtarget = get_transposed_img_and_target(wimg, wtarget)
+        
         wimg, wtarget = get_transformed_img_and_target(wimg, wtarget, shear_factor=shear_factor, zoom_factor=zoom_factor, shift_factor=shift_factor, rotate_probability=rotate_probability, shear_probability=shear_probability, zoom_probability=zoom_probability, shift_probability=shift_probability)
         
         ax[2*t].imshow(wimg)
@@ -2022,6 +2063,29 @@ def plot_augment(img_path, ntransformations=14, figsize=(24, 16), zoom_factor=0.
         ax[2*t+1].imshow(get_hierarchical_mask_from_target(wtarget))
         ax[2*t+1].set_title('%d target' % (t+1))
     
+    pylab.show()
+
+def plot_batch(batch_size=16, transform=True, swap_backgrounds=True, black_and_white=True, shuffle_at_0=True, flip=True, transpose=True, model_img_size=(256, 320), figsize=(24, 16), notions=['crystal', 'loop_inside', 'loop', 'stem', 'pin', 'capillary', 'ice', 'foreground']):
+    paths, _ = get_training_and_validation_datasets(directory='images_and_labels', split=0.2)
+    gen = MultiTargetDataset(batch_size, model_img_size, paths, notions=notions, augment=True, transform=transform, swap_backgrounds=swap_backgrounds, flip=flip, transpose=transpose, dynamic_batch_size=False,  artificial_size_increase=False, shuffle_at_0=shuffle_at_0, black_and_white=black_and_white, verbose=True)
+    
+    imgs, targets = gen[0]
+    targets_as_multichannel_masks = np.zeros(imgs.shape[:3]+(len(targets),), dtype='uint8')
+    for k in range(batch_size):
+        for l in range(len(notions)):
+            targets_as_multichannel_masks[k, :, :, l] = targets[l][k, :, :, 0]
+    fig, axes = pylab.subplots((2*batch_size)//6+1, 6)
+    fig.set_size_inches(*figsize)
+    title = 'batch plot'
+    fig.suptitle(title)
+    ax = axes.flatten()
+    for a in ax:
+        a.axis('off')
+    for t in range(batch_size):
+        ax[2*t].imshow(imgs[t])
+        ax[2*t].set_title('%d input' % (t))
+        ax[2*t+1].imshow(get_hierarchical_mask_from_target(targets_as_multichannel_masks[t]))
+        ax[2*t+1].set_title('%d target' % (t))
     pylab.show()
     
 
