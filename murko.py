@@ -5,8 +5,10 @@
 # Model based on The One Hundred Layers Tiramisu: Fully convolutional DenseNets for Semantic Segmentation, arXiv:1611.09326
 # With main difference being use of SeparableConv2D instead of Conv2D and using GroupNormalization instead of BatchNormalization. Plus using additional Weight standardization (based on Qiao et al. Micro-Batch Training with Batch-Channel Normalization and Weight Standardization arXiv:1903.10520v2)
 
-import sys
 import os
+import sys
+import time
+import math
 import zmq
 import glob
 import numpy as np
@@ -25,8 +27,6 @@ sns.set(color_codes=True)
 #rc('font', **{'family':'serif','serif':['Palatino']})
 #rc('text', usetex=True)
 
-import math
-
 import tensorflow as tf
 import tensorflow.experimental.numpy as tnp
 from tensorflow import keras
@@ -34,14 +34,9 @@ from tensorflow.keras import layers
 from tensorflow.keras import regularizers 
 from tensorflow.keras.preprocessing.image import save_img, load_img, img_to_array, array_to_img
 from tensorflow.keras.preprocessing import image
-
 from keras.models import Model, load_model
-from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D, GroupNormalization, BatchNormalization
-
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from keras import backend as K
 
-from skimage.io import imread, imsave
 from skimage.transform import resize
 from skimage.measure import regionprops
 from skimage.morphology import remove_small_objects
@@ -50,7 +45,7 @@ try:
 except:
     from skimage.morphology.selem import disk
 import matplotlib.pyplot as plt
-import time
+
 
 directory = 'images_and_labels_augmented'
 img_size = (1024, 1360)
@@ -1046,19 +1041,19 @@ def get_transition_up(skip_connection, block_to_upsample, filters, padding="same
 
 def get_normalization_layer(x, normalization_type, bn_momentum=0.9, bn_epsilon=1.1e-5, gn_groups=16):
     if normalization_type in ['BN', 'BatchNormalization']:
-        x = BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     elif normalization_type in ['GN', 'GroupNormalization']:
-        x = GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
+        x = layers.GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
     elif normalization_type == 'BCN':
-        x = GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
-        x = BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = layers.GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
+        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
 def get_uncompiled_tiramisu(nfilters=48, growth_rate=16, layers_scheme=[4, 5, 7, 10, 12], bottleneck=15, activation='relu', convolution_type='SeparableConv2D', padding='same', last_convolution=False, dropout_rate=0.2, weight_standardization=True, model_img_size=(None, None), input_channels=3, use_bias=False, kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}], verbose=False, name='model', normalization_type='GroupNormalization', gn_groups=16, bn_momentum=0.9, bn_epsilon=1.1e-5, input_dropout=0.):
     print('get_uncompiled_tiramisu heads', heads)
     boilerplate={'activation': activation, 'convolution_type': convolution_type, 'padding': padding, 'dropout_rate': dropout_rate, 'use_bias': use_bias, 'kernel_initializer': kernel_initializer, 'kernel_regularizer': kernel_regularizer, 'weight_decay': weight_decay, 'normalization_type': normalization_type, 'weight_standardization': weight_standardization}
     
-    inputs = keras.Input(shape=(model_img_size) + (input_channels,))
+    inputs = layers.Input(shape=(model_img_size) + (input_channels,))
     
     nfilters_start = nfilters
 
@@ -1493,11 +1488,10 @@ def get_notion_prediction(predictions, notion, k=0, notion_indices={'crystal': 0
     present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties = get_notion_description(notion_mask, min_size=min_size)
     
     if type(properties) != float:
-        notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
-        #if notion == 'foreground' or type(notion) is list:
-            #notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
-        #else:
-            #notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+        if notion == 'foreground' or type(notion) is list:
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        else:
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, notion_mask.astype('uint8')
 
@@ -1726,15 +1720,16 @@ def get_extreme_point(projection, pa=None, orientation='horizontal', extreme_dir
         extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis = [[np.nan, np.nan]] * 4
     return extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis, pa
 
-def get_predictions(request_arguments, port=8099, verbose=False):
+def get_predictions(request_arguments, host='localhost', port=89019, verbose=False):
     start = time.time()
     context = zmq.Context()
     if verbose:
         print('Connecting to server ...')
     socket = context.socket(zmq.REQ)
-    socket.connect('tcp://localhost:%d' % port)
+    socket.connect('tcp://%s:%d' % (host, port))
     socket.send(pickle.dumps(request_arguments))
-    predictions = pickle.loads(socket.recv())
+    raw_predictions = socket.recv()
+    predictions = pickle.loads(raw_predictions)
     if verbose:
         print('Received predictions in %.4f seconds' % (time.time() - start))
     return predictions
