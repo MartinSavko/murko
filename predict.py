@@ -37,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--min_size', type=int, default=64, help='minimum object size')
 
     args = parser.parse_args()
+    print(args)
     
     model_img_size = (args.prediction_heigth, args.prediction_width)
     

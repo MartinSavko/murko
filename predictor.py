@@ -139,7 +139,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('-p', '--port', type=int, default=8901, help='port')
+    parser.add_argument('-p', '--port', type=int, default=89011, help='port')
     parser.add_argument('-m', '--model_name', type=str, default='model.h5', help='model')
     parser.add_argument('-s', '--model_img_size', type=str, default='(256, 320)', help='working image resolution')
     parser.add_argument('-d', '--directory', default=None, type=str, help='optional model directory')

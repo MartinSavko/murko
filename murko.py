@@ -46,7 +46,6 @@ except:
     from skimage.morphology.selem import disk
 import matplotlib.pyplot as plt
 
-
 directory = 'images_and_labels_augmented'
 img_size = (1024, 1360)
 model_img_size = (512, 512)
