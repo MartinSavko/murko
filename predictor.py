@@ -86,6 +86,10 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         print("%s received request" % (time.asctime(), ))
         to_predict = request['to_predict']
         image_paths = []
+        min_size = 64
+        if 'min_size' in request:
+            min_size = request['min_size']
+        
         if type(to_predict) is str and (to_predict.lower().endswith('.jpg') or to_predict.lower().endswith('.jpeg')):
             image_paths = [to_predict[:]]
             to_predict = np.array(simplejpeg.decode_jpeg(open(to_predict, 'rb').read()))
@@ -112,7 +116,8 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         print('%d predictions took %.3f seconds (%.3f per image)' % (N, duration, duration/N))
         if 'description' in request and request['description'] is not False:
             _start_description = time.time()
-            descriptions = get_descriptions(all_predictions, notions=request['description'], original_image_shape=original_image_shape, min_size=request['min_size'])
+            
+            descriptions = get_descriptions(all_predictions, notions=request['description'], original_image_shape=original_image_shape, min_size=min_size)
             analysis['descriptions'] = descriptions
             print('descriptions took %.3f seconds' % (time.time() - _start_description))
             if 'raw_predictions' in request and request['raw_predictions'] is True:
