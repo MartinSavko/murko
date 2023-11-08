@@ -28,7 +28,6 @@ sns.set(color_codes=True)
 import math
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tensorflow.experimental.numpy as tnp
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -37,13 +36,7 @@ from tensorflow.keras.preprocessing.image import save_img, load_img, img_to_arra
 from tensorflow.keras.preprocessing import image
 
 from keras.models import Model, load_model
-try:
-    from keras.layers import Input
-    from keras.layers.core import Dropout, Lambda
-    from keras.layers.convolutional import Conv2D, SeparableConv2D, Conv2DTranspose
-    from keras.layers.pooling import MaxPooling2D
-except:
-    from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D
+from keras.layers import Input, Dropout, Lambda, Conv2D, SeparableConv2D, Conv2DTranspose, MaxPooling2D, GroupNormalization, BatchNormalization
 
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras import backend as K
@@ -1053,12 +1046,12 @@ def get_transition_up(skip_connection, block_to_upsample, filters, padding="same
 
 def get_normalization_layer(x, normalization_type, bn_momentum=0.9, bn_epsilon=1.1e-5, gn_groups=16):
     if normalization_type in ['BN', 'BatchNormalization']:
-        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     elif normalization_type in ['GN', 'GroupNormalization']:
-        x = tfa.layers.GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
+        x = GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
     elif normalization_type == 'BCN':
-        x = tfa.layers.GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
-        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = GroupNormalization(groups=find_number_of_groups(x.shape[-1], gn_groups))(x)
+        x = BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
 def get_uncompiled_tiramisu(nfilters=48, growth_rate=16, layers_scheme=[4, 5, 7, 10, 12], bottleneck=15, activation='relu', convolution_type='SeparableConv2D', padding='same', last_convolution=False, dropout_rate=0.2, weight_standardization=True, model_img_size=(None, None), input_channels=3, use_bias=False, kernel_initializer='he_normal', kernel_regularizer='l2', weight_decay=1e-4, heads=[{'name': 'crystal', 'type': 'segmentation'}, {'name': 'loop_inside', 'type': 'segmentation'}, {'name': 'loop', 'type': 'segmentation'}, {'name': 'stem', 'type': 'segmentation'}, {'name': 'pin', 'type': 'segmentation'}, {'name': 'foreground', 'type': 'segmentation'}], verbose=False, name='model', normalization_type='GroupNormalization', gn_groups=16, bn_momentum=0.9, bn_epsilon=1.1e-5, input_dropout=0.):
