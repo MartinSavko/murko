@@ -1659,7 +1659,7 @@ def principal_axes(array, verbose=False):
         print()
     return inertia, eigenvalues, eigenvectors, center
 
-def get_extreme_point(projection, pa=None, orientation='horizontal', extreme_direction=1):
+def get_extreme_point(projection, pa=None, orientation='vertical', extreme_direction=1):
     try:
         xyz = np.argwhere(projection != 0)
         if pa is None:
@@ -1716,7 +1716,7 @@ def get_extreme_point(projection, pa=None, orientation='horizontal', extreme_dir
                 extreme_point_ini_on_axis = mino_0_s_on_axis
     except:
         print(traceback.print_exc())
-        extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis = [[np.nan, np.nan]] * 4
+        extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis = [[-1, -1]] * 4
     return extreme_point_out, extreme_point_ini, extreme_point_out_on_axis, extreme_point_ini_on_axis, pa
 
 def get_predictions(request_arguments, host='localhost', port=89019, verbose=False):
@@ -1936,15 +1936,18 @@ def plot_analysis(input_images, analysis, figsize=(16, 9), model_name='default',
 
         loop_present, r, c, h, w = descriptions[k]['aoi_bbox']
         if loop_present != -1:
-            r *= original_shape[0]
-            c *= original_shape[1]
-            h *= original_shape[0]
-            w *= original_shape[1]
-            C, R = int(c-w/2), int(r-h/2)
-            W, H = int(w), int(h)
-            loop_bbox_patch = plt.Rectangle((C, R), W, H, linewidth=1, edgecolor='green', facecolor='none')
-            axes[0].add_patch(loop_bbox_patch)
-            
+            try:
+                r *= original_shape[0]
+                c *= original_shape[1]
+                h *= original_shape[0]
+                w *= original_shape[1]
+                C, R = int(c-w/2), int(r-h/2)
+                W, H = int(w), int(h)
+                loop_bbox_patch = plt.Rectangle((C, R), W, H, linewidth=1, edgecolor='green', facecolor='none')
+                axes[0].add_patch(loop_bbox_patch)
+            except:
+                pass
+                
         comparison_path = prediction_img_path.replace('hierarchical_mask_high_contrast_predicted', 'comparison')
         plt.savefig(comparison_path)
         plt.close()
