@@ -33,13 +33,13 @@ pip install -r requirements
 ## Usage
 1. Start server
 ```
-./predict_server.py &
+./server.py &
 ```
 model loading and warmup run will take about 10 seconds.
 
 2. query the server
 ```
-./predict.py -t examples/image.jpg --save
+./client.py -t examples/image.jpg --save
 
 ```
 
@@ -59,12 +59,18 @@ port = 8099 # port on which the server is listening
 
 predicitions = get_predictions(request_arguments, port=port)
 
-most_likely_click = get_most_likely_click(predictions)
-loop_present, r, c, h, w = get_loop_bbox(predictions)
+anything_in_the_picture = predictions['present']
+most_likely_click = predictions['most_likely_click']
+loop_present, r, c, h, w = predictions['aoi_bbox']
+
+if anything_in_the_picture:
+   print('there seems to be something other than the background in this picture ...')
+   
 if loop_present:
    print('Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f' % (r, c, h, w))
 else:
    print('Loop not found.')
+
 print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (most_likely_click))
 
 ```
