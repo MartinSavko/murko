@@ -1659,7 +1659,7 @@ def principal_axes(array, verbose=False):
         print()
     return inertia, eigenvalues, eigenvectors, center
 
-def get_extreme_point(projection, pa=None, orientation='vertical', extreme_direction=1):
+def get_extreme_point(projection, pa=None, orientation='horizontal', extreme_direction=-1):
     try:
         xyz = np.argwhere(projection != 0)
         if pa is None:
@@ -1896,14 +1896,18 @@ def plot_analysis(input_images, analysis, figsize=(16, 9), model_name='default',
     for k, input_image in enumerate(input_images):
         hierarchical_mask = descriptions[k]['hierarchical_mask']
         
-        if image_paths is not None:
+        if image_paths is None or image_paths != []:
             name = os.path.basename(image_paths[k])
             prefix = name[:-4]
             directory = os.path.dirname(image_paths[k])
         else:
-            name='test_default'
-        template = '%s_%s_model_img_size_%dx%d' % (prefix, model_name.replace('.h5', ''), hierarchical_mask.shape[0], hierarchical_mask.shape[1])
+            name='%.1f' % time.time()
+            prefix='test'
+            directory='/tmp'
         
+        print('name, prefix, directory', name, prefix, directory)
+        template = '%s_%s_model_img_size_%dx%d' % (prefix, name,  hierarchical_mask.shape[0], hierarchical_mask.shape[1])
+        print('template', template)
         prediction_img_path = os.path.join(directory, '%s_hierarchical_mask_high_contrast_predicted.png' % (template))
         #save_img(prediction_img_path, np.expand_dims(hierarchical_mask, axis=2), scale=True)
         

@@ -67,6 +67,7 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
     if 'CUDA_VISIBLE_DEVICES' not in os.environ:
         os.environ['CUDA_VISIBLE_DEVICES'] = default_gpu
     gpus = tf.config.list_physical_devices('GPU')
+    print('gpu found', gpus)
     if gpus:
         if tf.config.experimental.get_device_details(gpus[0])['compute_capability'][0]>=7:
             tf.keras.mixed_precision.set_global_policy("mixed_float16")
@@ -78,7 +79,7 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port )
     print('Model load and warmup took %.3f seconds' % (time.time() - _start))
-    print('predict_server ready to serve\n')
+    print('murko ready to serve\n')
     while True:
         requests = socket.recv()
         request = pickle.loads(requests) 
@@ -89,20 +90,28 @@ def serve(port=8901, model_name='model.h5', default_gpu='0', batch_size=16, mode
         min_size = 64
         if 'min_size' in request:
             min_size = request['min_size']
-        
-        if type(to_predict) is str and (to_predict.lower().endswith('.jpg') or to_predict.lower().endswith('.jpeg')):
+        print('debug type(to_predict)', type(to_predict))
+        if type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
+            print('debug 1')
+            to_predict = np.array([simplejpeg.decode_jpeg(to_predict)])
+        elif type(to_predict) is str and (to_predict.lower().endswith('.jpg') or to_predict.lower().endswith('.jpeg')):
+            print('debug 2')
             image_paths = [to_predict[:]]
             to_predict = np.array(simplejpeg.decode_jpeg(open(to_predict, 'rb').read()))
         elif type(to_predict) is list and os.path.isfile(to_predict[0]):
+            print('debug 3')
             image_paths = to_predict[:]
             to_predict = np.array([simplejpeg.decode_jpeg(open(item, 'rb').read()) for item in to_predict])
         elif type(to_predict) is list and len(to_predict[0].shape) != 3 :
+            print('debug 4')
             try:
                 to_predict = np.array([simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict])
             except:
                 pass
         if type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
+            print('debug 5')
             to_predict = np.expand_dims(to_predict, 0)
+        print('to_predict type, it', type(to_predict))
         original_image_shape = to_predict[0].shape
         analysis = {'original_image_shape': original_image_shape}
         print('to_predict.shape', to_predict.shape)
