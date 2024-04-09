@@ -1155,7 +1155,7 @@ class SampleSegmentationDataset(keras.utils.Sequence):
     def __getitem__(self, idx):
         """Returns tuple (input, target) correspond to batch #idx."""
         i = idx * self.batch_size
-        self.batch_img_paths = self.input_img_paths[i: i + self.batch_size]
+        self.batch_img_paths = self.input_img_paths[i : i + self.batch_size]
         batch_target_paths = [
             path.replace(self.img_string, self.label_string)
             for path in self.batch_img_paths
@@ -1252,7 +1252,7 @@ class CrystalClickDataset(keras.utils.Sequence):
             i = idx * self.batch_size
 
         final_img_size = img_size[:]
-        batch_img_paths = self.img_paths[i: i + batch_size]
+        batch_img_paths = self.img_paths[i : i + batch_size]
         batch_size = len(batch_img_paths)  # this handles case at the very last step ...
 
         if self.augment:
@@ -2394,9 +2394,9 @@ def get_notion_description(mask, min_size=32):
         w = bbox[3] - bbox[1]
         r, c = properties.centroid
         c_max = bbox[3]
-        r_max = ndi.center_of_mass(labeled_image[:, c_max - 5: c_max])[0]
+        r_max = ndi.center_of_mass(labeled_image[:, c_max - 5 : c_max])[0]
         c_min = bbox[1]
-        r_min = ndi.center_of_mass(labeled_image[:, c_min: c_min + 5])[0]
+        r_min = ndi.center_of_mass(labeled_image[:, c_min : c_min + 5])[0]
 
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties
 
@@ -2506,9 +2506,9 @@ def get_notion_prediction(
 
     if not isinstance(properties, float):
         if notion == "foreground" or isinstance(notion, list):
-            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+            notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
         else:
-            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+            notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
 
     return (
         present,
@@ -3170,9 +3170,9 @@ def massage_mask(mask, min_size=32, massager="convex"):
     properties = regionprops(labeled_image)[0]
     bbox = properties.bbox
     if massager == "convex":
-        mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
+        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
     elif massager == "filled":
-        mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
+        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
     return mask
 
 
