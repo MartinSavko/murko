@@ -1284,13 +1284,13 @@ def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patien
     #segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     #print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
     # data genrators
-    train_paths, val_paths = get_training_and_validation_datasets(directory='images_and_labels', split=0.2)
+    train_paths, val_paths = get_training_and_validation_datasets(directory='images_and_labels', split=train_dev_split)
     if include_plate_images:
         train_paths_plate, val_paths_plate = get_training_and_validation_datasets(directory='images_and_labels_plate', split=0)
         #val_paths += val_paths_plate
         train_paths += train_paths_plate
     if include_capillary_images:
-        train_paths_capillary, val_paths_capillary = get_training_and_validation_datasets(directory='images_and_labels_capillary', split=0.2)
+        train_paths_capillary, val_paths_capillary = get_training_and_validation_datasets(directory='images_and_labels_capillary', split=0)
         #val_paths += val_paths_plate
         train_paths += train_paths_capillary
         val_paths += val_paths_capillary
@@ -1308,11 +1308,13 @@ def segment_multihead(base='/nfs/data2/Martin/Research/murko', epochs=25, patien
     #train_gen = CrystalClickDataset(batch_size, model_img_size, train_paths, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, shuffle_at_0=True)
     notions = [item['name'] for item in heads]
     print('notions in segment_multihead', notions)
-    train_gen = MultiTargetDataset(batch_size, model_img_size, train_paths, notions=notions, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, pixel_budget=pixel_budget, artificial_size_increase=artificial_size_increase, shuffle_at_0=True)
-    val_model_img_size = get_img_size_as_scale_of_pixel_budget(validation_scale)
+    train_gen = MultiTargetDataset(batch_size, model_img_size, train_paths, notions=notions, augment=augment, transform=True, flip=True, transpose=True, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, pixel_budget=pixel_budget, artificial_size_increase=artificial_size_increase, shuffle_at_0=True, black_and_white=True)
+    if val_model_img_size is None:
+        val_model_img_size = get_img_size_as_scale_of_pixel_budget(validation_scale)
     val_batch_size = get_dynamic_batch_size(val_model_img_size)
+    print('validation model_img_size will be', val_model_img_size)
     #val_gen = CrystalClickDataset(val_batch_size, val_model_img_size, val_paths, augment=False, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=False)
-    val_gen = MultiTargetDataset(val_batch_size, val_model_img_size, val_paths, augment=False, notions=notions, pixel_budget=pixel_budget)
+    val_gen = MultiTargetDataset(val_batch_size, val_model_img_size, val_paths, augment=False, transform=False, notions=notions, pixel_budget=pixel_budget)
     # callbacks
     checkpointer = keras.callbacks.ModelCheckpoint(model_name, verbose=1, monitor='val_loss', save_best_only=True, mode='min')
     #checkpointer2 = keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath, verbose=1, monitor='loss', save_freq=2000, save_best_only=False, mode='min')
@@ -1739,7 +1741,7 @@ def predict_multihead(to_predict=None, image_paths=None, base='/nfs/data2/Martin
         model = keras.models.load_model(os.path.join(base, model_name), custom_objects={'WSConv2D': WSConv2D, 'WSSeparableConv2D': WSSeparableConv2D})
         print('model loaded in %.4f seconds' % (time.time() - _start))
     
-    notions = [layer.name for layer in model.layers[-10:] if isinstance(layer, keras.layers.Conv2D)]
+    notions = [layer.name for layer in model.layers[-10:] if isinstance(layer, layers.Conv2D)]
     notion_indices = dict([(notion, notions.index(notion)) for notion in notions])
     notion_indices['click'] = -1
     
