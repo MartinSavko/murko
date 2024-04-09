@@ -1,0 +1,18 @@
+version: '3'
+services:
+  murko-server:
+    container_name: murko-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - 8008:8008
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - #add your site specific filepath mount here
+    networks:
+      - my-network
+
+networks:
+  my-network:

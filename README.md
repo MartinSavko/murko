@@ -28,14 +28,21 @@ If you find the code useful or want to learn more about how to deploy it at your
 ## Installation
 
 ```
-pip install -r requirements
+pip install -r requirements.txt
 ```
 ## Usage
-1. Start server
+1. Start server 
 ```
 ./server.py &
 ```
-model loading and warmup run will take about 10 seconds.
+
+Or using docker (with port 8008)
+
+```
+docker-compose up -d
+```
+
+Note: model loading and warmup run will take about 10 seconds.
 
 2. query the server
 ```
