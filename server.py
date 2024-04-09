@@ -112,30 +112,30 @@ def serve(
         if "min_size" in request:
             min_size = request["min_size"]
         print("debug type(to_predict)", type(to_predict))
-        if type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
+        if isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
             print("debug 1")
             to_predict = np.array([simplejpeg.decode_jpeg(to_predict)])
-        elif type(to_predict) is str and (
+        elif isinstance(to_predict, str) and (
             to_predict.lower().endswith(".jpg") or to_predict.lower().endswith(".jpeg")
         ):
             print("debug 2")
             image_paths = [to_predict[:]]
             to_predict = np.array(simplejpeg.decode_jpeg(open(to_predict, "rb").read()))
-        elif type(to_predict) is list and os.path.isfile(to_predict[0]):
+        elif isinstance(to_predict, list) and os.path.isfile(to_predict[0]):
             print("debug 3")
             image_paths = to_predict[:]
             to_predict = np.array(
                 [simplejpeg.decode_jpeg(open(item, "rb").read()) for item in to_predict]
             )
-        elif type(to_predict) is list and len(to_predict[0].shape) != 3:
+        elif isinstance(to_predict, list) and len(to_predict[0].shape) != 3:
             print("debug 4")
             try:
                 to_predict = np.array(
                     [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
                 )
-            except:
+            except BaseException:
                 pass
-        if type(to_predict) is np.ndarray and len(to_predict.shape) == 3:
+        if isinstance(to_predict, np.ndarray) and len(to_predict.shape) == 3:
             print("debug 5")
             to_predict = np.expand_dims(to_predict, 0)
         print("to_predict type, it", type(to_predict))
@@ -146,7 +146,7 @@ def serve(
             all_predictions = model.predict(
                 to_predict, batch_size=min([len(to_predict), batch_size])
             )
-        except:
+        except BaseException:
             print(traceback.print_exc())
             all_predictions = []
         duration = time.time() - _start

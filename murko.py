@@ -3,8 +3,30 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # based on F. Chollet's https://keras.io/examples/vision/oxford_pets_image_segmentation/
 # Model based on The One Hundred Layers Tiramisu: Fully convolutional DenseNets for Semantic Segmentation, arXiv:1611.09326
-# With main difference being use of SeparableConv2D instead of Conv2D and using GroupNormalization instead of BatchNormalization. Plus using additional Weight standardization (based on Qiao et al. Micro-Batch Training with Batch-Channel Normalization and Weight Standardization arXiv:1903.10520v2)
+# With main difference being use of SeparableConv2D instead of Conv2D and
+# using GroupNormalization instead of BatchNormalization. Plus using
+# additional Weight standardization (based on Qiao et al. Micro-Batch
+# Training with Batch-Channel Normalization and Weight Standardization
+# arXiv:1903.10520v2)
 
+import matplotlib.pyplot as plt
+from skimage.morphology import remove_small_objects
+from skimage.measure import regionprops
+from skimage.transform import resize
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.models import Model, load_model
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.preprocessing.image import (
+    save_img,
+    load_img,
+    img_to_array,
+    array_to_img,
+)
+from tensorflow.keras import regularizers
+from tensorflow.keras import layers
+from tensorflow import keras
+import tensorflow.experimental.numpy as tnp
+import tensorflow as tf
 import os
 import sys
 import time
@@ -28,30 +50,11 @@ sns.set(color_codes=True)
 # rc('font', **{'family':'serif','serif':['Palatino']})
 # rc('text', usetex=True)
 
-import tensorflow as tf
-import tensorflow.experimental.numpy as tnp
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras import regularizers
-from tensorflow.keras.preprocessing.image import (
-    save_img,
-    load_img,
-    img_to_array,
-    array_to_img,
-)
-from tensorflow.keras.preprocessing import image
-from keras.models import Model, load_model
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-
-from skimage.transform import resize
-from skimage.measure import regionprops
-from skimage.morphology import remove_small_objects
 
 try:
     from skimage.morphology.footprints import disk
-except:
+except BaseException:
     from skimage.morphology.selem import disk
-import matplotlib.pyplot as plt
 
 directory = "images_and_labels_augmented"
 img_size = (1024, 1360)
@@ -93,7 +96,7 @@ calibrations = {
 """
 dataset composition:
       notion         fraction_label      fraction_total
- 
+
      crystal:           0.051084,           0.023338
  loop_inside:           0.118100,           0.053953
         loop:           0.294535,           0.134557
@@ -108,14 +111,14 @@ dataset composition:
 """
 # loss_weights_from_stats =\
 # {'crystal': 8,
-#'loop_inside': 3.5,
-#'loop': 1.5,
-#'stem': 6.5,
-#'pin': 5.0,
-#'capillary': 1.,
-#'ice': 1.,
-#'foreground': 1.0,
-#'click': 1.}
+# 'loop_inside': 3.5,
+# 'loop': 1.5,
+# 'stem': 6.5,
+# 'pin': 5.0,
+# 'capillary': 1.,
+# 'ice': 1.,
+# 'foreground': 1.0,
+# 'click': 1.}
 
 """
 total pixels 1805946880 (1.806G)
@@ -213,7 +216,7 @@ def analyse_histories(
         try:
             best = val_metrics.max(axis=1).T
             best
-        except:
+        except BaseException:
             best = "problem in determining expected metrics"
 
         line = "%s: %s" % (best, history)
@@ -881,7 +884,7 @@ class MultiTargetDataset(keras.utils.Sequence):
                 "./Backgrounds/*.tif"
             )
             for img_path in backgrounds:
-                zoom = int(re.findall(".*_zoom_([\d]*).*", img_path)[0])
+                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
                 background = load_img(img_path)
                 background = img_to_array(background, dtype="float32") / 255.0
                 if zoom in self.candidate_backgrounds:
@@ -1002,8 +1005,8 @@ class MultiTargetDataset(keras.utils.Sequence):
             if self.target:
                 target = np.load(masks_name)
             try:
-                zoom = int(re.findall(".*_zoom_([\d]*).*", img_path)[0])
-            except:
+                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
+            except BaseException:
                 zoom = 1
 
             if size_differs(original_size, img_size):
@@ -1152,7 +1155,7 @@ class SampleSegmentationDataset(keras.utils.Sequence):
     def __getitem__(self, idx):
         """Returns tuple (input, target) correspond to batch #idx."""
         i = idx * self.batch_size
-        self.batch_img_paths = self.input_img_paths[i : i + self.batch_size]
+        self.batch_img_paths = self.input_img_paths[i: i + self.batch_size]
         batch_target_paths = [
             path.replace(self.img_string, self.label_string)
             for path in self.batch_img_paths
@@ -1249,7 +1252,7 @@ class CrystalClickDataset(keras.utils.Sequence):
             i = idx * self.batch_size
 
         final_img_size = img_size[:]
-        batch_img_paths = self.img_paths[i : i + batch_size]
+        batch_img_paths = self.img_paths[i: i + batch_size]
         batch_size = len(batch_img_paths)  # this handles case at the very last step ...
 
         if self.augment:
@@ -1283,7 +1286,7 @@ class CrystalClickDataset(keras.utils.Sequence):
                         % img_path
                     )
                 img = resize(img, final_img_size)
-            except:
+            except BaseException:
                 print(traceback.print_exc())
                 os.system(
                     "echo load_img failed %s >> click_generation_problems_new.txt"
@@ -1294,8 +1297,8 @@ class CrystalClickDataset(keras.utils.Sequence):
                 user_click = np.array([-1, -1])
 
             try:
-                zoom = int(re.findall(".*_zoom_([\d]*).*", img_path)[0])
-            except:
+                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
+            except BaseException:
                 zoom = 1
             if os.path.basename(img_path) == "img.jpg" and user_click is None:
                 user_click = np.load(img_path.replace("img.jpg", "user_click.npy"))
@@ -1307,11 +1310,11 @@ class CrystalClickDataset(keras.utils.Sequence):
                         list(
                             map(
                                 float,
-                                re.findall(".*_y_([-\d]*)_x_([-\d]*).*", img_path)[0],
+                                re.findall(".*_y_([-\\d]*)_x_([-\\d]*).*", img_path)[0],
                             )
                         )
                     )
-                except:
+                except BaseException:
                     user_click = np.array([-1.0, -1.0])
 
             resize_factor = np.array([1.0, 1.0])
@@ -1387,7 +1390,7 @@ def get_cpi_from_user_click(
                 )
             else:
                 cpi = np.zeros(img_size, dtype="float32")
-        except:
+        except BaseException:
             print(traceback.print_exc())
             os.system("echo %s >> click_generation_problems_new.txt" % img_path)
             return None
@@ -2011,8 +2014,7 @@ def get_training_and_validation_datasets(
     directory="images_and_labels", seed=12345, split=0.2
 ):
     sample_families = get_sample_families(directory=directory)
-    sample_families_names = list(sample_families.keys())
-    sample_families_names.sort()
+    sample_families_names = sorted(sample_families.keys())
     random.Random(seed).shuffle(sample_families_names)
     total = len(sample_families_names)
 
@@ -2392,9 +2394,9 @@ def get_notion_description(mask, min_size=32):
         w = bbox[3] - bbox[1]
         r, c = properties.centroid
         c_max = bbox[3]
-        r_max = ndi.center_of_mass(labeled_image[:, c_max - 5 : c_max])[0]
+        r_max = ndi.center_of_mass(labeled_image[:, c_max - 5: c_max])[0]
         c_min = bbox[1]
-        r_min = ndi.center_of_mass(labeled_image[:, c_min : c_min + 5])[0]
+        r_min = ndi.center_of_mass(labeled_image[:, c_min: c_min + 5])[0]
 
     return present, r, c, h, w, r_max, c_max, r_min, c_min, bbox, area, properties
 
@@ -2416,14 +2418,14 @@ def get_notion_mask_from_predictions(
 ):
     notion_mask = np.zeros(predictions[0].shape[1:3], dtype=bool)
 
-    if type(notion) is list:
+    if isinstance(notion, list):
         for n in notion:
             index = notion_indices[n]
             noti_pred = predictions[index][k, :, :, 0] > threshold
             noti_pred = remove_small_objects(noti_pred, min_size=min_size)
             notion_mask = np.logical_or(notion_mask, noti_pred)
 
-    elif type(notion) is str:
+    elif isinstance(notion, str):
         index = notion_indices[notion]
         notion_mask = predictions[index][k, :, :, 0] > threshold
         notion_mask = remove_small_objects(notion_mask, min_size=min_size)
@@ -2445,13 +2447,13 @@ def get_notion_mask_from_masks(
 ):
     notion_mask = np.zeros(masks.shape[:2], dtype=bool)
 
-    if type(notion) is list:
+    if isinstance(notion, list):
         for n in notion:
             index = notion_indices[n]
             noti_mask = masks[:, :, index]
             noti_mask = remove_small_objects(noti_mask > 0, min_size=min_size)
             notion_mask = np.logical_or(notion_mask, noti_mask)
-    elif type(notion) is str:
+    elif isinstance(notion, str):
         index = notion_indices[notion]
         notion_mask = masks[:, :, index]
         notion_mask = remove_small_objects(notion_mask > 0, min_size=min_size)
@@ -2473,7 +2475,7 @@ def get_notion_prediction(
     threshold=0.5,
     min_size=32,
 ):
-    if type(predictions) is list:
+    if isinstance(predictions, list):
         notion_mask = get_notion_mask_from_predictions(
             predictions,
             notion,
@@ -2482,7 +2484,7 @@ def get_notion_prediction(
             threshold=threshold,
             min_size=min_size,
         )
-    elif type(predictions) is np.ndarray and len(predictions.shape) == 3:
+    elif isinstance(predictions, np.ndarray) and len(predictions.shape) == 3:
         notion_mask = get_notion_mask_from_masks(
             predictions, notion, notion_indices=notion_indices, min_size=min_size
         )
@@ -2502,11 +2504,11 @@ def get_notion_prediction(
         properties,
     ) = get_notion_description(notion_mask, min_size=min_size)
 
-    if type(properties) != float:
-        if notion == "foreground" or type(notion) is list:
-            notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
+    if not isinstance(properties, float):
+        if notion == "foreground" or isinstance(notion, list):
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
         else:
-            notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
+            notion_mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
 
     return (
         present,
@@ -2577,7 +2579,7 @@ def get_bbox_from_description(description, notions=[["crystal", "loop"], "foregr
 
 
 def get_notion_string(notion):
-    if type(notion) is list:
+    if isinstance(notion, list):
         notion_string = ",".join(notion)
     else:
         notion_string = notion
@@ -2797,13 +2799,13 @@ def get_extreme_point(
         mino = xyz_S[np.argmin(xyz_S[:, 0])]
         try:
             mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
-        except:
+        except BaseException:
             print(traceback.print_exc())
             mino_on_axis = copy.copy(mino)
         maxo = xyz_S[np.argmax(xyz_S[:, 0])]
         try:
             maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
-        except:
+        except BaseException:
             print(traceback.print_exc())
             maxo_on_axis = copy.copy(maxo)
 
@@ -2835,7 +2837,7 @@ def get_extreme_point(
                 extreme_point_out_on_axis = maxo_0_s_on_axis
                 extreme_point_ini = mino_0_s
                 extreme_point_ini_on_axis = mino_0_s_on_axis
-    except:
+    except BaseException:
         print(traceback.print_exc())
         (
             extreme_point_out,
@@ -2915,24 +2917,24 @@ def predict_multihead(
         else:
             to_predict = val_paths
     elif (
-        not type(to_predict) is list
-        and not type(to_predict) is np.ndarray
+        not isinstance(to_predict, list)
+        and not isinstance(to_predict, np.ndarray)
         and os.path.isdir(to_predict)
     ):
         to_predict = glob.glob(os.path.join(to_predict, "*.jpg"))
         all_image_paths = [os.path.realpath(t) for t in to_predict]
     elif (
-        not type(to_predict) is list
-        and not type(to_predict) is np.ndarray
+        not isinstance(to_predict, list)
+        and not isinstance(to_predict, np.ndarray)
         and os.path.isfile(to_predict)
     ):
         print("we seem to have received a single imagename to do our analysis on")
         all_image_paths.append(os.path.realpath(to_predict))
         to_predict = np.expand_dims(get_img(to_predict, size=model_img_size), 0)
-    elif type(to_predict) is bytes and simplejpeg.is_jpeg(to_predict):
+    elif isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
         img_array = simplejpeg.decode_jpeg(to_predict)
         to_predict = np.expand_dims(img_array, 0)
-    elif type(to_predict) is list:
+    elif isinstance(to_predict, list):
         if simplejpeg.is_jpeg(to_predict[0]):
             to_predict = [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
         elif os.path.isfile(to_predict[0]):
@@ -2941,7 +2943,7 @@ def predict_multihead(
                 img_to_array(load_img(img, target_size=model_img_size), dtype="float32")
                 for img in to_predict
             ]
-        if type(to_predict[0]) is np.ndarray:
+        if isinstance(to_predict[0], np.ndarray):
             to_predict = [img.astype("float32") / 255.0 for img in to_predict]
         if size_differs(to_predict[0].shape[:2], model_img_size):
             to_predict = [
@@ -2949,7 +2951,7 @@ def predict_multihead(
                 for img in to_predict
             ]
         to_predict = np.array(to_predict)
-    elif type(to_predict) is np.ndarray:
+    elif isinstance(to_predict, np.ndarray):
         if len(to_predict.shape) == 3:
             to_predict = np.expand_dims(to_predict, 0)
         if size_differs(to_predict[0].shape[:2], model_img_size):
@@ -2969,10 +2971,10 @@ def predict_multihead(
     all_predictions = []
 
     _start_predict = time.time()
-    if type(to_predict) is np.ndarray:
+    if isinstance(to_predict, np.ndarray):
         all_predictions = model.predict(to_predict)
 
-    elif type(to_predict) is list:
+    elif isinstance(to_predict, list):
         if batch_size == -1:
             batch_size = get_dynamic_batch_size(model_img_size)
         gen = MultiTargetDataset(
@@ -2987,15 +2989,15 @@ def predict_multihead(
             _start = time.time()
             predictions = np.array(model.predict(input_images))
             # , use_multiprocessing=True, workers=batch_size, max_queue_size=2*batch_size)
-            if type(all_input_images) is list:
+            if isinstance(all_input_images, list):
                 all_input_images = input_images
             else:
                 all_input_images = np.vstack([all_input_images, input_images])
-            if type(all_ground_truths) is list:
+            if isinstance(all_ground_truths, list):
                 all_ground_truths = ground_truths
             else:
                 all_ground_truths = np.vstack([all_ground_truths, ground_truths])
-            if type(all_predictions) is list:
+            if isinstance(all_predictions, list):
                 all_predictions = predictions
             else:
                 all_predictions = np.hstack([all_predictions, predictions])
@@ -3168,9 +3170,9 @@ def massage_mask(mask, min_size=32, massager="convex"):
     properties = regionprops(labeled_image)[0]
     bbox = properties.bbox
     if massager == "convex":
-        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
+        mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.convex_image
     elif massager == "filled":
-        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
+        mask[bbox[0]: bbox[2], bbox[1]: bbox[3]] = properties.filled_image
     return mask
 
 
@@ -3247,7 +3249,7 @@ def plot_analysis(
                     (C, R), W, H, linewidth=1, edgecolor="green", facecolor="none"
                 )
                 axes[0].add_patch(loop_bbox_patch)
-            except:
+            except BaseException:
                 pass
 
         comparison_path = prediction_img_path.replace(

@@ -234,7 +234,8 @@ if __name__ == "__main__":
     print("batch_size", batch_size)
     print("name: %s" % args.name)
 
-    # save the current version of the murko under a name corresponding to the output model name
+    # save the current version of the murko under a name corresponding to the
+    # output model name
     os.system("cp murko.py %s_%s.py" % (args.network, args.name))
     f = open("%s_%s.args" % (args.network, args.name), "wb")
     pickle.dump(args, f)
