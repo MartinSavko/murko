@@ -12,6 +12,7 @@ import os
 import os.path as osp
 import numpy as np
 import pylab
+import shutil
 from tensorflow.keras.preprocessing.image import (
     save_img,
     load_img,
@@ -40,16 +41,17 @@ def generate_background_masks(
     )
     n_categories = len(labels.split(","))
 
-    segmentation_mask = np.zeros((h, w, n_categories), dtype=int)
-    user_click = np.array([-1, -1])
+    segmentation_mask = np.zeros((h, w, n_categories), dtype=np.uint8)
+    user_click = np.array([-1, -1], dtype=np.int8)
 
     output_directory = os.path.join(
         destination, os.path.basename(imagepath).replace(".jpg", "")
     )
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory)
+    shutil.copy(imagepath, os.path.join(os.path.join(output_directory, "img.jpg")))
     np.save(os.path.join(output_directory, "masks.npy"), segmentation_mask)
-    np.save(os.path.join(output_directory, "masks.npy"), user_click)
+    np.save(os.path.join(output_directory, "user_click.npy"), user_click)
 
 
 def convert(
@@ -62,6 +64,8 @@ def convert(
         "cd_stem": "stem",
         "drop": "not_background",
     },
+    generate_notions_png=False,
+    generate_summary_png=True,
 ):
     data = json.load(open(json_file))
 
@@ -154,26 +158,32 @@ def convert(
     all_masks = np.array(all_masks)
     print("all_masks", all_masks.shape, all_masks.dtype)
     PIL.Image.fromarray(img).save(osp.join(out_dir, "img.jpg"))
-    save_img(osp.join(out_dir, "imgk.jpg"), array_to_img(img), scale=False)
-    save_img(osp.join(out_dir, "imgj.jpg"), array_to_img(img), scale=True)
+    # save_img(osp.join(out_dir, "imgk.jpg"), array_to_img(img), scale=False)
+    # save_img(osp.join(out_dir, "imgj.jpg"), array_to_img(img), scale=True)
     for notion in notions:
         nm = np.expand_dims(notion_masks[notion], 2)
-        save_img(osp.join(out_dir, "%s.png" % notion), nm, scale=False)
-        save_img(osp.join(out_dir, "%s_high_contrast.png" % notion), nm, scale=True)
+        if generate_notions_png:
+            save_img(osp.join(out_dir, "%s.png" % notion), nm, scale=False)
+            save_img(osp.join(out_dir, "%s_high_contrast.png" % notion), nm, scale=True)
     hm = np.expand_dims(hierarchical_mask, 2)
     print("hm", hm.shape, hm.min(), hm.max(), hm.dtype)
-    save_img(osp.join(out_dir, "hierarchical_mask.png"), hm, scale=False)
+    if generate_notions_png:
+        save_img(osp.join(out_dir, "hierarchical_mask.png"), hm, scale=False)
     y, x = map(int, user_click)
     try:
         d = disk(5)
         d *= len(notions)
         hm[y - 5 : y + 6, x - 5 : x + 6, 0] = d
+    except ValueError:
+        pass
     except BaseException:
         import traceback
 
         traceback.print_exc()
-
-    save_img(osp.join(out_dir, "hierarchical_mask_high_contrast.png"), hm, scale=True)
+    if generate_summary_png:
+        save_img(
+            osp.join(out_dir, "hierarchical_mask_high_contrast.png"), hm, scale=True
+        )
     np.save(osp.join(out_dir, "masks.npy"), all_masks)
     np.save(osp.join(out_dir, "user_click.npy"), user_click)
 
