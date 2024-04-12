@@ -4,9 +4,39 @@
 
 # Command line interface to set up the training process
 
-from murko import segment_multihead, get_dynamic_batch_size, get_img_size
+import os
+import sys
+import pickle
+from murko import segment_multihead
+from dataset_loader import get_dynamic_batch_size, get_img_size
 
-if __name__ == "__main__":
+def train():
+    
+    default_candidates = ["crystal",
+                          "loop_inside",
+                          "loop",
+                          "stem",
+                          "pin",
+                          "foreground"]
+    
+    candidates = dict([ ("crystal", "segmentation"),
+                        ("loop_inside", "segmentation"), 
+                        ("loop", "segmentation"), 
+                        ("stem", "segmentation"), 
+                        ("pin", "segmentation"), 
+                        ("ice", "segmentation"), 
+                        ("capillary", "segmentation"), 
+                        ("foreground", "segmentation"), 
+                        ("hierarchy", "categorical_segmentation"), 
+                        ("identity", "regression"),
+                        ("click", "regression"),
+                        ("crystal_bbox", "regression"),
+                        ("loop_inside_bbox", "regression"),
+                        ("loop_bbox", "regression"),
+                        ("stem_bbox", "regression"),
+                        ("pin_bbox", "regression"),
+                     ])
+    
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -74,7 +104,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-A",
         "--name",
-        default="all_clicks_18_static_bn",
+        default="test",
         type=str,
         help="name of the model",
     )
@@ -82,7 +112,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-P", "--patience", default=2, type=int, help="patience for lrreducer"
     )
-    parser.add_argument("-M", "--multihead", default=1, type=int, help="multihead?")
+
     parser.add_argument(
         "-i",
         "--artificial_size_increase",
@@ -95,14 +125,14 @@ if __name__ == "__main__":
         "--include_plate_images",
         default=0,
         type=int,
-        help="include plate images? integer",
+        help="include plate images",
     )
     parser.add_argument(
         "-C",
         "--include_capillary_images",
         default=0,
         type=int,
-        help="include capillary images? integer",
+        help="include capillary images",
     )
     parser.add_argument(
         "-T",
@@ -143,80 +173,25 @@ if __name__ == "__main__":
         type=str,
         help="path to the directory where results will be saved",
     )
+
+    for candidate in candidates:
+        parser.add_argument(
+            "--%s" % candidate,
+            default= 1 if candidate in default_candidates else 0,
+            type=int,
+            help="learn %s" % candidate,
+        )
+    
     args = parser.parse_args()
     print("args", args)
 
-    if args.multihead == 1:
-        heads = [
-            {"name": "crystal", "type": "segmentation"},
-            {"name": "loop_inside", "type": "segmentation"},
-            {"name": "loop", "type": "segmentation"},
-            {"name": "stem", "type": "segmentation"},
-            {"name": "pin", "type": "segmentation"},
-            {"name": "capillary", "type": "segmentation"},
-            {"name": "ice", "type": "segmentation"},
-            {"name": "foreground", "type": "segmentation"},
-            {"name": "click", "type": "segmentation"},
-        ]
-    elif args.multihead == 2:
-        heads = [
-            {"name": "crystal", "type": "segmentation"},
-            {"name": "loop_inside", "type": "segmentation"},
-            {"name": "loop", "type": "segmentation"},
-            {"name": "stem", "type": "segmentation"},
-            {"name": "pin", "type": "segmentation"},
-            {"name": "foreground", "type": "segmentation"},
-        ]
-    elif args.multihead == 3:
-        heads = [
-            {"name": "crystal", "type": "segmentation"},
-            {"name": "loop_inside", "type": "segmentation"},
-            {"name": "loop", "type": "segmentation"},
-            {"name": "stem", "type": "segmentation"},
-            {"name": "pin", "type": "segmentation"},
-            {"name": "capillary", "type": "segmentation"},
-            {"name": "ice", "type": "segmentation"},
-            {"name": "foreground", "type": "segmentation"},
-        ]
-    elif args.multihead == 4:
-        heads = [
-            {"name": "crystal", "type": "segmentation"},
-            {"name": "loop_inside", "type": "segmentation"},
-            {"name": "loop", "type": "segmentation"},
-            {"name": "stem", "type": "segmentation"},
-            {"name": "pin", "type": "segmentation"},
-            {"name": "capillary", "type": "segmentation"},
-            {"name": "ice", "type": "segmentation"},
-            {"name": "foreground", "type": "segmentation"},
-            {"name": "click", "type": "click_segmentation"},
-        ]
-    elif args.multihead == 5:
-        heads = [{"name": "click", "type": "click_segmentation"}]
-    elif args.multihead == 6:
-        heads = [
-            {"name": "crystal", "type": "segmentation"},
-            {"name": "loop_inside", "type": "segmentation"},
-            {"name": "loop", "type": "segmentation"},
-            {"name": "stem", "type": "segmentation"},
-            {"name": "pin", "type": "segmentation"},
-            {"name": "capillary", "type": "segmentation"},
-            {"name": "foreground", "type": "segmentation"},
-        ]
-    else:
-        heads = [{"name": "click", "type": "click_regression"}]
+    heads = []
+    for candidate in candidates:
+        if bool(getattr(args, candidate)):
+            heads.append({"name": candidate, "type": candidates[candidate]})
 
-    notions = [
-        "crystal",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "capillary",
-        "ice",
-        "foreground",
-        "click",
-    ]
-
+    print('heads', heads)
+    
     pixel_budget = int(args.pixel_budget * args.pixel_budget_modifier)
     if args.batch_size == -1 and args.resize_factor != -1:
         model_img_size = get_img_size(args.resize_factor)
@@ -236,7 +211,9 @@ if __name__ == "__main__":
 
     # save the current version of the murko under a name corresponding to the
     # output model name
-    os.system("cp murko.py %s_%s.py" % (args.network, args.name))
+    for tool in ['murko', 'train.py', 'dataset_loader']:
+        os.system("cp %s.py %s_%s_%s.py" % (tool, args.network, args.name, tool))
+    
     f = open("%s_%s.args" % (args.network, args.name), "wb")
     pickle.dump(args, f)
     f.close()
@@ -249,7 +226,6 @@ if __name__ == "__main__":
         patience=args.patience,
         batch_size=batch_size,
         heads=heads,
-        notions=notions,
         name=args.name,
         mixed_precision=args.mixed_precision,
         augment=bool(args.augment),
@@ -274,3 +250,6 @@ if __name__ == "__main__":
         train_dev_split=args.train_dev_split,
         val_model_img_size=args.val_model_img_size,
     )
+
+if __name__ == "__main__":
+    train()

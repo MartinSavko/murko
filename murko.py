@@ -49,7 +49,7 @@ sns.set(color_codes=True)
 # from matplotlib import rc
 # rc('font', **{'family':'serif','serif':['Palatino']})
 # rc('text', usetex=True)
-
+from dataset_loader import MultiTargetDataset, get_dynamic_batch_size, size_differs, get_transposed_img_and_target, get_transformed_img_and_target, get_hierarchical_mask_from_target
 
 try:
     from skimage.morphology.footprints import disk
@@ -63,6 +63,8 @@ num_classes = 1
 batch_size = 8
 params = {
     "segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
+    "regression": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "categorical_segmentation": {"loss": "categorical_focal_crossentropy", "metrics": "MeanIoU"},
     "click_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoUm"},
     "click_regression": {
         "loss": "mean_squared_error",
@@ -627,92 +629,8 @@ def display_target(target_array):
     plt.axis("off")
     plt.imshow(normalized_array[:, :, 0])
 
-
-def flip_axis(x, axis):
-    x = np.asarray(x).swapaxes(axis, 0)
-    x = x[::-1, ...]
-    x = x.swapaxes(0, axis)
-    return x
-
-
-def get_transposed_img_and_target(img, target):
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(img.shape)))
-    img = np.transpose(img, new_axes_order)
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(target.shape)))
-    target = np.transpose(target, new_axes_order)  # [:len(target.shape)])
-    return img, target
-
-
-def get_flipped_img_and_target(img, target):
-    axis = random.choice([0, 1])
-    img = flip_axis(img, axis)
-    target = flip_axis(target, axis)
-    return img, target
-
-
-def get_transformed_img_and_target(
-    img,
-    target,
-    default_transform_gang=[0, 0, 0, 0, 1, 1],
-    zoom_factor=0.25,
-    shift_factor=0.25,
-    shear_factor=45,
-    size=(512, 512),
-    rotate_probability=1,
-    shift_probability=1,
-    shear_probability=1,
-    zoom_probability=1,
-    theta_min=-30.0,
-    theta_max=30.0,
-    resize=False,
-):
-    if resize:
-        img = resize(img, size, anti_aliasing=True)
-        target = resize(target, size, anti_aliasing=True)
-    theta, tx, ty, shear, zx, zy = default_transform_gang
-    size_y, size_x = img.shape[:2]
-    # rotate
-    if random.random() < rotate_probability:
-        theta = random.uniform(theta_min, theta_max)
-    # shear
-    if random.random() < shear_probability:
-        shear = random.uniform(-shear_factor, +shear_factor)
-    # shift
-    if random.random() < shift_probability:
-        tx = random.uniform(-shift_factor * size_x, +shift_factor * size_x)
-        ty = random.uniform(-shift_factor * size_y, +shift_factor * size_y)
-    # zoom
-    if random.random() < zoom_probability:
-        zx = random.uniform(1 - zoom_factor, 1 + zoom_factor)
-        zy = zx
-
-    if np.any(np.array([theta, tx, ty, shear, zx, zy]) != default_transform_gang):
-        transform_arguments = {
-            "theta": theta,
-            "tx": tx,
-            "ty": ty,
-            "shear": shear,
-            "zx": zx,
-            "zy": zy,
-        }
-        img = image.apply_affine_transform(img, **transform_arguments)
-        target = image.apply_affine_transform(target, **transform_arguments)
-        # target = image.apply_affine_transform(target, fill_mode='constant', cval=0, **transform_arguments)
-    return img, target
-
-
 def get_dataset(batch_size, img_size, img_paths, augment=False):
     dataset = tf.data.Dataset.from_tensor_slices(img_paths)
-
-
-def size_differs(original_size, img_size):
-    return original_size[0] != img_size[0] or original_size[1] != img_size[1]
 
 
 def augment_sample(
@@ -772,12 +690,6 @@ def get_img(img_path, size=(224, 224)):
     return img
 
 
-def get_batch(i, img_paths, batch_size):
-    half, r = divmod(batch_size, 2)
-    indices = np.arange(i - half, i + half + r)
-    return [img_paths[divmod(item, len(img_paths))[1]] for item in indices]
-
-
 def load_ground_truth_image(path, target_size):
     ground_truth = np.expand_dims(
         load_img(path, target_size=target_size, color_mode="grayscale"), 2
@@ -787,582 +699,6 @@ def load_ground_truth_image(path, target_size):
     else:
         ground_truth = np.array(ground_truth, dtype="uint8")
     return ground_truth
-
-
-class MultiTargetDataset(keras.utils.Sequence):
-    def __init__(
-        self,
-        batch_size,
-        img_size,
-        img_paths,
-        img_string="img.jpg",
-        label_string="masks.npy",
-        click_string="user_click.npy",
-        augment=False,
-        transform=True,
-        transpose=True,
-        flip=True,
-        swap_backgrounds=True,
-        zoom_factor=0.25,
-        shift_factor=0.25,
-        shear_factor=45,
-        default_transform_gang=[0, 0, 0, 0, 1, 1],
-        scale_click=False,
-        click_radius=320e-3,
-        min_scale=0.15,
-        max_scale=1.0,
-        dynamic_batch_size=False,
-        number_batch_size_scales=32,
-        possible_ratios=[0.75, 1.0],
-        pixel_budget=768 * 992,
-        artificial_size_increase=1,
-        notions=[
-            "crystal",
-            "loop_inside",
-            "loop",
-            "stem",
-            "pin",
-            "capillary",
-            "ice",
-            "foreground",
-            "click",
-        ],
-        notion_indices={
-            "crystal": 0,
-            "loop_inside": 1,
-            "loop": 2,
-            "stem": 3,
-            "pin": 4,
-            "capillary": 5,
-            "ice": 6,
-            "foreground": 7,
-            "click": -1,
-        },
-        shuffle_at_0=False,
-        click="segmentation",
-        target=True,
-        black_and_white=True,
-        random_brightness=True,
-        random_channel_shift=False,
-        verbose=False,
-    ):
-        self.batch_size = batch_size
-        self.img_size = img_size
-        if artificial_size_increase > 1:
-            self.img_paths = img_paths * int(artificial_size_increase)
-        else:
-            self.img_paths = img_paths
-        self.nimages = len(self.img_paths)
-        self.img_string = img_string
-        self.label_string = label_string
-        self.click_string = click_string
-        self.augment = augment
-        self.transform = transform
-        self.transpose = transpose
-        self.flip = flip
-        self.swap_backgrounds = swap_backgrounds
-        self.zoom_factor = zoom_factor
-        self.shift_factor = shift_factor
-        self.shear_factor = shear_factor
-        self.default_transform_gang = np.array(default_transform_gang)
-        self.scale_click = scale_click
-        self.click_radius = click_radius
-        self.dynamic_batch_size = dynamic_batch_size
-        if self.dynamic_batch_size:
-            self.batch_size = 1
-        self.possible_scales = np.linspace(
-            min_scale, max_scale, number_batch_size_scales
-        )
-        self.possible_ratios = possible_ratios
-        self.pixel_budget = pixel_budget
-        self.notions = notions
-        self.notion_indices = notion_indices
-        self.candidate_backgrounds = {}
-        self.batch_img_paths = []
-        if self.swap_backgrounds:
-            backgrounds = glob.glob("./Backgrounds/*.jpg") + glob.glob(
-                "./Backgrounds/*.tif"
-            )
-            for img_path in backgrounds:
-                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
-                background = load_img(img_path)
-                background = img_to_array(background, dtype="float32") / 255.0
-                if zoom in self.candidate_backgrounds:
-                    self.candidate_backgrounds[zoom].append(background)
-                else:
-                    self.candidate_backgrounds[zoom] = [background]
-        self.shuffle_at_0 = shuffle_at_0
-        self.click = click
-        self.target = target
-        self.black_and_white = black_and_white
-        self.random_brightness = random_brightness
-        self.random_channel_shift = random_channel_shift
-        self.verbose = verbose
-
-    def __len__(self):
-        return math.ceil(len(self.img_paths) / self.batch_size)
-
-    def consider_click(self):
-        if self.target and "click" in self.notions:
-            return True
-        return False
-
-    def __getitem__(self, idx):
-        if idx == 0 and self.shuffle_at_0:
-            random.Random().shuffle(self.img_paths)
-        if self.dynamic_batch_size:
-            img_size = get_img_size_as_scale_of_pixel_budget(
-                random.choice(self.possible_scales),
-                pixel_budget=self.pixel_budget,
-                ratio=random.choice(self.possible_ratios),
-            )
-            batch_size = get_dynamic_batch_size(
-                img_size, pixel_budget=self.pixel_budget
-            )
-            i = idx
-            self.batch_img_paths = get_batch(i, self.img_paths, batch_size)
-        else:
-            img_size = self.img_size[:]
-            batch_size = self.batch_size
-            i = idx * self.batch_size
-            start_index = i
-            end_index = i + batch_size
-            self.batch_img_paths = self.img_paths[start_index:end_index]
-
-        final_img_size = img_size[:]
-        batch_size = len(
-            self.batch_img_paths
-        )  # this handles case at the very last step ...
-
-        do_flip = False
-        do_transpose = False
-        do_transform = False
-        do_swap_backgrounds = False
-        do_black_and_white = False
-        do_random_brightness = False
-        do_random_channel_shift = False
-        if self.augment:
-            if self.transform and random.random() < 0.5:
-                do_transform = True
-                if self.verbose:
-                    print("do_transform")
-            if self.transpose and random.random() < 0.5:
-                final_img_size = img_size[::-1]
-                do_transpose = True
-                if self.verbose:
-                    print("do_transpose")
-                if self.flip and random.random() < 0.5:
-                    do_flip = True
-                    if self.verbose:
-                        print("do_flip")
-            else:
-                if self.flip and random.random() < 0.5:
-                    do_flip = True
-                    if self.verbose:
-                        print("do_flip")
-            if self.swap_backgrounds and random.random() < 0.25:
-                do_swap_backgrounds = True
-                if self.verbose:
-                    print("do_swap_backgrounds")
-            if self.black_and_white and random.random() < 0.25:
-                do_black_and_white = True
-                if self.verbose:
-                    print("do_black_and_white")
-            if self.random_brightness and random.random() < 0.25:
-                do_random_brightness = True
-                if self.verbose:
-                    print("do_random_brightness")
-            if (
-                not do_black_and_white
-                and self.random_channel_shift
-                and random.random() < 0.25
-            ):
-                do_random_channel_shift = True
-                if self.verbose:
-                    print("do_random_channel_shift")
-
-        x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
-        y = [
-            np.zeros((batch_size,) + final_img_size + (1,), dtype="uint8")
-            for notion in self.notions
-            if "click" not in notion
-        ]
-        if "click" in self.notions:
-            if click == "click_segmentation":
-                y.append(
-                    np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
-                )
-            else:
-                y.append(np.zeros((batch_size,) + (3,), dtype="float32"))
-
-        for j, img_path in enumerate(self.batch_img_paths):
-            resize_factor = 1.0
-            original_image = load_img(img_path)
-            original_size = original_image.size[::-1]
-            img = img_to_array(original_image, dtype="float32") / 255.0
-            masks_name = img_path.replace(self.img_string, self.label_string)
-            user_click_name = img_path.replace(self.img_string, self.click_string)
-            if self.target:
-                target = np.load(masks_name)
-            try:
-                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
-            except BaseException:
-                zoom = 1
-
-            if size_differs(original_size, img_size):
-                resize_factor = np.array(img_size) / np.array(original_size)
-
-            if self.consider_click():
-                user_click = np.array(np.load(user_click_name)).astype("float32")
-                click_present = all(user_click[:2] >= 0)
-                if self.augment and click_present:
-                    click_mask = get_cpi_from_user_click(
-                        user_click,
-                        target.shape[:2],
-                        1.0,
-                        img_path,
-                        click_radius=self.click_radius,
-                        zoom=zoom,
-                        scale_click=self.scale_click,
-                    )
-                    target = np.concatenate([target, click_mask], axis=2)
-                elif click_present:
-                    user_click_frac = user_click * resize_factor
-                else:
-                    user_click_frac = np.array([np.nan, np.nan])
-
-            if self.target and np.all(
-                target[:, :, self.notions.index("foreground")] == 0
-            ):
-                do_swap_backgrounds = False
-
-            if do_transpose is True:
-                img, target = get_transposed_img_and_target(img, target)
-
-            if do_flip is True:
-                img, target = get_flipped_img_and_target(img, target)
-
-            if do_transform is True:
-                img, target = get_transformed_img_and_target(
-                    img,
-                    target,
-                    zoom_factor=self.zoom_factor,
-                    shift_factor=self.shift_factor,
-                    shear_factor=self.shear_factor,
-                )
-
-            if do_swap_backgrounds is True and "background" not in img_path:
-                new_background = random.choice(self.candidate_backgrounds[zoom])
-                if size_differs(img.shape[:2], new_background.shape[:2]):
-                    new_background = resize(
-                        new_background, img.shape[:2], anti_aliasing=True
-                    )
-                img[
-                    target[:, :, self.notions.index("foreground")] == 0
-                ] = new_background[target[:, :, self.notions.index("foreground")] == 0]
-
-            if do_random_brightness is True:
-                img = image.random_brightness(img, [0.75, 1.25]) / 255.0
-
-            if do_random_channel_shift is True:
-                img = image.random_channel_shift(img, 0.5, channel_axis=2)
-
-            if size_differs(img.shape[:2], final_img_size):
-                img = resize(img, final_img_size, anti_aliasing=True)
-                if self.target:
-                    target = resize(
-                        target.astype("float32"),
-                        final_img_size,
-                        mode="constant",
-                        cval=0,
-                        anti_aliasing=False,
-                        preserve_range=True,
-                    )
-
-            if self.augment and self.consider_click() and click_present:
-                transformed_click = target[:, :, -1]
-                user_click = np.unravel_index(
-                    np.argmax(transformed_click), transformed_click.shape
-                )[:2]
-                user_click_frac = np.array(user_click) / np.array(final_img_size)
-                if self.click == "click_segmentation":
-                    cpi = get_cpi_from_user_click(
-                        user_click,
-                        final_img_size,
-                        resize_factor,
-                        img_path + "augment",
-                        click_radius=self.click_radius,
-                        zoom=zoom,
-                        scale_click=self.scale_click,
-                    )
-                    target[:, :, -1] = cpi[:, :, 0]
-
-            if self.consider_click() and self.click == "click_segmentation":
-                target[:, :, :-1] = (target[:, :, :-1] > 0).astype("uint8")
-            elif self.consider_click() and self.click == "click_regression":
-                click_present = int(click_present)
-                y_click, x_click = user_click_frac
-            elif self.target:
-                target = (target > 0).astype("uint8")
-            if do_black_and_white:
-                img_bw = img.mean(axis=2)
-                img = np.stack([img_bw] * 3, axis=2)
-            x[j] = img
-            if self.target:
-                for k, notion in enumerate(self.notions):
-                    l = self.notion_indices[notion]
-                    if l != -1:
-                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
-                    elif l == -1 and self.click == "click_segmentation":
-                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
-                    elif l == -1 and self.click == "click_regression":
-                        y[k][j] = np.array([click_present, y_click, x_click])
-
-        if self.target and len(y) == 1:
-            y = y[0]
-        if self.target:
-            return x, y
-        else:
-            return x
-
-
-class SampleSegmentationDataset(keras.utils.Sequence):
-    """Helper to iterate over the data (as Numpy arrays)."""
-
-    def __init__(
-        self,
-        batch_size,
-        img_size,
-        input_img_paths,
-        img_string="img.jpg",
-        label_string="foreground.png",
-        augment=False,
-    ):
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.input_img_paths = input_img_paths
-        self.img_string = img_string
-        self.label_string = label_string
-        self.augment = augment
-        self.zoom_factor = 0.2
-        self.shift_factor = 0.25
-        self.shear_factor = 15
-        self.default_transform_gang = np.array([0, 0, 0, 0, 1, 1])
-
-    def __len__(self):
-        return len(self.input_img_paths) // self.batch_size
-
-    def __getitem__(self, idx):
-        """Returns tuple (input, target) correspond to batch #idx."""
-        i = idx * self.batch_size
-        self.batch_img_paths = self.input_img_paths[i : i + self.batch_size]
-        batch_target_paths = [
-            path.replace(self.img_string, self.label_string)
-            for path in self.batch_img_paths
-        ]
-        x = np.zeros((self.batch_size,) + self.img_size + (3,), dtype="float32")
-        y = np.zeros((self.batch_size,) + self.img_size + (1,), dtype="uint8")
-        for j, (img_path, target_path) in enumerate(
-            zip(batch_input_img_paths, batch_target_img_paths)
-        ):
-            img = (
-                img_to_array(
-                    load_img(img_path, target_size=self.img_size), dtype="float32"
-                )
-                / 255.0
-            )
-            target = load_ground_truth_image(target_path, target_size=self.img_size)
-
-            if self.augment:
-                img, target = get_transformed_img_and_target(
-                    img,
-                    target,
-                    zoom_factor=self.zoom_factor,
-                    shift_factor=self.shift_factor,
-                    shear_factor=self.shear_factor,
-                )
-            x[j] = img
-            y[j] = target
-        return x, y
-
-
-class CrystalClickDataset(keras.utils.Sequence):
-    def __init__(
-        self,
-        batch_size,
-        img_size,
-        img_paths,
-        augment=False,
-        transpose=True,
-        flip=True,
-        zoom_factor=0.2,
-        shift_factor=0.25,
-        shear_factor=15,
-        default_transform_gang=[0, 0, 0, 0, 1, 1],
-        scale_click=False,
-        click_radius=320e-3,
-        min_scale=0.15,
-        max_scale=1.0,
-        dynamic_batch_size=True,
-        number_batch_size_scales=32,
-        possible_ratios=[0.75, 1.0],
-        pixel_budget=768 * 992,
-    ):
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.img_paths = img_paths
-        self.augment = augment
-        self.transpose = transpose
-        self.flip = flip
-        self.zoom_factor = zoom_factor
-        self.shift_factor = shift_factor
-        self.shear_factor = shear_factor
-        self.default_transform_gang = np.array(default_transform_gang)
-        self.scale_click = scale_click
-        self.click_radius = click_radius
-        self.dynamic_batch_size = dynamic_batch_size
-        self.possible_scales = np.linspace(
-            min_scale, max_scale, number_batch_size_scales
-        )
-        self.possible_ratios = possible_ratios
-        self.pixel_budget = pixel_budget
-
-        if self.dynamic_batch_size:
-            self.batch_size = 1
-
-    def __len__(self):
-        return math.ceil(len(self.img_paths) / self.batch_size)
-
-    def __getitem__(self, idx):
-        if idx == 0:
-            random.Random().shuffle(self.img_paths)
-        if self.dynamic_batch_size:
-            img_size = get_img_size_as_scale_of_pixel_budget(
-                random.choice(self.possible_scales),
-                pixel_budget=self.pixel_budget,
-                ratio=random.choice(self.possible_ratios),
-            )
-            batch_size = get_dynamic_batch_size(
-                img_size, pixel_budget=self.pixel_budget
-            )
-            i = idx
-        else:
-            img_size = self.img_size
-            batch_size = self.batch_size
-            i = idx * self.batch_size
-
-        final_img_size = img_size[:]
-        batch_img_paths = self.img_paths[i : i + batch_size]
-        batch_size = len(batch_img_paths)  # this handles case at the very last step ...
-
-        if self.augment:
-            do_transpose = False
-            if self.transpose and random.random() > 0.5:
-                final_img_size = img_size[::-1]
-                do_transpose = True
-            do_flip = False
-            if self.flip and random.random() > 0.5:
-                do_flip = True
-
-        x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
-        y = np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
-        for j, img_path in enumerate(batch_img_paths):
-            user_click = None
-            try:
-                original_image = load_img(img_path)
-                original_size = original_image.size[::-1]
-                img = img_to_array(original_image, dtype="float32") / 255.0
-                if np.any(np.isnan(img)):
-                    os.system(
-                        "echo this gave nan, please check %s >> click_generation_problems_new.txt"
-                        % img_path
-                    )
-                    continue
-                if original_size[0] > original_size[1]:
-                    original_size = original_size[::-1]
-                    img = np.reshape(img, original_size + img.shape[2:])
-                    os.system(
-                        "echo wrong ratio, please check %s >> click_generation_problems_new.txt"
-                        % img_path
-                    )
-                img = resize(img, final_img_size)
-            except BaseException:
-                print(traceback.print_exc())
-                os.system(
-                    "echo load_img failed %s >> click_generation_problems_new.txt"
-                    % img_path
-                )
-                img = np.zeros(img_size + (3,))
-                original_size = img_size[:]
-                user_click = np.array([-1, -1])
-
-            try:
-                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
-            except BaseException:
-                zoom = 1
-            if os.path.basename(img_path) == "img.jpg" and user_click is None:
-                user_click = np.load(img_path.replace("img.jpg", "user_click.npy"))
-            elif "shapes_of_background" in img_path:
-                user_click = np.array([-1.0, -1.0])
-            else:
-                try:
-                    user_click = np.array(
-                        list(
-                            map(
-                                float,
-                                re.findall(".*_y_([-\\d]*)_x_([-\\d]*).*", img_path)[0],
-                            )
-                        )
-                    )
-                except BaseException:
-                    user_click = np.array([-1.0, -1.0])
-
-            resize_factor = np.array([1.0, 1.0])
-            if original_size[0] != img_size[0] and original_size[1] != img_size[1]:
-                resize_factor = np.array(img_size) / np.array(original_size)
-
-            user_click *= resize_factor
-            user_click = user_click.astype("float32")
-            cpi = get_cpi_from_user_click(
-                user_click,
-                final_img_size,
-                resize_factor,
-                img_path,
-                click_radius=self.click_radius,
-                zoom=zoom,
-                scale_click=self.scale_click,
-            )
-            if cpi is None:
-                continue
-            if self.augment:
-                if do_transpose is True:
-                    img, cpi = get_transposed_img_and_target(img, cpi)
-                if do_flip is True:
-                    img, cpi = get_flipped_img_and_target(img, cpi)
-                img, cpi = get_transformed_img_and_target(
-                    img,
-                    cpi,
-                    zoom_factor=self.zoom_factor,
-                    shift_factor=self.shift_factor,
-                    shear_factor=self.shear_factor,
-                )
-
-                if all(user_click[:2] >= 0):
-                    user_click = np.unravel_index(np.argmax(cpi), cpi.shape)
-                cpi = get_cpi_from_user_click(
-                    user_click[:2],
-                    final_img_size,
-                    resize_factor,
-                    img_path + "augment",
-                    click_radius=self.click_radius,
-                    zoom=zoom,
-                    scale_click=self.scale_click,
-                )
-
-            x[j] = img
-            y[j] = cpi
-
-        return x, y
 
 
 def get_cpi_from_user_click(
@@ -1672,6 +1008,12 @@ def get_normalization_layer(
         x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
+def get_num_segmentation_classes(heads):
+    num_segmentation_classes = 0
+    for head in heads:
+        if head["type"] == "segmentation":
+            num_segmentation_classes += 1
+    return num_segmentation_classes
 
 def get_uncompiled_tiramisu(
     nfilters=48,
@@ -1783,8 +1125,9 @@ def get_uncompiled_tiramisu(
 
     outputs = []
     regression_neck = None
+    num_segmentation_classes = get_num_segmentation_classes(heads)
     for head in heads:
-        if head["type"] == "segmentation" or head["type"] == "click_segmentation":
+        if head["type"] == "segmentation" or head["type"] == "click_segmentation" or head["name"] == "identity":
             output = layers.Conv2D(
                 1,
                 1,
@@ -1793,7 +1136,16 @@ def get_uncompiled_tiramisu(
                 dtype="float32",
                 name=head["name"],
             )(x_up)
-
+        elif head["type"] == "categorical_segmentation" and num_segmentation_classes>0:
+            output = layers.Conv2D(
+                num_segmentation_classes + 1,
+                1,
+                activation="softmax",
+                padding="same",
+                dtype="float32",
+                name=head["name"],
+            )(x_up)
+            
             # output = get_convolutional_layer(x_up, 'Conv2D', 1, filter_size=1, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization, activation="sigmoid", dtype="float32", name=head['name'])
 
         elif head["type"] == "regression":
@@ -1878,8 +1230,10 @@ def get_tiramisu(
         print("not finetune")
     losses = {}
     metrics = {}
+    num_segmentation_classes = get_num_segmentation_classes(heads)
     for head in heads:
         losses[head["name"]] = params[head["type"]]["loss"]
+        print('head name and type', head["name"], head["type"])
         if params[head["type"]]["metrics"] == "BIoU":
             metrics[head["name"]] = [
                 tf.keras.metrics.BinaryIoU(
@@ -1905,18 +1259,30 @@ def get_tiramisu(
                 ),
             ]
         elif params[head["type"]]["metrics"] == "mean_absolute_error":
-            metrics[head["name"]] = [tf.keras.metrics.mean_absolute_error()]
-
+            metrics[head["name"]] = tf.keras.metrics.MeanAbsoluteError(name="MAE")
+        elif head["type"] == "categorical_segmentation":
+            metrics[head["name"]] = getattr(tf.keras.metrics, params[head["type"]]["metrics"])(num_segmentation_classes+1)
+            
+            #, sparse_y_true=True, sparse_y_pred=True)
+            #losses[head["name"]] = tf.keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
+            #getattr(tf.keras.losses, params[head["type"]]["loss"])(from_logits=True)
+        else:
+            metrics[head["name"]] = getattr(tf.keras.metrics, params[head["type"]]["metrics"])()
+            
     print("losses", len(losses), losses)
     print("metrics", len(metrics), metrics)
     loss_weights = {}
     for head in heads:
-        lw = loss_weights_from_stats[head["name"]]
-        if limit_loss:
-            if lw > loss_weights_from_stats["crystal"]:
-                lw = loss_weights_from_stats["crystal"]
+        if head["name"] in loss_weights_from_stats:
+            lw = loss_weights_from_stats[head["name"]]
+            if limit_loss:
+                if lw > loss_weights_from_stats["crystal"]:
+                    lw = loss_weights_from_stats["crystal"]
+        else:
+            lw = 1
         loss_weights[head["name"]] = lw
 
+    print("loss weights", loss_weights)
     lrs = learning_rate
     # lrs = tf.keras.optimizers.schedules.ExponentialDecay(lrs, decay_steps=1e4, decay_rate=0.96, minimum_value=1e-7, staircase=True)
     optimizer = tf.keras.optimizers.RMSprop(learning_rate=lrs)
@@ -2086,17 +1452,6 @@ def segment_multihead(
         {"name": "foreground", "type": "segmentation"},
         {"name": "click", "type": "click_segmentation"},
     ],
-    notions=[
-        "crystal",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "capillary",
-        "ice",
-        "foreground",
-        "click",
-    ],
     last_convolution=False,
     augment=True,
     train_images=-1,
@@ -2129,6 +1484,7 @@ def segment_multihead(
         print("setting memory_growth on", gpu)
         tf.config.experimental.set_memory_growth(gpu, True)
 
+    notions = [head["name"] for head in heads]
     distinguished_name = "%s_%s" % (network, name)
     model_name = os.path.join(base, "%s.h5" % distinguished_name)
     history_name = os.path.join(base, "%s.history" % distinguished_name)
@@ -2138,11 +1494,11 @@ def segment_multihead(
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
     # data genrators
     train_paths, val_paths = get_training_and_validation_datasets(
-        directory="images_and_labels", split=train_dev_split
+        directory=os.path.join(base, "images_and_labels"), split=train_dev_split
     )
     if include_plate_images:
         train_paths_plate, val_paths_plate = get_training_and_validation_datasets(
-            directory="images_and_labels_plate", split=0
+            directory=os.path.join(base, "images_and_labels_plate"), split=0
         )
         # val_paths += val_paths_plate
         train_paths += train_paths_plate
@@ -2151,7 +1507,7 @@ def segment_multihead(
             train_paths_capillary,
             val_paths_capillary,
         ) = get_training_and_validation_datasets(
-            directory="images_and_labels_capillary", split=0
+            directory=os.path.join(base, "images_and_labels_capillary"), split=0
         )
         # val_paths += val_paths_plate
         train_paths += train_paths_capillary
@@ -2171,7 +1527,6 @@ def segment_multihead(
         % (len(train_paths), len(val_paths))
     )
     # train_gen = CrystalClickDataset(batch_size, model_img_size, train_paths, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, shuffle_at_0=True)
-    notions = [item["name"] for item in heads]
     print("notions in segment_multihead", notions)
     train_gen = MultiTargetDataset(
         batch_size,
@@ -3035,41 +2390,6 @@ def predict_multihead(
     return all_predictions
 
 
-def get_hierarchical_mask_from_target(
-    target,
-    notions=[
-        "crystal",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "capillary",
-        "ice",
-        "foreground",
-        "click",
-    ],
-    notion_indices={
-        "crystal": 0,
-        "loop_inside": 1,
-        "loop": 2,
-        "stem": 3,
-        "pin": 4,
-        "capillary": 5,
-        "ice": 6,
-        "foreground": 7,
-        "click": -1,
-    },
-):
-    hierarchical_mask = np.zeros(target.shape[:2], dtype=np.uint8)
-    for notion in notions[:-1][::-1]:
-        l = notion_indices[notion]
-        mask = target[:, :, l]
-        if np.any(mask):
-            hierarchical_mask[mask == 1] = notions[:-1][::-1].index(notion) + 1
-        hierarchical_mask[0, notions.index(notion)] = notions.index(notion) + 1
-    return hierarchical_mask
-
-
 def get_hierarchical_mask_from_prediction(
     prediction,
     notions=["crystal", "loop_inside", "loop", "stem", "pin", "foreground"],
@@ -3396,31 +2716,6 @@ def save_predictions(
     )
 
 
-def get_img_size_as_scale_of_pixel_budget(
-    scale, pixel_budget=768 * 992, ratio=0.75, modulo=32
-):
-    n = math.floor(math.sqrt(pixel_budget / ratio))
-    new_n = n * scale
-    img_size = np.array((new_n * ratio, new_n)).astype(int)
-    img_size -= np.mod(img_size, modulo)
-    return tuple(img_size)
-
-
-def get_img_size(resize_factor, original_size=(1024, 1360), modulo=32):
-    new_size = resize_factor * np.array(original_size)
-    new_size = get_closest_working_img_size(new_size, modulo=modulo)
-    return new_size
-
-
-def get_closest_working_img_size(img_size, modulo=32):
-    closest_working_img_size = img_size - np.mod(img_size, modulo)
-    return tuple(closest_working_img_size.astype(int))
-
-
-def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
-    return max(int(pixel_budget / np.prod(img_size)), 1)
-
-
 def get_title_from_img_path(img_path):
     return os.path.basename(os.path.dirname(img_path))
 
@@ -3511,6 +2806,7 @@ def plot_augment(
 def plot_batch(
     batch_size=16,
     transform=True,
+    augment=True,
     swap_backgrounds=True,
     black_and_white=True,
     shuffle_at_0=True,
@@ -3527,17 +2823,19 @@ def plot_batch(
         "capillary",
         "ice",
         "foreground",
+        "hierarchy",
+        "identity",
     ],
 ):
     paths, _ = get_training_and_validation_datasets(
         directory="images_and_labels", split=0.2
     )
-    gen = MultiTargetDataset(
+    gen = get_generator(
         batch_size,
         model_img_size,
         paths,
         notions=notions,
-        augment=True,
+        augment=augment,
         transform=transform,
         swap_backgrounds=swap_backgrounds,
         flip=flip,
@@ -3551,10 +2849,10 @@ def plot_batch(
 
     imgs, targets = gen[0]
     targets_as_multichannel_masks = np.zeros(
-        imgs.shape[:3] + (len(targets),), dtype="uint8"
+        imgs.shape[:3] + (len(gen.hierarchy_notions),), dtype="uint8"
     )
     for k in range(batch_size):
-        for l in range(len(notions)):
+        for l in range(len(gen.hierarchy_notions)):
             targets_as_multichannel_masks[k, :, :, l] = targets[l][k, :, :, 0]
     fig, axes = pylab.subplots((2 * batch_size) // 6 + 1, 6)
     fig.set_size_inches(*figsize)
@@ -3571,3 +2869,48 @@ def plot_batch(
         )
         ax[2 * t + 1].set_title("%d target" % (t))
     pylab.show()
+
+def get_generator(paths,
+                  batch_size=16,
+                  model_img_size=(320, 256),
+                  notions=[
+                        "crystal",
+                        "loop_inside",
+                        "loop",
+                        "stem",
+                        "pin",
+                        "capillary",
+                        "ice",
+                        "foreground",
+                        "hierarchy",
+                        "identity",
+                    ],
+                  augment=True,
+                  transform=True,
+                  swap_backgrounds=True,
+                  black_and_white=True,
+                  shuffle_at_0=True,
+                  flip=True,
+                  transpose=True,
+                  dynamic_batch_size=False,
+                  artificial_size_increase=False,
+                  verbose=True,):
+    
+    gen = MultiTargetDataset(
+        batch_size,
+        model_img_size,
+        paths,
+        notions=notions,
+        augment=augment,
+        transform=transform,
+        swap_backgrounds=swap_backgrounds,
+        flip=flip,
+        transpose=transpose,
+        dynamic_batch_size=dynamic_batch_size,
+        artificial_size_increase=artificial_size_increase,
+        shuffle_at_0=shuffle_at_0,
+        black_and_white=black_and_white,
+        verbose=verbose,
+    )
+    return gen 
+

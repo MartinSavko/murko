@@ -20,7 +20,7 @@ from tensorflow.keras.preprocessing.image import (
     array_to_img,
 )
 
-# sys.path.insert(0, '/usr/local/lib/python3.8/dist-packages')
+#sys.path.insert(0, '/usr/local/lib/python3.8/dist-packages')
 from labelme import utils
 from labelme.logger import logger
 from labelme.utils import shape_to_mask
@@ -156,7 +156,6 @@ def convert(
             hierarchical_mask[mask == 1] = notions.index(notion) + 1
 
     all_masks = np.array(all_masks)
-    print("all_masks", all_masks.shape, all_masks.dtype)
     PIL.Image.fromarray(img).save(osp.join(out_dir, "img.jpg"))
     # save_img(osp.join(out_dir, "imgk.jpg"), array_to_img(img), scale=False)
     # save_img(osp.join(out_dir, "imgj.jpg"), array_to_img(img), scale=True)
@@ -166,7 +165,6 @@ def convert(
             save_img(osp.join(out_dir, "%s.png" % notion), nm, scale=False)
             save_img(osp.join(out_dir, "%s_high_contrast.png" % notion), nm, scale=True)
     hm = np.expand_dims(hierarchical_mask, 2)
-    print("hm", hm.shape, hm.min(), hm.max(), hm.dtype)
     if generate_notions_png:
         save_img(osp.join(out_dir, "hierarchical_mask.png"), hm, scale=False)
     y, x = map(int, user_click)
