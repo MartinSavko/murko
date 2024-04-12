@@ -20,7 +20,7 @@ from tensorflow.keras.preprocessing.image import (
     array_to_img,
 )
 
-#sys.path.insert(0, '/usr/local/lib/python3.8/dist-packages')
+# sys.path.insert(0, '/usr/local/lib/python3.8/dist-packages')
 from labelme import utils
 from labelme.logger import logger
 from labelme.utils import shape_to_mask

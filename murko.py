@@ -9,6 +9,14 @@
 # Training with Batch-Channel Normalization and Weight Standardization
 # arXiv:1903.10520v2)
 
+from dataset_loader import (
+    MultiTargetDataset,
+    get_dynamic_batch_size,
+    size_differs,
+    get_transposed_img_and_target,
+    get_transformed_img_and_target,
+    get_hierarchical_mask_from_target,
+)
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_objects
 from skimage.measure import regionprops
@@ -49,7 +57,6 @@ sns.set(color_codes=True)
 # from matplotlib import rc
 # rc('font', **{'family':'serif','serif':['Palatino']})
 # rc('text', usetex=True)
-from dataset_loader import MultiTargetDataset, get_dynamic_batch_size, size_differs, get_transposed_img_and_target, get_transformed_img_and_target, get_hierarchical_mask_from_target
 
 try:
     from skimage.morphology.footprints import disk
@@ -64,7 +71,10 @@ batch_size = 8
 params = {
     "segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
     "regression": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
-    "categorical_segmentation": {"loss": "categorical_focal_crossentropy", "metrics": "MeanIoU"},
+    "categorical_segmentation": {
+        "loss": "categorical_focal_crossentropy",
+        "metrics": "MeanIoU",
+    },
     "click_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoUm"},
     "click_regression": {
         "loss": "mean_squared_error",
@@ -629,6 +639,7 @@ def display_target(target_array):
     plt.axis("off")
     plt.imshow(normalized_array[:, :, 0])
 
+
 def get_dataset(batch_size, img_size, img_paths, augment=False):
     dataset = tf.data.Dataset.from_tensor_slices(img_paths)
 
@@ -1008,12 +1019,14 @@ def get_normalization_layer(
         x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
+
 def get_num_segmentation_classes(heads):
     num_segmentation_classes = 0
     for head in heads:
         if head["type"] == "segmentation":
             num_segmentation_classes += 1
     return num_segmentation_classes
+
 
 def get_uncompiled_tiramisu(
     nfilters=48,
@@ -1127,7 +1140,11 @@ def get_uncompiled_tiramisu(
     regression_neck = None
     num_segmentation_classes = get_num_segmentation_classes(heads)
     for head in heads:
-        if head["type"] == "segmentation" or head["type"] == "click_segmentation" or head["name"] == "identity":
+        if (
+            head["type"] == "segmentation"
+            or head["type"] == "click_segmentation"
+            or head["name"] == "identity"
+        ):
             output = layers.Conv2D(
                 1,
                 1,
@@ -1136,7 +1153,9 @@ def get_uncompiled_tiramisu(
                 dtype="float32",
                 name=head["name"],
             )(x_up)
-        elif head["type"] == "categorical_segmentation" and num_segmentation_classes>0:
+        elif (
+            head["type"] == "categorical_segmentation" and num_segmentation_classes > 0
+        ):
             output = layers.Conv2D(
                 num_segmentation_classes + 1,
                 1,
@@ -1145,7 +1164,7 @@ def get_uncompiled_tiramisu(
                 dtype="float32",
                 name=head["name"],
             )(x_up)
-            
+
             # output = get_convolutional_layer(x_up, 'Conv2D', 1, filter_size=1, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization, activation="sigmoid", dtype="float32", name=head['name'])
 
         elif head["type"] == "regression":
@@ -1233,7 +1252,7 @@ def get_tiramisu(
     num_segmentation_classes = get_num_segmentation_classes(heads)
     for head in heads:
         losses[head["name"]] = params[head["type"]]["loss"]
-        print('head name and type', head["name"], head["type"])
+        print("head name and type", head["name"], head["type"])
         if params[head["type"]]["metrics"] == "BIoU":
             metrics[head["name"]] = [
                 tf.keras.metrics.BinaryIoU(
@@ -1261,14 +1280,18 @@ def get_tiramisu(
         elif params[head["type"]]["metrics"] == "mean_absolute_error":
             metrics[head["name"]] = tf.keras.metrics.MeanAbsoluteError(name="MAE")
         elif head["type"] == "categorical_segmentation":
-            metrics[head["name"]] = getattr(tf.keras.metrics, params[head["type"]]["metrics"])(num_segmentation_classes+1)
-            
-            #, sparse_y_true=True, sparse_y_pred=True)
-            #losses[head["name"]] = tf.keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
-            #getattr(tf.keras.losses, params[head["type"]]["loss"])(from_logits=True)
+            metrics[head["name"]] = getattr(
+                tf.keras.metrics, params[head["type"]]["metrics"]
+            )(num_segmentation_classes + 1)
+
+            # , sparse_y_true=True, sparse_y_pred=True)
+            # losses[head["name"]] = tf.keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
+            # getattr(tf.keras.losses, params[head["type"]]["loss"])(from_logits=True)
         else:
-            metrics[head["name"]] = getattr(tf.keras.metrics, params[head["type"]]["metrics"])()
-            
+            metrics[head["name"]] = getattr(
+                tf.keras.metrics, params[head["type"]]["metrics"]
+            )()
+
     print("losses", len(losses), losses)
     print("metrics", len(metrics), metrics)
     loss_weights = {}
@@ -2870,32 +2893,35 @@ def plot_batch(
         ax[2 * t + 1].set_title("%d target" % (t))
     pylab.show()
 
-def get_generator(paths,
-                  batch_size=16,
-                  model_img_size=(320, 256),
-                  notions=[
-                        "crystal",
-                        "loop_inside",
-                        "loop",
-                        "stem",
-                        "pin",
-                        "capillary",
-                        "ice",
-                        "foreground",
-                        "hierarchy",
-                        "identity",
-                    ],
-                  augment=True,
-                  transform=True,
-                  swap_backgrounds=True,
-                  black_and_white=True,
-                  shuffle_at_0=True,
-                  flip=True,
-                  transpose=True,
-                  dynamic_batch_size=False,
-                  artificial_size_increase=False,
-                  verbose=True,):
-    
+
+def get_generator(
+    paths,
+    batch_size=16,
+    model_img_size=(320, 256),
+    notions=[
+        "crystal",
+        "loop_inside",
+        "loop",
+        "stem",
+        "pin",
+        "capillary",
+        "ice",
+        "foreground",
+        "hierarchy",
+        "identity",
+    ],
+    augment=True,
+    transform=True,
+    swap_backgrounds=True,
+    black_and_white=True,
+    shuffle_at_0=True,
+    flip=True,
+    transpose=True,
+    dynamic_batch_size=False,
+    artificial_size_increase=False,
+    verbose=True,
+):
+
     gen = MultiTargetDataset(
         batch_size,
         model_img_size,
@@ -2912,5 +2938,4 @@ def get_generator(paths,
         black_and_white=black_and_white,
         verbose=verbose,
     )
-    return gen 
-
+    return gen

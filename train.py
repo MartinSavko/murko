@@ -10,33 +10,32 @@ import pickle
 from murko import segment_multihead
 from dataset_loader import get_dynamic_batch_size, get_img_size
 
+
 def train():
-    
-    default_candidates = ["crystal",
-                          "loop_inside",
-                          "loop",
-                          "stem",
-                          "pin",
-                          "foreground"]
-    
-    candidates = dict([ ("crystal", "segmentation"),
-                        ("loop_inside", "segmentation"), 
-                        ("loop", "segmentation"), 
-                        ("stem", "segmentation"), 
-                        ("pin", "segmentation"), 
-                        ("ice", "segmentation"), 
-                        ("capillary", "segmentation"), 
-                        ("foreground", "segmentation"), 
-                        ("hierarchy", "categorical_segmentation"), 
-                        ("identity", "regression"),
-                        ("click", "regression"),
-                        ("crystal_bbox", "regression"),
-                        ("loop_inside_bbox", "regression"),
-                        ("loop_bbox", "regression"),
-                        ("stem_bbox", "regression"),
-                        ("pin_bbox", "regression"),
-                     ])
-    
+
+    default_candidates = ["crystal", "loop_inside", "loop", "stem", "pin", "foreground"]
+
+    candidates = dict(
+        [
+            ("crystal", "segmentation"),
+            ("loop_inside", "segmentation"),
+            ("loop", "segmentation"),
+            ("stem", "segmentation"),
+            ("pin", "segmentation"),
+            ("ice", "segmentation"),
+            ("capillary", "segmentation"),
+            ("foreground", "segmentation"),
+            ("hierarchy", "categorical_segmentation"),
+            ("identity", "regression"),
+            ("click", "regression"),
+            ("crystal_bbox", "regression"),
+            ("loop_inside_bbox", "regression"),
+            ("loop_bbox", "regression"),
+            ("stem_bbox", "regression"),
+            ("pin_bbox", "regression"),
+        ]
+    )
+
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -177,11 +176,11 @@ def train():
     for candidate in candidates:
         parser.add_argument(
             "--%s" % candidate,
-            default= 1 if candidate in default_candidates else 0,
+            default=1 if candidate in default_candidates else 0,
             type=int,
             help="learn %s" % candidate,
         )
-    
+
     args = parser.parse_args()
     print("args", args)
 
@@ -190,8 +189,8 @@ def train():
         if bool(getattr(args, candidate)):
             heads.append({"name": candidate, "type": candidates[candidate]})
 
-    print('heads', heads)
-    
+    print("heads", heads)
+
     pixel_budget = int(args.pixel_budget * args.pixel_budget_modifier)
     if args.batch_size == -1 and args.resize_factor != -1:
         model_img_size = get_img_size(args.resize_factor)
@@ -211,9 +210,9 @@ def train():
 
     # save the current version of the murko under a name corresponding to the
     # output model name
-    for tool in ['murko', 'train.py', 'dataset_loader']:
+    for tool in ["murko", "train.py", "dataset_loader"]:
         os.system("cp %s.py %s_%s_%s.py" % (tool, args.network, args.name, tool))
-    
+
     f = open("%s_%s.args" % (args.network, args.name), "wb")
     pickle.dump(args, f)
     f.close()
@@ -250,6 +249,7 @@ def train():
         train_dev_split=args.train_dev_split,
         val_model_img_size=args.val_model_img_size,
     )
+
 
 if __name__ == "__main__":
     train()

@@ -19,6 +19,7 @@ from keras.preprocessing.image import (
     array_to_img,
 )
 
+
 def get_hierarchical_mask_from_target(
     target,
     notions=[
@@ -41,17 +42,19 @@ def get_hierarchical_mask_from_target(
         "ice": 6,
         "foreground": 7,
     },
-    notions_order = ["crystal",
-                     "ice",
-                     "loop_inside",
-                     "loop",
-                     "pin",
-                     "stem",
-                     "capillary",
-                     "foreground"],
+    notions_order=[
+        "crystal",
+        "ice",
+        "loop_inside",
+        "loop",
+        "pin",
+        "stem",
+        "capillary",
+        "foreground",
+    ],
 ):
     hierarchical_mask = np.zeros(target.shape[:2], dtype=np.uint8)
-    k=0
+    k = 0
     for notion in notions_order[::-1]:
         if notion in notions:
             k += 1
@@ -71,31 +74,38 @@ def get_img_size_as_scale_of_pixel_budget(
     img_size -= np.mod(img_size, modulo)
     return tuple(img_size)
 
+
 def get_img_size(resize_factor, original_size=(1024, 1360), modulo=32):
     new_size = resize_factor * np.array(original_size)
     new_size = get_closest_working_img_size(new_size, modulo=modulo)
     return new_size
 
+
 def get_closest_working_img_size(img_size, modulo=32):
     closest_working_img_size = img_size - np.mod(img_size, modulo)
     return tuple(closest_working_img_size.astype(int))
 
+
 def size_differs(original_size, img_size):
     return original_size[0] != img_size[0] or original_size[1] != img_size[1]
 
+
 def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
     return max(int(pixel_budget / np.prod(img_size)), 1)
+
 
 def get_batch(i, img_paths, batch_size):
     half, r = divmod(batch_size, 2)
     indices = np.arange(i - half, i + half + r)
     return [img_paths[divmod(item, len(img_paths))[1]] for item in indices]
 
+
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
     x = x[::-1, ...]
     x = x.swapaxes(0, axis)
     return x
+
 
 def get_transposed_img_and_target(img, target):
     new_axes_order = (
@@ -110,11 +120,13 @@ def get_transposed_img_and_target(img, target):
     target = np.transpose(target, new_axes_order)  # [:len(target.shape)])
     return img, target
 
+
 def get_flipped_img_and_target(img, target):
     axis = random.choice([0, 1])
     img = flip_axis(img, axis)
     target = flip_axis(target, axis)
     return img, target
+
 
 def get_transformed_img_and_target(
     img,
@@ -168,9 +180,10 @@ def get_transformed_img_and_target(
         }
         img = image.apply_affine_transform(img, **transform_arguments)
         target = image.apply_affine_transform(target, **transform_arguments)
-        #target = image.apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
-        #target = np.astype(np.uint8)
+        # target = image.apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
+        # target = np.astype(np.uint8)
     return img, target
+
 
 class MultiTargetDataset(keras.utils.Sequence):
     def __init__(
@@ -283,7 +296,11 @@ class MultiTargetDataset(keras.utils.Sequence):
             self.identity = True
         if "hierarchy" in notions:
             self.hierarchy = True
-            self.hierarchy_notions = [notion for notion in self.notions if notion not in ["hierarchy", "identity"]]
+            self.hierarchy_notions = [
+                notion
+                for notion in self.notions
+                if notion not in ["hierarchy", "identity"]
+            ]
             self.hierarchy_num_classes = len(self.hierarchy_notions) + 1
         self.verbose = verbose
 
@@ -372,20 +389,27 @@ class MultiTargetDataset(keras.utils.Sequence):
         x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
         y = []
         for notion in self.notions:
-            if 'click' not in notion and notion not in ["identity", "hierarchy"]:
+            if "click" not in notion and notion not in ["identity", "hierarchy"]:
                 y.append(np.zeros((batch_size,) + final_img_size + (1,), dtype="uint8"))
             elif notion == "identity":
-                y.append(np.zeros((batch_size,) + final_img_size + (1,), dtype="float32"))
+                y.append(
+                    np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
+                )
             elif notion == "hierarchy":
-                y.append(np.zeros((batch_size,) + final_img_size + (self.hierarchy_num_classes,), dtype="float32"))
-                #y.append(np.zeros((batch_size,) + final_img_size + (1,), dtype="uint8"))
-            elif click == 'click_segmentation':
+                y.append(
+                    np.zeros(
+                        (batch_size,) + final_img_size + (self.hierarchy_num_classes,),
+                        dtype="float32",
+                    )
+                )
+                # y.append(np.zeros((batch_size,) + final_img_size + (1,), dtype="uint8"))
+            elif click == "click_segmentation":
                 y.append(
                     np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
                 )
             else:
-                 y.append(np.zeros((batch_size,) + (3,), dtype="float32"))
-       
+                y.append(np.zeros((batch_size,) + (3,), dtype="float32"))
+
         for j, img_path in enumerate(self.batch_img_paths):
             resize_factor = 1.0
             original_image = load_img(img_path)
@@ -448,9 +472,9 @@ class MultiTargetDataset(keras.utils.Sequence):
                     new_background = resize(
                         new_background, img.shape[:2], anti_aliasing=True
                     )
-                img[
-                    target[:, :, self.notions.index("foreground")] == 0
-                ] = new_background[target[:, :, self.notions.index("foreground")] == 0]
+                img[target[:, :, self.notions.index("foreground")] == 0] = (
+                    new_background[target[:, :, self.notions.index("foreground")] == 0]
+                )
 
             if do_random_brightness is True:
                 img = image.random_brightness(img, [0.75, 1.25]) / 255.0
@@ -469,7 +493,7 @@ class MultiTargetDataset(keras.utils.Sequence):
                         anti_aliasing=False,
                         preserve_range=True,
                     )
-                    
+
             if do_black_and_white or self.identity:
                 img_bw = img.mean(axis=2)
 
@@ -498,16 +522,22 @@ class MultiTargetDataset(keras.utils.Sequence):
                 y_click, x_click = user_click_frac
             elif self.target:
                 target = (target > 0.5).astype("uint8")
-            
+
             if do_black_and_white:
                 img = np.stack([img_bw] * 3, axis=2)
-            
+
             if self.hierarchy:
-                #print('target', target.shape, target.min(), target.max())
-                hierarchy = get_hierarchical_mask_from_target(target, notions=self.hierarchy_notions, notion_indices=self.notion_indices)
-                #print('hierarchy', hierarchy.shape, hierarchy.min(), hierarchy.max())
-                hierarchy = to_categorical(hierarchy, num_classes=self.hierarchy_num_classes)
-                #print('categorical', hierarchy.shape, hierarchy.min(), hierarchy.max())
+                # print('target', target.shape, target.min(), target.max())
+                hierarchy = get_hierarchical_mask_from_target(
+                    target,
+                    notions=self.hierarchy_notions,
+                    notion_indices=self.notion_indices,
+                )
+                # print('hierarchy', hierarchy.shape, hierarchy.min(), hierarchy.max())
+                hierarchy = to_categorical(
+                    hierarchy, num_classes=self.hierarchy_num_classes
+                )
+                # print('categorical', hierarchy.shape, hierarchy.min(), hierarchy.max())
             x[j] = img
             if self.target:
                 for k, notion in enumerate(self.notions):
@@ -768,4 +798,3 @@ class CrystalClickDataset(keras.utils.Sequence):
             y[j] = cpi
 
         return x, y
-
