@@ -9,15 +9,146 @@ import glob
 import random
 import numpy as np
 from skimage.transform import resize
-from tensorflow import keras
+
+import keras
 from keras.utils import to_categorical
-from keras.preprocessing import image
 from keras.preprocessing.image import (
+    apply_affine_transform,
     save_img,
     load_img,
     img_to_array,
     array_to_img,
 )
+
+
+def path_to_input_image(path):
+    return img_to_array(load_img(path, target_size=img_size))
+
+
+def path_to_target(path):
+    img = img_to_array(load_img(path, target_size=img_size, color_mode="grayscale"))
+    img = img.astype("uint8")
+    return img
+
+
+def get_paths(directory="images_and_labels", seed=1337):
+    input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
+    target_img_paths = [
+        item.replace("img.jpg", "foreground.png") for item in input_img_paths
+    ]
+    random.Random(seed).shuffle(input_img_paths)
+    random.Random(seed).shuffle(target_img_paths)
+    return input_img_paths, target_img_paths
+
+
+def get_training_dataset(seed=1337, num_val_samples=150):
+    input_img_paths, target_img_paths = get_paths(seed=seed)
+    train_paths = input_img_paths[:-num_val_samples]
+    train_target_img_paths = target_img_paths[:-num_val_samples]
+    return train_paths, train_target_img_paths
+
+
+def get_validation_dataset(seed=1337, num_val_samples=150):
+    input_img_paths, target_img_paths = get_paths(seed=seed)
+    val_paths = input_img_paths[-num_val_samples:]
+    val_target_img_paths = target_img_paths[-num_val_samples:]
+    return val_paths, val_target_img_paths
+
+
+def get_family(name):
+    fname = os.path.realpath(name)
+    search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_zoom.*|.*/(.*)_auto_omega.*"
+    match = re.findall(search_string, fname)
+    print("match", match)
+    if match:
+        for item in match[0]:
+            if item != "":
+                return item
+    else:
+        return os.path.basename(os.path.dirname(fname))
+
+
+def get_sample_families(directory="images_and_labels", subset_designation="*"):
+    search_string = "{directory:s}/double_clicks_(.*)_double_click.*|{directory:s}/(.*)_manual_omega.*|{directory:s}/(.*)_color_zoom.*|{directory:s}/(.*)_auto_omega.*".format(
+        directory=directory
+    )
+    individuals = glob.glob("%s/%s" % (directory, subset_designation))
+    sample_families = {}
+    for individual in individuals:
+        matches = re.findall(search_string, individual)
+        individual = individual.replace("%s/" % directory, "")
+        if matches:
+            for match in matches[0]:
+                if match != "":
+                    if match in sample_families:
+                        sample_families[match].append(individual)
+                    else:
+                        sample_families[match] = [individual]
+        else:
+            sample_families[individual] = [individual]
+    return sample_families
+
+
+def get_paths_for_families(families_subset_list, sample_families, directory):
+    paths = []
+    for family in families_subset_list:
+        for individual in sample_families[family]:
+            paths.append(os.path.join(directory, individual, "img.jpg"))
+    return paths
+
+
+def get_training_and_validation_datasets(
+    directory="images_and_labels", seed=12345, split=0.2
+):
+    sample_families = get_sample_families(directory=directory)
+    sample_families_names = sorted(sample_families.keys())
+    random.Random(seed).shuffle(sample_families_names)
+    total = len(sample_families_names)
+
+    train = int((1 - split) * total)
+    train_families = sample_families_names[:train]
+    valid_families = sample_families_names[train:]
+    print("total %d" % total)
+    print("train", train)
+    print("train_families: %d" % len(train_families))
+    print("valid_families: %d" % len(valid_families))
+
+    train_paths = get_paths_for_families(train_families, sample_families, directory)
+    random.Random(seed).shuffle(train_paths)
+    val_paths = get_paths_for_families(valid_families, sample_families, directory)
+    random.Random(seed).shuffle(val_paths)
+
+    return train_paths, val_paths
+
+
+def get_training_and_validation_datasets_for_clicks(
+    basedir="./",
+    seed=1,
+    background_percent=10,
+    train_images=10000,
+    valid_images=2500,
+    forbidden=[],
+):
+    backgrounds = glob.glob(
+        os.path.join(basedir, "shapes_of_background/*.jpg")
+    ) + glob.glob(os.path.join(basedir, "Backgrounds/*.jpg"))
+    random.Random(seed).shuffle(backgrounds)
+    train_paths = glob.glob(
+        os.path.join(basedir, "unique_shapes_of_clicks/*.jpg")
+    )  # + glob.glob('images_and_labels_augmented/*/img.jpg')
+    random.Random(seed).shuffle(train_paths)
+    train_paths = train_paths[:train_images]
+    backgrounds = backgrounds[: int(len(train_paths) / background_percent)]
+    train_paths += backgrounds
+    random.Random(seed).shuffle(train_paths)
+    val_paths = train_paths[-valid_images:]
+    if len(train_paths) - valid_images < train_images:
+        train_paths = train_paths[:train_images]
+    else:
+        train_paths = train_paths[:-valid_images]
+    if len(forbidden) > 0:
+        train_paths = [item for item in train_paths if item not in forbidden]
+    return train_paths, val_paths
 
 
 def get_hierarchical_mask_from_target(
@@ -178,9 +309,9 @@ def get_transformed_img_and_target(
             "fill_mode": "constant",
             "cval": 0,
         }
-        img = image.apply_affine_transform(img, **transform_arguments)
-        target = image.apply_affine_transform(target, **transform_arguments)
-        # target = image.apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
+        img = apply_affine_transform(img, **transform_arguments)
+        target = apply_affine_transform(target, **transform_arguments)
+        # target = apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
         # target = np.astype(np.uint8)
     return img, target
 
@@ -472,9 +603,9 @@ class MultiTargetDataset(keras.utils.Sequence):
                     new_background = resize(
                         new_background, img.shape[:2], anti_aliasing=True
                     )
-                img[target[:, :, self.notions.index("foreground")] == 0] = (
-                    new_background[target[:, :, self.notions.index("foreground")] == 0]
-                )
+                img[
+                    target[:, :, self.notions.index("foreground")] == 0
+                ] = new_background[target[:, :, self.notions.index("foreground")] == 0]
 
             if do_random_brightness is True:
                 img = image.random_brightness(img, [0.75, 1.25]) / 255.0
@@ -559,6 +690,17 @@ class MultiTargetDataset(keras.utils.Sequence):
             return x, y
         else:
             return x
+
+
+def load_ground_truth_image(path, target_size):
+    ground_truth = np.expand_dims(
+        load_img(path, target_size=target_size, color_mode="grayscale"), 2
+    )
+    if ground_truth.max() > 0:
+        ground_truth = np.array(ground_truth / ground_truth.max(), dtype="uint8")
+    else:
+        ground_truth = np.array(ground_truth, dtype="uint8")
+    return ground_truth
 
 
 class SampleSegmentationDataset(keras.utils.Sequence):
@@ -798,3 +940,14 @@ class CrystalClickDataset(keras.utils.Sequence):
             y[j] = cpi
 
         return x, y
+
+
+def get_data_augmentation():
+    data_augmentation = keras.Sequential(
+        [
+            layers.RandomRotation(0.5),
+            layers.RandomFlip(),
+            layers.RandomZoom(0.2),
+        ]
+    )
+    return data_augmentation
