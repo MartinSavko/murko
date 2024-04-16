@@ -10,10 +10,10 @@ import random
 import numpy as np
 from skimage.transform import resize
 
+from tensorflow.keras.preprocessing.image import apply_affine_transform
 import keras
 from keras.utils import to_categorical
 from keras.preprocessing.image import (
-    apply_affine_transform,
     save_img,
     load_img,
     img_to_array,

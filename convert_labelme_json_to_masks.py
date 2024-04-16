@@ -13,6 +13,7 @@ import os.path as osp
 import numpy as np
 import pylab
 import shutil
+import pickle
 from tensorflow.keras.preprocessing.image import (
     save_img,
     load_img,
@@ -54,6 +55,43 @@ def generate_background_masks(
     np.save(os.path.join(output_directory, "user_click.npy"), user_click)
 
 
+def get_points_as_array(points):
+    points = np.array(points)
+    points = points[:, [1, 0]]
+    return points
+
+def get_bbox_from_points_rcwh(points):
+    points = get_points_as_array(points)
+    ys = points[:, 0]
+    xs = points[:, 1]
+    ysmin = ys.min()
+    xsmin = xs.min()
+    h = ys.max() + 1 - ysmin
+    w = xs.max() + 1 - xsmin
+    r = ysmin + h/2.
+    c = xsmin + w/2.
+    return r, c, w, h
+
+def get_bbox_from_points_p1p2(points):
+    points = get_points_as_array(points)
+    ys = points[:, 0]
+    xs = points[:, 1]
+    y1 = ys.min()
+    x1 = xs.min()
+    y2 = ys.max()
+    x2 = xs.max()
+    return y1, x1, y2, x2
+
+def get_bbox_from_points_xywh(points):
+    points = get_points_as_array(points)
+    ys = points[:, 0]
+    xs = points[:, 1]
+    y1 = ys.min()
+    x1 = xs.min()
+    y2 = ys.max()
+    x2 = xs.max()
+    return x1, y1, x2-x1, y2-y1
+
 def convert(
     json_file,
     out=None,
@@ -86,11 +124,12 @@ def convert(
     if not osp.exists(out_dir):
         os.mkdir(out_dir)
 
+    oois = {}
     user_click = [-1, -1]
     for item in data["shapes"]:
         if item["label"] == "user_click" and item["shape_type"] == "point":
             user_click = item["points"][0][::-1]
-
+    oois["user_click"] = user_click
     _shapes = []
     for label in labels.split(","):
         for item in data["shapes"]:
@@ -107,10 +146,18 @@ def convert(
     masks = {}
     for shape in _shapes:
         mask = shape_to_mask(image_shape, shape["points"])
-        if shape["label"] not in masks:
-            masks[shape["label"]] = mask
+        #bbox_mask = masks_to_bboxes([mask])
+        
+        ooi = get_points_as_array(shape["points"])
+        label = shape["label"]
+        if label not in oois:
+            oois[label] = [ooi]
         else:
-            masks[shape["label"]] = np.logical_or(masks[shape["label"]], mask)
+            oois[label].append(ooi)
+        if label not in masks:
+            masks[label] = mask
+        else:
+            masks[label] = np.logical_or(masks[label], mask)
 
     notions = [
         "crystal",
@@ -122,6 +169,7 @@ def convert(
         "ice",
         "foreground",
     ]
+    
     notion_masks = dict(
         [(notion, np.zeros(image_shape, dtype=np.uint8)) for notion in notions]
     )
@@ -184,7 +232,9 @@ def convert(
         )
     np.save(osp.join(out_dir, "masks.npy"), all_masks)
     np.save(osp.join(out_dir, "user_click.npy"), user_click)
-
+    f = open(osp.join(out_dir, "objects_of_interest.pickle"), "wb")
+    pickle.dump(oois, f)
+    f.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
