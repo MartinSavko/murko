@@ -17,8 +17,8 @@ import psutil
 import gc
 
 import simplejpeg
-from murko import (
-    get_uncompiled_tiramisu,
+from murko import get_uncompiled_tiramisu
+from utils import (
     get_descriptions,
     get_notion_string,
     plot_analysis,
