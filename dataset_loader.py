@@ -316,7 +316,7 @@ def get_transformed_img_and_target(
     return img, target
 
 
-class MultiTargetDataset(keras.utils.Sequence):
+class MultiTargetDataset(keras.utils.PyDataset):
     def __init__(
         self,
         batch_size,
@@ -372,7 +372,11 @@ class MultiTargetDataset(keras.utils.Sequence):
         random_brightness=True,
         random_channel_shift=False,
         verbose=False,
+        workers=10, 
+        use_multiprocessing=True, 
+        max_queue_size=10,
     ):
+        super().__init__(workers=workers, use_multiprocessing=use_multiprocessing, max_queue_size=max_queue_size)
         self.batch_size = batch_size
         self.img_size = img_size
         if artificial_size_increase > 1:
@@ -690,7 +694,6 @@ class MultiTargetDataset(keras.utils.Sequence):
             return x, y
         else:
             return x
-
 
 def load_ground_truth_image(path, target_size):
     ground_truth = np.expand_dims(

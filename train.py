@@ -7,8 +7,13 @@
 import os
 import sys
 import pickle
+import tensorflow as tf
 import keras
-from murko import get_tiramisu
+
+import matplotlib.pyplot as plt
+
+from murko import get_uncompiled_tiramisu, networks
+
 from dataset_loader import (
     get_dynamic_batch_size,
     get_img_size,
@@ -47,6 +52,141 @@ def plot_history(
     pylab.legend()
     pylab.savefig("%s_metrics.png" % template)
 
+
+def get_tiramisu(
+    nfilters=48,
+    growth_rate=16,
+    layers_scheme=[4, 5, 7, 10, 12],
+    bottleneck=15,
+    activation="relu",
+    convolution_type="Conv2D",
+    last_convolution=False,
+    dropout_rate=0.2,
+    weight_standardization=True,
+    model_img_size=(None, None),
+    use_bias=False,
+    learning_rate=0.001,
+    finetune=False,
+    finetune_model=None,
+    heads=[
+        {"name": "crystal", "type": "binary_segmentation"},
+        {"name": "loop_inside", "type": "binary_segmentation"},
+        {"name": "loop", "type": "binary_segmentation"},
+        {"name": "stem", "type": "binary_segmentation"},
+        {"name": "pin", "type": "binary_segmentation"},
+        {"name": "capillary", "type": "binary_segmentation"},
+        {"name": "ice", "type": "binary_segmentation"},
+        {"name": "foreground", "type": "binary_segmentation"},
+        {"name": "click", "type": "click_segmentation"},
+    ],
+    name="model",
+    normalization_type="GroupNormalization",
+    limit_loss=True,
+    weight_decay=1.0e-4,
+):
+    print("get_tiramisu heads", heads)
+    model = get_uncompiled_tiramisu(
+        nfilters=nfilters,
+        growth_rate=growth_rate,
+        layers_scheme=layers_scheme,
+        bottleneck=bottleneck,
+        activation=activation,
+        convolution_type=convolution_type,
+        last_convolution=last_convolution,
+        dropout_rate=dropout_rate,
+        weight_standardization=weight_standardization,
+        model_img_size=model_img_size,
+        heads=heads,
+        name=name,
+        normalization_type=normalization_type,
+        weight_decay=weight_decay,
+    )
+    if finetune and finetune_model is not None:
+        print("loading weights to finetune")
+        model.load_weights(finetune_model)
+    else:
+        print("not finetune")
+    losses = {}
+    metrics = {}
+    num_segmentation_classes = get_num_segmentation_classes(heads)
+    for head in heads:
+        losses[head["name"]] = params[head["type"]]["loss"]
+        print("head name and type", head["name"], head["type"])
+        if params[head["type"]]["metrics"] == "BIoU":
+            metrics[head["name"]] = [
+                keras.metrics.BinaryIoU(
+                    target_class_ids=[1], threshold=0.5, name="BIoU_1"
+                ),
+                keras.metrics.BinaryIoU(
+                    target_class_ids=[0], threshold=0.5, name="BIoU_0"
+                ),
+                keras.metrics.BinaryIoU(
+                    target_class_ids=[0, 1], threshold=0.5, name="BIoU_both"
+                ),
+            ]
+        elif params[head["type"]]["metrics"] == "BIoUm":
+            metrics[head["name"]] = [
+                keras.metrics.BinaryIoUm(
+                    target_class_ids=[1], threshold=0.5, name="BIoUm_1"
+                ),
+                keras.metrics.BinaryIoUm(
+                    target_class_ids=[0], threshold=0.5, name="BIoUm_0"
+                ),
+                keras.metrics.BinaryIoUm(
+                    target_class_ids=[0, 1], threshold=0.5, name="BIoUm_both"
+                ),
+            ]
+        elif params[head["type"]]["metrics"] == "mean_absolute_error":
+            metrics[head["name"]] = keras.metrics.MeanAbsoluteError(name="MAE")
+        elif head["type"] == "categorical_segmentation":
+            metrics[head["name"]] = getattr(
+                keras.metrics, params[head["type"]]["metrics"]
+            )(num_segmentation_classes + 1)
+
+            # , sparse_y_true=True, sparse_y_pred=True)
+            # losses[head["name"]] = keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
+            # getattr(keras.losses, params[head["type"]]["loss"])(from_logits=True)
+        else:
+            metrics[head["name"]] = getattr(
+                keras.metrics, params[head["type"]]["metrics"]
+            )()
+
+    print("losses", len(losses), losses)
+    print("metrics", len(metrics), metrics)
+    loss_weights = {}
+    for head in heads:
+        if head["name"] in loss_weights_from_stats:
+            lw = loss_weights_from_stats[head["name"]]
+            if limit_loss:
+                if lw > loss_weights_from_stats["crystal"]:
+                    lw = loss_weights_from_stats["crystal"]
+        else:
+            lw = 1
+        loss_weights[head["name"]] = lw
+
+    print("loss weights", loss_weights)
+    lrs = learning_rate
+    # lrs = keras.optimizers.schedules.ExponentialDecay(lrs, decay_steps=1e4, decay_rate=0.96, minimum_value=1e-7, staircase=True)
+    optimizer = keras.optimizers.RMSprop(learning_rate=lrs)
+    # optimizer = keras.optimizers.Adam(learning_rate=lrs)
+    if finetune:
+        for l in model.layers[: -len(heads)]:
+            l.trainable = False
+
+    model.compile(
+        optimizer=optimizer, 
+        loss=losses, 
+        loss_weights=loss_weights, 
+        metrics=metrics,
+        run_eagerly=False,
+        steps_per_execution=1,
+        jit_compile="auto",
+        auto_scale_loss=True,
+    )
+
+    print("model.losses", len(model.losses), model.losses)
+    print("model.metrics", len(model.metrics), model.metrics)
+    return model
 
 def train(
     base="/nfs/data2/Martin/Research/murko",
@@ -104,10 +244,10 @@ def train(
 
     notions = [head["name"] for head in heads]
     distinguished_name = "%s_%s" % (network, name)
-    model_name = os.path.join(base, "%s.h5" % distinguished_name)
+    model_name = os.path.join(base, "%s.keras" % distinguished_name)
     history_name = os.path.join(base, "%s.history" % distinguished_name)
     png_name = os.path.join(base, "%s_losses.png" % distinguished_name)
-    checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.h5" % distinguished_name
+    checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
     # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
     # data genrators
