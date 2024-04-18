@@ -610,7 +610,7 @@ def main():
 
     # save the current version of the murko under a name corresponding to the
     # output model name
-    for tool in ["murko", "train.py", "dataset_loader"]:
+    for tool in ["murko", "train", "dataset_loader"]:
         os.system("cp %s.py %s_%s_%s.py" % (tool, args.network, args.name, tool))
 
     f = open("%s_%s.args" % (args.network, args.name), "wb")
