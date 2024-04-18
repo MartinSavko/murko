@@ -18,6 +18,8 @@ from murko import (
     loss_weights_from_stats,
     get_uncompiled_tiramisu, 
     get_num_segmentation_classes,
+    WSConv2D,
+    WSSeparableConv2D,
 )
     
 
@@ -46,18 +48,18 @@ def plot_history(
     if h is None:
         h = pickle.load(open(history, "rb"), encoding="bytes")
     template = history.replace(".history", "")
-    pylab.figure(figsize=(16, 9))
-    pylab.title(template)
+    plt.figure(figsize=(16, 9))
+    plt.title(template)
     for notion in notions:
         key = "val_%s_BIoU_1" % notion
         if key in h:
-            pylab.plot(h[key], "o-", label=notion)
+            plt.plot(h[key], "o-", label=notion)
         else:
             continue
-    pylab.ylim([-0.1, 1.1])
-    pylab.grid(True)
-    pylab.legend()
-    pylab.savefig("%s_metrics.png" % template)
+    plt.ylim([-0.1, 1.1])
+    plt.grid(True)
+    plt.legend()
+    plt.savefig("%s_metrics.png" % template)
 
 
 def get_tiramisu(
@@ -362,7 +364,14 @@ def train(
             **network_parameters
         )
         if not finetune:
-            model.load_weights(model_name)
+            try:
+                model.load_weights(model_name)
+            except:
+                model = keras.models.load_model(model_name,
+                                                custom_objects={
+                                                "WSConv2D": WSConv2D,
+                                                "WSSeparableConv2D": WSSeparableConv2D,
+                                                },)
         history_name = history_name.replace(".history", "_next_superepoch.history")
         png_name = png_name.replace(".png", "_next_superepoch.png")
     else:
