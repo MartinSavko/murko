@@ -20,6 +20,7 @@ from dataset_loader import (
 
 from utils import efficient_resize
 
+import tensorflow as tf
 import keras
 from keras import regularizers, initializers
 from keras import layers
@@ -154,7 +155,7 @@ class UpsampleLike(layers.Layer):
         return (input_shape[0][0],) + input_shape[1][1:3] + (input_shape[0][-1],)
 
 
-class WSConv2D(layers.Conv2D):
+class WSConv2D_keras(layers.Conv2D):
     """https://github.com/joe-siyuan-qiao/WeightStandardization"""
 
     def __init__(self, *args, **kwargs):
@@ -182,7 +183,7 @@ class WSConv2D(layers.Conv2D):
         return super().call(inputs)
 
 
-class WSSeparableConv2D(layers.SeparableConv2D):
+class WSSeparableConv2D_keras(layers.SeparableConv2D):
     """https://github.com/joe-siyuan-qiao/WeightStandardization"""
 
     def __init__(self, *args, **kwargs):
@@ -211,6 +212,63 @@ class WSSeparableConv2D(layers.SeparableConv2D):
 
         return super().call(inputs)
 
+class WSConv2D(tf.keras.layers.Conv2D):
+    """https://github.com/joe-siyuan-qiao/WeightStandardization"""
+
+    def __init__(self, *args, **kwargs):
+        super(WSConv2D, self).__init__(*args, **kwargs)
+        self.eps = 1.0e-5
+        self.std = False
+
+    def standardize_kernel(self, kernel):
+        original_dtype = kernel.dtype
+
+        mean = tf.math.reduce_mean(kernel, axis=(0, 1, 2), keepdims=True)
+        kernel = kernel - mean
+
+        if self.std:
+            std = tf.keras.backend.std(kernel, axis=[0, 1, 2], keepdims=True)
+            std = std + tf.constant(self.eps, dtype=std.dtype)
+            kernel = kernel / std
+
+        kernel = tf.cast(kernel, dtype=original_dtype)
+
+        return kernel
+
+    def call(self, inputs):
+        self.kernel.assign(self.standardize_kernel(self.kernel))
+        return super().call(inputs)
+
+
+class WSSeparableConv2D(tf.keras.layers.SeparableConv2D):
+    """https://github.com/joe-siyuan-qiao/WeightStandardization"""
+
+    def __init__(self, *args, **kwargs):
+        super(WSSeparableConv2D, self).__init__(*args, **kwargs)
+        self.eps = 1.0e-5
+        self.std = False
+
+    def standardize_kernel(self, kernel):
+        original_dtype = kernel.dtype
+
+        mean = tf.math.reduce_mean(kernel, axis=(0, 1, 2), keepdims=True)
+        kernel = kernel - mean
+
+        if self.std:
+            std = tf.math.reduce_std(kernel, axis=[0, 1, 2], keepdims=True)
+            std = std + tf.constant(self.eps, dtype=std.dtype)
+            kernel = kernel / std
+
+        kernel = tf.cast(kernel, dtype=original_dtype)
+
+        return kernel
+
+    def call(self, inputs):
+        self.pointwise_kernel.assign(self.standardize_kernel(self.pointwise_kernel))
+        self.depthwise_kernel.assign(self.standardize_kernel(self.depthwise_kernel))
+
+        return super().call(inputs)
+    
 
 def find_number_of_groups(c, g):
     w, r = divmod(c, g)
