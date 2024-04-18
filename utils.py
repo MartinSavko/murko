@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from skimage.morphology import remove_small_objects
+from skimage.measure import regionprops
+from skimage.transform import resize
+
 import keras
 
 

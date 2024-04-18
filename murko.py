@@ -17,13 +17,11 @@ from dataset_loader import (
     get_transformed_img_and_target,
     get_hierarchical_mask_from_target,
 )
-import matplotlib.pyplot as plt
-from skimage.morphology import remove_small_objects
-from skimage.measure import regionprops
-from skimage.transform import resize
+
+from utils import efficient_resize
 
 import keras
-from keras import regularizers
+from keras import regularizers, initializers
 from keras import layers
 from keras.callbacks import (
     EarlyStopping,
@@ -221,6 +219,8 @@ def find_number_of_groups(c, g):
     else:
         return find_number_of_groups(c, g - 1)
 
+def get_kernel_initializer(kernel_initializer):
+    return getattr(initializers, kernel_initializer)()
 
 def get_kernel_regularizer(kernel_regularizer, weight_decay):
     if weight_decay == 0.0:
@@ -637,135 +637,6 @@ def get_uncompiled_tiramisu(
             )(regression_neck)
         outputs.append(output)
     model = keras.Model(inputs=inputs, outputs=outputs, name=name)
-    return model
-
-
-def get_tiramisu(
-    nfilters=48,
-    growth_rate=16,
-    layers_scheme=[4, 5, 7, 10, 12],
-    bottleneck=15,
-    activation="relu",
-    convolution_type="Conv2D",
-    last_convolution=False,
-    dropout_rate=0.2,
-    weight_standardization=True,
-    model_img_size=(None, None),
-    use_bias=False,
-    learning_rate=0.001,
-    finetune=False,
-    finetune_model=None,
-    heads=[
-        {"name": "crystal", "type": "binary_segmentation"},
-        {"name": "loop_inside", "type": "binary_segmentation"},
-        {"name": "loop", "type": "binary_segmentation"},
-        {"name": "stem", "type": "binary_segmentation"},
-        {"name": "pin", "type": "binary_segmentation"},
-        {"name": "capillary", "type": "binary_segmentation"},
-        {"name": "ice", "type": "binary_segmentation"},
-        {"name": "foreground", "type": "binary_segmentation"},
-        {"name": "click", "type": "click_segmentation"},
-    ],
-    name="model",
-    normalization_type="GroupNormalization",
-    limit_loss=True,
-    weight_decay=1.0e-4,
-):
-    print("get_tiramisu heads", heads)
-    model = get_uncompiled_tiramisu(
-        nfilters=nfilters,
-        growth_rate=growth_rate,
-        layers_scheme=layers_scheme,
-        bottleneck=bottleneck,
-        activation=activation,
-        convolution_type=convolution_type,
-        last_convolution=last_convolution,
-        dropout_rate=dropout_rate,
-        weight_standardization=weight_standardization,
-        model_img_size=model_img_size,
-        heads=heads,
-        name=name,
-        normalization_type=normalization_type,
-        weight_decay=weight_decay,
-    )
-    if finetune and finetune_model is not None:
-        print("loading weights to finetune")
-        model.load_weights(finetune_model)
-    else:
-        print("not finetune")
-    losses = {}
-    metrics = {}
-    num_segmentation_classes = get_num_segmentation_classes(heads)
-    for head in heads:
-        losses[head["name"]] = params[head["type"]]["loss"]
-        print("head name and type", head["name"], head["type"])
-        if params[head["type"]]["metrics"] == "BIoU":
-            metrics[head["name"]] = [
-                keras.metrics.BinaryIoU(
-                    target_class_ids=[1], threshold=0.5, name="BIoU_1"
-                ),
-                keras.metrics.BinaryIoU(
-                    target_class_ids=[0], threshold=0.5, name="BIoU_0"
-                ),
-                keras.metrics.BinaryIoU(
-                    target_class_ids=[0, 1], threshold=0.5, name="BIoU_both"
-                ),
-            ]
-        elif params[head["type"]]["metrics"] == "BIoUm":
-            metrics[head["name"]] = [
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[1], threshold=0.5, name="BIoUm_1"
-                ),
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[0], threshold=0.5, name="BIoUm_0"
-                ),
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[0, 1], threshold=0.5, name="BIoUm_both"
-                ),
-            ]
-        elif params[head["type"]]["metrics"] == "mean_absolute_error":
-            metrics[head["name"]] = keras.metrics.MeanAbsoluteError(name="MAE")
-        elif head["type"] == "categorical_segmentation":
-            metrics[head["name"]] = getattr(
-                keras.metrics, params[head["type"]]["metrics"]
-            )(num_segmentation_classes + 1)
-
-            # , sparse_y_true=True, sparse_y_pred=True)
-            # losses[head["name"]] = keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
-            # getattr(keras.losses, params[head["type"]]["loss"])(from_logits=True)
-        else:
-            metrics[head["name"]] = getattr(
-                keras.metrics, params[head["type"]]["metrics"]
-            )()
-
-    print("losses", len(losses), losses)
-    print("metrics", len(metrics), metrics)
-    loss_weights = {}
-    for head in heads:
-        if head["name"] in loss_weights_from_stats:
-            lw = loss_weights_from_stats[head["name"]]
-            if limit_loss:
-                if lw > loss_weights_from_stats["crystal"]:
-                    lw = loss_weights_from_stats["crystal"]
-        else:
-            lw = 1
-        loss_weights[head["name"]] = lw
-
-    print("loss weights", loss_weights)
-    lrs = learning_rate
-    # lrs = keras.optimizers.schedules.ExponentialDecay(lrs, decay_steps=1e4, decay_rate=0.96, minimum_value=1e-7, staircase=True)
-    optimizer = keras.optimizers.RMSprop(learning_rate=lrs)
-    # optimizer = keras.optimizers.Adam(learning_rate=lrs)
-    if finetune:
-        for l in model.layers[: -len(heads)]:
-            l.trainable = False
-
-    model.compile(
-        optimizer=optimizer, loss=losses, loss_weights=loss_weights, metrics=metrics
-    )
-
-    print("model.losses", len(model.losses), model.losses)
-    print("model.metrics", len(model.metrics), model.metrics)
     return model
 
 
