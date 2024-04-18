@@ -21,9 +21,10 @@ from dataset_loader import (
 from utils import efficient_resize
 
 import tensorflow as tf
+
 import keras
 from keras import regularizers, initializers
-from keras import layers
+
 from keras.callbacks import (
     EarlyStopping,
     ModelCheckpoint,
@@ -53,34 +54,11 @@ import copy
 
 import scipy.ndimage as ndi
 
-directory = "images_and_labels_augmented"
-img_size = (1024, 1360)
-model_img_size = (512, 512)
-num_classes = 1
-batch_size = 8
-params = {
-    "binary_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
-    "regression": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
-    "categorical_segmentation": {
-        "loss": "categorical_focal_crossentropy",
-        "metrics": "MeanIoU",
-    },
-    "click_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoUm"},
-    "click_regression": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-}
-
-networks = {
-    "fcdn103": {
-        "growth_rate": 16,
-        "layers_scheme": [4, 5, 7, 10, 12],
-        "bottleneck": 15,
-    },
-    "fcdn67": {"growth_rate": 16, "layers_scheme": [5] * 5, "bottleneck": 5},
-    "fcdn56": {"growth_rate": 12, "layers_scheme": [4] * 5, "bottleneck": 4},
-}
+#directory = "images_and_labels_augmented"
+#img_size = (1024, 1360)
+#model_img_size = (512, 512)
+#num_classes = 1
+#batch_size = 8
 
 """
 dataset composition:
@@ -125,6 +103,30 @@ total foreground 319001744 (0.319G, 0.1766 of all)
           total       5.6612            1.0000                0.2                 1.0
 """
 
+params = {
+    "binary_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
+    "regression": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "categorical_segmentation": {
+        "loss": "categorical_focal_crossentropy",
+        "metrics": "MeanIoU",
+    },
+    "click_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoUm"},
+    "click_regression": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+}
+
+networks = {
+    "fcdn103": {
+        "growth_rate": 16,
+        "layers_scheme": [4, 5, 7, 10, 12],
+        "bottleneck": 15,
+    },
+    "fcdn67": {"growth_rate": 16, "layers_scheme": [5] * 5, "bottleneck": 5},
+    "fcdn56": {"growth_rate": 12, "layers_scheme": [4] * 5, "bottleneck": 4},
+}
+
 loss_weights_from_stats = {
     "crystal": 8.5,
     "loop_inside": 4.0,
@@ -138,7 +140,7 @@ loss_weights_from_stats = {
 }
 
 
-class UpsampleLike(layers.Layer):
+class UpsampleLike(keras.layers.Layer):
     """
     Keras layer for upsampling a Tensor to be the same shape as another Tensor.
     based on https://github.com/xuannianz/keras-fcos.git
@@ -155,7 +157,7 @@ class UpsampleLike(layers.Layer):
         return (input_shape[0][0],) + input_shape[1][1:3] + (input_shape[0][-1],)
 
 
-class WSConv2D_keras(layers.Conv2D):
+class WSConv2D_keras(keras.layers.Conv2D):
     """https://github.com/joe-siyuan-qiao/WeightStandardization"""
 
     def __init__(self, *args, **kwargs):
@@ -183,7 +185,7 @@ class WSConv2D_keras(layers.Conv2D):
         return super().call(inputs)
 
 
-class WSSeparableConv2D_keras(layers.SeparableConv2D):
+class WSSeparableConv2D_keras(keras.layers.SeparableConv2D):
     """https://github.com/joe-siyuan-qiao/WeightStandardization"""
 
     def __init__(self, *args, **kwargs):
@@ -299,6 +301,16 @@ def get_convolutional_layer(
     use_bias=False,
     weight_standardization=True,
 ):
+    if 'Separable' in convolution_type:
+        kwargs={'depthwise_initializer': get_kernel_initializer(kernel_initializer),
+                'pointwise_initializer': get_kernel_initializer(kernel_initializer),
+                'depthwise_regularizer': None, #kernel_regularizer, #get_kernel_regularizer(kernel_regularizer, weight_decay),
+                'pointwise_initializer': None, #kernel_regularizer, #get_kernel_regularizer(kernel_regularizer, weight_decay),
+                }
+    else:
+        kwargs={'kernel_initializer': get_kernel_initializer(kernel_initializer),
+                'kernel_regularizer': None, #kernel_regularizer, #get_kernel_regularizer(kernel_regularizer, weight_decay),
+                }
     if weight_standardization:
         if convolution_type == "SeparableConv2D":
             x = WSSeparableConv2D(
@@ -306,10 +318,7 @@ def get_convolutional_layer(
                 filter_size,
                 padding=padding,
                 use_bias=use_bias,
-                kernel_initializer=kernel_initializer,
-                kernel_regularizer=get_kernel_regularizer(
-                    kernel_regularizer, weight_decay
-                ),
+                **kwargs,
             )(x)
         elif convolution_type == "Conv2D":
             x = WSConv2D(
@@ -317,19 +326,15 @@ def get_convolutional_layer(
                 filter_size,
                 padding=padding,
                 use_bias=use_bias,
-                kernel_initializer=kernel_initializer,
-                kernel_regularizer=get_kernel_regularizer(
-                    kernel_regularizer, weight_decay
-                ),
+                **kwargs,
             )(x)
     else:
-        x = getattr(layers, convolution_type)(
+        x = getattr(keras.layers, convolution_type)(
             filters,
             filter_size,
             padding=padding,
             use_bias=use_bias,
-            kernel_initializer=kernel_initializer,
-            kernel_regularizer=get_kernel_regularizer(kernel_regularizer, weight_decay),
+            **kwargs,
         )(x)
     return x
 
@@ -373,7 +378,7 @@ def get_tiramisu_layer(
             bn_epsilon=bn_epsilon,
             gn_groups=gn_groups,
         )
-        x = layers.Activation(activation=activation)(x)
+        x = keras.layers.Activation(activation=activation)(x)
     else:
         x = get_normalization_layer(
             x,
@@ -382,7 +387,7 @@ def get_tiramisu_layer(
             bn_epsilon=bn_epsilon,
             gn_groups=gn_groups,
         )
-        x = layers.Activation(activation=activation)(x)
+        x = keras.layers.Activation(activation=activation)(x)
         x = get_convolutional_layer(
             x,
             convolution_type,
@@ -397,7 +402,7 @@ def get_tiramisu_layer(
         )
 
     if dropout_rate:
-        x = layers.Dropout(dropout_rate)(x)
+        x = keras.layers.Dropout(dropout_rate)(x)
     return x
 
 
@@ -437,7 +442,7 @@ def get_dense_block(
             weight_standardization=weight_standardization,
         )
         block_to_upsample.append(la)
-        x = layers.Concatenate(axis=3)([x, la])
+        x = keras.layers.Concatenate(axis=3)([x, la])
     return x, block_to_upsample
 
 
@@ -479,7 +484,7 @@ def get_transition_down(
         normalization_type=normalization_type,
         weight_standardization=weight_standardization,
     )
-    x = layers.MaxPooling2D(pool_size=pool_size, strides=strides, padding=padding)(x)
+    x = keras.layers.MaxPooling2D(pool_size=pool_size, strides=strides, padding=padding)(x)
     return x
 
 
@@ -494,8 +499,8 @@ def get_transition_up(
     weight_decay=1e-4,
     **kwargs
 ):
-    x = layers.Concatenate(axis=3)(block_to_upsample[1:])
-    x = layers.Conv2DTranspose(
+    x = keras.layers.Concatenate(axis=3)(block_to_upsample[1:])
+    x = keras.layers.Conv2DTranspose(
         filters,
         kernel_size=3,
         strides=2,
@@ -503,7 +508,7 @@ def get_transition_up(
         activation=activation,
         kernel_regularizer=get_kernel_regularizer(kernel_regularizer, weight_decay),
     )(x)
-    x = layers.Concatenate(axis=3)([x, skip_connection])
+    x = keras.layers.Concatenate(axis=3)([x, skip_connection])
     return x
 
 
@@ -511,16 +516,16 @@ def get_normalization_layer(
     x, normalization_type, bn_momentum=0.9, bn_epsilon=1.1e-5, gn_groups=16
 ):
     if normalization_type in ["BN", "BatchNormalization"]:
-        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = keras.layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     elif normalization_type in ["GN", "GroupNormalization"]:
-        x = layers.GroupNormalization(
+        x = keras.layers.GroupNormalization(
             groups=find_number_of_groups(x.shape[-1], gn_groups)
         )(x)
     elif normalization_type == "BCN":
-        x = layers.GroupNormalization(
+        x = keras.layers.GroupNormalization(
             groups=find_number_of_groups(x.shape[-1], gn_groups)
         )(x)
-        x = layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
+        x = keras.layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)(x)
     return x
 
 
@@ -579,12 +584,12 @@ def get_uncompiled_tiramisu(
         "weight_standardization": weight_standardization,
     }
 
-    inputs = layers.Input(shape=(model_img_size) + (input_channels,))
+    inputs = keras.layers.Input(shape=(model_img_size) + (input_channels,))
 
     nfilters_start = nfilters
 
     if input_dropout > 0.0:
-        x = layers.Dropout(dropout_rate=input_dropout)(inputs)
+        x = keras.layers.Dropout(dropout_rate=input_dropout)(inputs)
     else:
         x = inputs
 
@@ -649,7 +654,7 @@ def get_uncompiled_tiramisu(
             or head["type"] == "click_segmentation"
             or head["name"] == "identity"
         ):
-            output = layers.Conv2D(
+            output = keras.layers.Conv2D(
                 1,
                 1,
                 activation="sigmoid",
@@ -660,7 +665,7 @@ def get_uncompiled_tiramisu(
         elif (
             head["type"] == "categorical_segmentation" and num_segmentation_classes > 0
         ):
-            output = layers.Conv2D(
+            output = keras.layers.Conv2D(
                 num_segmentation_classes + 1,
                 1,
                 activation="softmax",
@@ -673,7 +678,7 @@ def get_uncompiled_tiramisu(
 
         elif head["type"] == "regression":
             if regression_neck is None:
-                # regression_neck = layers.Conv2D(1, 1, activation="sigmoid", padding="same", dtype="float32", name=head['name'])(x_up)
+                # regression_neck = keras.layers.Conv2D(1, 1, activation="sigmoid", padding="same", dtype="float32", name=head['name'])(x_up)
                 regression_neck = get_tiramisu_layer(
                     x_up, 1, 1, activation="sigmoid", convolution_type="Conv2D"
                 )
@@ -685,12 +690,12 @@ def get_uncompiled_tiramisu(
                 regression_neck = UpsampleLike(name="resize_regression")(
                     [regression_neck, target_placeholder]
                 )
-                regression_neck = layers.Flatten()(regression_neck)
-                regression_neck = layers.Dropout(dropout_rate)(regression_neck)
+                regression_neck = keras.layers.Flatten()(regression_neck)
+                regression_neck = keras.layers.Dropout(dropout_rate)(regression_neck)
                 # regression_neck = get_transition_down(regression_neck, 512, strides=11, pool_size=11)
-                # regression_neck = layers.GlobalMaxPool2D()(regression_neck)
-                # regression_neck = layers.Flatten()(regression_neck)
-            output = layers.Dense(
+                # regression_neck = keras.layers.GlobalMaxPool2D()(regression_neck)
+                # regression_neck = keras.layers.Flatten()(regression_neck)
+            output = keras.layers.Dense(
                 3, activation="sigmoid", dtype="float32", name=head["name"]
             )(regression_neck)
         outputs.append(output)
@@ -728,7 +733,7 @@ def predict_multihead(
         print("model loaded in %.4f seconds" % (time.time() - _start))
 
     notions = [
-        layer.name for layer in model.layers[-10:] if isinstance(layer, layers.Conv2D)
+        layer.name for layer in model.layers[-10:] if isinstance(layer, keras.layers.Conv2D)
     ]
     notion_indices = dict([(notion, notions.index(notion)) for notion in notions])
     notion_indices["click"] = -1
