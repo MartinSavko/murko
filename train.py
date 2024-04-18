@@ -12,7 +12,14 @@ import keras
 
 import matplotlib.pyplot as plt
 
-from murko import get_uncompiled_tiramisu, networks
+from murko import (
+    params,
+    networks, 
+    loss_weights_from_stats,
+    get_uncompiled_tiramisu, 
+    get_num_segmentation_classes,
+)
+    
 
 from dataset_loader import (
     get_dynamic_batch_size,
@@ -161,7 +168,7 @@ def get_tiramisu(
                 if lw > loss_weights_from_stats["crystal"]:
                     lw = loss_weights_from_stats["crystal"]
         else:
-            lw = 1
+            lw = 1.
         loss_weights[head["name"]] = lw
 
     print("loss weights", loss_weights)
