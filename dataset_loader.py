@@ -10,7 +10,8 @@ import random
 import numpy as np
 from skimage.transform import resize
 
-from tensorflow.keras.preprocessing.image import apply_affine_transform
+from tensorflow.keras.preprocessing import image 
+
 import keras
 from keras.utils import to_categorical
 from keras.preprocessing.image import (
@@ -31,7 +32,7 @@ def path_to_target(path):
     return img
 
 
-def get_paths(directory="images_and_labels", seed=1337):
+def get_paths(directory="/dev/shm/images_and_labels", seed=1337):
     input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
     target_img_paths = [
         item.replace("img.jpg", "foreground.png") for item in input_img_paths
@@ -98,7 +99,7 @@ def get_paths_for_families(families_subset_list, sample_families, directory):
 
 
 def get_training_and_validation_datasets(
-    directory="images_and_labels", seed=12345, split=0.2
+    directory="/dev/shm/images_and_labels", seed=12345, split=0.2
 ):
     sample_families = get_sample_families(directory=directory)
     sample_families_names = sorted(sample_families.keys())
@@ -309,9 +310,9 @@ def get_transformed_img_and_target(
             "fill_mode": "constant",
             "cval": 0,
         }
-        img = apply_affine_transform(img, **transform_arguments)
-        target = apply_affine_transform(target, **transform_arguments)
-        # target = apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
+        img = image.apply_affine_transform(img, **transform_arguments)
+        target = image.apply_affine_transform(target, **transform_arguments)
+        # target = image.apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
         # target = np.astype(np.uint8)
     return img, target
 
@@ -691,7 +692,7 @@ class MultiTargetDataset(keras.utils.PyDataset):
         if self.target and len(y) == 1:
             y = y[0]
         if self.target:
-            return x, y
+            return x, tuple(y)
         else:
             return x
 
