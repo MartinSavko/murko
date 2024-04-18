@@ -388,10 +388,7 @@ def train(
         train_gen,
         epochs=epochs,
         validation_data=val_gen,
-        callbacks=callbacks,
-        max_queue_size=64,
-        use_multiprocessing=True,
-        workers=32,
+        callbacks=callbacks
     )
 
     f = open(history_name, "wb")
