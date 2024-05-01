@@ -5,6 +5,7 @@ scipy
 matplotlib
 scikit-image
 zmq
+redis
 simplejpeg
 seaborn
 psutil
