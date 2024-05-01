@@ -1,18 +1,16 @@
 import redis
-import threading
 
 class RedisClient:
     def __init__(self, host='localhost', port=6379, db=0):
         self.redis_client = redis.StrictRedis(host=host, port=port, db=db)
         self.pubsub = self.redis_client.pubsub()
         self.subscribed_channels = set()
-        self.pubsub_thread = threading.Thread(target=self._listen_for_messages)
-        self.pubsub_thread.daemon = True
-        self.pubsub_thread.start()
+        self.is_listening = False
 
     def _listen_for_messages(self):
-        for message in self.pubsub.listen():
-            if message['type'] == 'message':
+        while True:
+            message = self.pubsub.get_message()
+            if message and message['type'] == 'message':
                 print(f"Received message: {message['data'].decode('utf-8')}")
 
     def set(self, key, value):
@@ -29,6 +27,9 @@ class RedisClient:
             self.pubsub.subscribe(channel)
             self.subscribed_channels.add(channel)
             print(f"Subscribed to channel: {channel}")
+            if not self.is_listening:
+                self.is_listening = True
+                self._listen_for_messages()
         else:
             print(f"Already subscribed to channel: {channel}")
 
