@@ -41,6 +41,18 @@ class RedisClient:
         else:
             print(f"Not subscribed to channel: {channel}")
 
+    def hset(self, key, field, value):
+        self.redis_client.hset(key, field, value)
+
+    def hget(self, key, field):
+        return self.redis_client.hget(key, field)
+
+    def hgetall(self, key):
+        return self.redis_client.hgetall(key)
+
+    def hdel(self, key, *fields):
+        self.redis_client.hdel(key, *fields)
+
     def close(self):
         self.redis_client.close()
 
@@ -54,4 +66,11 @@ if __name__ == "__main__":
 
     # Publish/Subscribe example
     client.subscribe('murko')
-    client.publish('murko', 'metadata available!')
+    # Run this in another terminal: redis-cli PUBLISH murko "metadata available!"
+
+    # Hash example
+    client.hset('murko:123', 'metadata', 'omega')
+    client.hset('murko:123', 'image', 'will be a pickled numpy array')
+    print(client.hget('murko:123', 'metadata'))
+    print(client.hget('murko:123', 'image'))
+
