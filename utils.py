@@ -5,8 +5,10 @@ from skimage.morphology import remove_small_objects
 from skimage.measure import regionprops
 from skimage.transform import resize
 
-import keras
-
+try:
+    import keras
+except BaseException:
+    keras = object()
 
 # calibrations = {
 # 1: np.array([0.00160829, 0.001612]),

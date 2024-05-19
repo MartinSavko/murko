@@ -54,11 +54,11 @@ import copy
 
 import scipy.ndimage as ndi
 
-#directory = "images_and_labels_augmented"
-#img_size = (1024, 1360)
-#model_img_size = (512, 512)
-#num_classes = 1
-#batch_size = 8
+# directory = "images_and_labels_augmented"
+# img_size = (1024, 1360)
+# model_img_size = (512, 512)
+# num_classes = 1
+# batch_size = 8
 
 """
 dataset composition:
@@ -214,6 +214,7 @@ class WSSeparableConv2D_keras(keras.layers.SeparableConv2D):
 
         return super().call(inputs)
 
+
 class WSConv2D(tf.keras.layers.Conv2D):
     """https://github.com/joe-siyuan-qiao/WeightStandardization"""
 
@@ -270,7 +271,7 @@ class WSSeparableConv2D(tf.keras.layers.SeparableConv2D):
         self.depthwise_kernel.assign(self.standardize_kernel(self.depthwise_kernel))
 
         return super().call(inputs)
-    
+
 
 def find_number_of_groups(c, g):
     w, r = divmod(c, g)
@@ -279,8 +280,10 @@ def find_number_of_groups(c, g):
     else:
         return find_number_of_groups(c, g - 1)
 
+
 def get_kernel_initializer(kernel_initializer):
     return getattr(initializers, kernel_initializer)()
+
 
 def get_kernel_regularizer(kernel_regularizer, weight_decay):
     if weight_decay == 0.0:
@@ -301,11 +304,10 @@ def get_convolutional_layer(
     use_bias=False,
     weight_standardization=True,
 ):
-
     kwargs = {
-              'kernel_initializer': get_kernel_initializer(kernel_initializer),
-              'kernel_regularizer': get_kernel_regularizer(kernel_regularizer, weight_decay),
-            }
+        "kernel_initializer": get_kernel_initializer(kernel_initializer),
+        "kernel_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
+    }
     if weight_standardization:
         if convolution_type == "SeparableConv2D":
             x = WSSeparableConv2D(
@@ -479,7 +481,9 @@ def get_transition_down(
         normalization_type=normalization_type,
         weight_standardization=weight_standardization,
     )
-    x = keras.layers.MaxPooling2D(pool_size=pool_size, strides=strides, padding=padding)(x)
+    x = keras.layers.MaxPooling2D(
+        pool_size=pool_size, strides=strides, padding=padding
+    )(x)
     return x
 
 
@@ -728,7 +732,9 @@ def predict_multihead(
         print("model loaded in %.4f seconds" % (time.time() - _start))
 
     notions = [
-        layer.name for layer in model.layers[-10:] if isinstance(layer, keras.layers.Conv2D)
+        layer.name
+        for layer in model.layers[-10:]
+        if isinstance(layer, keras.layers.Conv2D)
     ]
     notion_indices = dict([(notion, notions.index(notion)) for notion in notions])
     notion_indices["click"] = -1

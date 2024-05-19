@@ -8,12 +8,12 @@ import math
 import glob
 import random
 import numpy as np
+import json
+
 from skimage.transform import resize
 
-from tensorflow.keras.preprocessing import image 
-
-from tensorflow import keras
-
+from tensorflow.keras.preprocessing.image import apply_affine_transform
+import keras
 from keras.utils import to_categorical
 from keras.preprocessing.image import (
     save_img,
@@ -33,7 +33,7 @@ def path_to_target(path):
     return img
 
 
-def get_paths(directory="/dev/shm/images_and_labels", seed=1337):
+def get_paths(directory="images_and_labels", seed=1337):
     input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
     target_img_paths = [
         item.replace("img.jpg", "foreground.png") for item in input_img_paths
@@ -100,7 +100,7 @@ def get_paths_for_families(families_subset_list, sample_families, directory):
 
 
 def get_training_and_validation_datasets(
-    directory="/dev/shm/images_and_labels", seed=12345, split=0.2
+    directory="images_and_labels", seed=12345, split=0.2
 ):
     sample_families = get_sample_families(directory=directory)
     sample_families_names = sorted(sample_families.keys())
@@ -311,14 +311,275 @@ def get_transformed_img_and_target(
             "fill_mode": "constant",
             "cval": 0,
         }
-        img = image.apply_affine_transform(img, **transform_arguments)
-        target = image.apply_affine_transform(target, **transform_arguments)
-        # target = image.apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
+        img = apply_affine_transform(img, **transform_arguments)
+        target = apply_affine_transform(target, **transform_arguments)
+        # target = apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
         # target = np.astype(np.uint8)
     return img, target
 
 
-class MultiTargetDataset(keras.utils.Sequence):
+def load_ground_truth_image(path, target_size):
+    ground_truth = np.expand_dims(
+        load_img(path, target_size=target_size, color_mode="grayscale"), 2
+    )
+    if ground_truth.max() > 0:
+        ground_truth = np.array(ground_truth / ground_truth.max(), dtype="uint8")
+    else:
+        ground_truth = np.array(ground_truth, dtype="uint8")
+    return ground_truth
+
+
+class SampleSegmentationDataset(keras.utils.Sequence):
+    """Helper to iterate over the data (as Numpy arrays)."""
+
+    def __init__(
+        self,
+        batch_size,
+        img_size,
+        input_img_paths,
+        img_string="img.jpg",
+        label_string="foreground.png",
+        augment=False,
+    ):
+        self.batch_size = batch_size
+        self.img_size = img_size
+        self.input_img_paths = input_img_paths
+        self.img_string = img_string
+        self.label_string = label_string
+        self.augment = augment
+        self.zoom_factor = 0.2
+        self.shift_factor = 0.25
+        self.shear_factor = 15
+        self.default_transform_gang = np.array([0, 0, 0, 0, 1, 1])
+
+    def __len__(self):
+        return len(self.input_img_paths) // self.batch_size
+
+    def __getitem__(self, idx):
+        """Returns tuple (input, target) correspond to batch #idx."""
+        i = idx * self.batch_size
+        self.batch_img_paths = self.input_img_paths[i : i + self.batch_size]
+        batch_target_paths = [
+            path.replace(self.img_string, self.label_string)
+            for path in self.batch_img_paths
+        ]
+        x = np.zeros((self.batch_size,) + self.img_size + (3,), dtype="float32")
+        y = np.zeros((self.batch_size,) + self.img_size + (1,), dtype="uint8")
+        for j, (img_path, target_path) in enumerate(
+            zip(batch_input_img_paths, batch_target_img_paths)
+        ):
+            img = (
+                img_to_array(
+                    load_img(img_path, target_size=self.img_size), dtype="float32"
+                )
+                / 255.0
+            )
+            target = load_ground_truth_image(target_path, target_size=self.img_size)
+
+            if self.augment:
+                img, target = get_transformed_img_and_target(
+                    img,
+                    target,
+                    zoom_factor=self.zoom_factor,
+                    shift_factor=self.shift_factor,
+                    shear_factor=self.shear_factor,
+                )
+            x[j] = img
+            y[j] = target
+        return x, y
+
+
+class CrystalClickDataset(keras.utils.Sequence):
+    def __init__(
+        self,
+        batch_size,
+        img_size,
+        img_paths,
+        augment=False,
+        transpose=True,
+        flip=True,
+        zoom_factor=0.2,
+        shift_factor=0.25,
+        shear_factor=15,
+        default_transform_gang=[0, 0, 0, 0, 1, 1],
+        scale_click=False,
+        click_radius=320e-3,
+        min_scale=0.15,
+        max_scale=1.0,
+        dynamic_batch_size=True,
+        number_batch_size_scales=32,
+        possible_ratios=[0.75, 1.0],
+        pixel_budget=768 * 992,
+    ):
+        self.batch_size = batch_size
+        self.img_size = img_size
+        self.img_paths = img_paths
+        self.augment = augment
+        self.transpose = transpose
+        self.flip = flip
+        self.zoom_factor = zoom_factor
+        self.shift_factor = shift_factor
+        self.shear_factor = shear_factor
+        self.default_transform_gang = np.array(default_transform_gang)
+        self.scale_click = scale_click
+        self.click_radius = click_radius
+        self.dynamic_batch_size = dynamic_batch_size
+        self.possible_scales = np.linspace(
+            min_scale, max_scale, number_batch_size_scales
+        )
+        self.possible_ratios = possible_ratios
+        self.pixel_budget = pixel_budget
+
+        if self.dynamic_batch_size:
+            self.batch_size = 1
+
+    def __len__(self):
+        return math.ceil(len(self.img_paths) / self.batch_size)
+
+    def __getitem__(self, idx):
+        if idx == 0:
+            random.Random().shuffle(self.img_paths)
+        if self.dynamic_batch_size:
+            img_size = get_img_size_as_scale_of_pixel_budget(
+                random.choice(self.possible_scales),
+                pixel_budget=self.pixel_budget,
+                ratio=random.choice(self.possible_ratios),
+            )
+            batch_size = get_dynamic_batch_size(
+                img_size, pixel_budget=self.pixel_budget
+            )
+            i = idx
+        else:
+            img_size = self.img_size
+            batch_size = self.batch_size
+            i = idx * self.batch_size
+
+        final_img_size = img_size[:]
+        batch_img_paths = self.img_paths[i : i + batch_size]
+        batch_size = len(batch_img_paths)  # this handles case at the very last step ...
+
+        if self.augment:
+            do_transpose = False
+            if self.transpose and random.random() > 0.5:
+                final_img_size = img_size[::-1]
+                do_transpose = True
+            do_flip = False
+            if self.flip and random.random() > 0.5:
+                do_flip = True
+
+        x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
+        y = np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
+        for j, img_path in enumerate(batch_img_paths):
+            user_click = None
+            try:
+                original_image = load_img(img_path)
+                original_size = original_image.size[::-1]
+                img = img_to_array(original_image, dtype="float32") / 255.0
+                if np.any(np.isnan(img)):
+                    os.system(
+                        "echo this gave nan, please check %s >> click_generation_problems_new.txt"
+                        % img_path
+                    )
+                    continue
+                if original_size[0] > original_size[1]:
+                    original_size = original_size[::-1]
+                    img = np.reshape(img, original_size + img.shape[2:])
+                    os.system(
+                        "echo wrong ratio, please check %s >> click_generation_problems_new.txt"
+                        % img_path
+                    )
+                img = resize(img, final_img_size)
+            except BaseException:
+                print(traceback.print_exc())
+                os.system(
+                    "echo load_img failed %s >> click_generation_problems_new.txt"
+                    % img_path
+                )
+                img = np.zeros(img_size + (3,))
+                original_size = img_size[:]
+                user_click = np.array([-1, -1])
+
+            try:
+                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
+            except BaseException:
+                zoom = 1
+            if os.path.basename(img_path) == "img.jpg" and user_click is None:
+                user_click = np.load(img_path.replace("img.jpg", "user_click.npy"))
+            elif "shapes_of_background" in img_path:
+                user_click = np.array([-1.0, -1.0])
+            else:
+                try:
+                    user_click = np.array(
+                        list(
+                            map(
+                                float,
+                                re.findall(".*_y_([-\\d]*)_x_([-\\d]*).*", img_path)[0],
+                            )
+                        )
+                    )
+                except BaseException:
+                    user_click = np.array([-1.0, -1.0])
+
+            resize_factor = np.array([1.0, 1.0])
+            if original_size[0] != img_size[0] and original_size[1] != img_size[1]:
+                resize_factor = np.array(img_size) / np.array(original_size)
+
+            user_click *= resize_factor
+            user_click = user_click.astype("float32")
+            cpi = get_cpi_from_user_click(
+                user_click,
+                final_img_size,
+                resize_factor,
+                img_path,
+                click_radius=self.click_radius,
+                zoom=zoom,
+                scale_click=self.scale_click,
+            )
+            if cpi is None:
+                continue
+            if self.augment:
+                if do_transpose is True:
+                    img, cpi = get_transposed_img_and_target(img, cpi)
+                if do_flip is True:
+                    img, cpi = get_flipped_img_and_target(img, cpi)
+                img, cpi = get_transformed_img_and_target(
+                    img,
+                    cpi,
+                    zoom_factor=self.zoom_factor,
+                    shift_factor=self.shift_factor,
+                    shear_factor=self.shear_factor,
+                )
+
+                if all(user_click[:2] >= 0):
+                    user_click = np.unravel_index(np.argmax(cpi), cpi.shape)
+                cpi = get_cpi_from_user_click(
+                    user_click[:2],
+                    final_img_size,
+                    resize_factor,
+                    img_path + "augment",
+                    click_radius=self.click_radius,
+                    zoom=zoom,
+                    scale_click=self.scale_click,
+                )
+
+            x[j] = img
+            y[j] = cpi
+
+        return x, y
+
+
+def get_data_augmentation():
+    data_augmentation = keras.Sequential(
+        [
+            layers.RandomRotation(0.5),
+            layers.RandomFlip(),
+            layers.RandomZoom(0.2),
+        ]
+    )
+    return data_augmentation
+
+
+class MultiTargetDataset(keras.utils.PyDataset):
     def __init__(
         self,
         batch_size,
@@ -374,7 +635,15 @@ class MultiTargetDataset(keras.utils.Sequence):
         random_brightness=True,
         random_channel_shift=False,
         verbose=False,
+        workers=10,
+        use_multiprocessing=True,
+        max_queue_size=10,
     ):
+        super().__init__(
+            workers=workers,
+            use_multiprocessing=use_multiprocessing,
+            max_queue_size=max_queue_size,
+        )
         self.batch_size = batch_size
         self.img_size = img_size
         if artificial_size_increase > 1:
@@ -692,263 +961,3 @@ class MultiTargetDataset(keras.utils.Sequence):
             return x, y
         else:
             return x
-
-def load_ground_truth_image(path, target_size):
-    ground_truth = np.expand_dims(
-        load_img(path, target_size=target_size, color_mode="grayscale"), 2
-    )
-    if ground_truth.max() > 0:
-        ground_truth = np.array(ground_truth / ground_truth.max(), dtype="uint8")
-    else:
-        ground_truth = np.array(ground_truth, dtype="uint8")
-    return ground_truth
-
-
-class SampleSegmentationDataset(keras.utils.Sequence):
-    """Helper to iterate over the data (as Numpy arrays)."""
-
-    def __init__(
-        self,
-        batch_size,
-        img_size,
-        input_img_paths,
-        img_string="img.jpg",
-        label_string="foreground.png",
-        augment=False,
-    ):
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.input_img_paths = input_img_paths
-        self.img_string = img_string
-        self.label_string = label_string
-        self.augment = augment
-        self.zoom_factor = 0.2
-        self.shift_factor = 0.25
-        self.shear_factor = 15
-        self.default_transform_gang = np.array([0, 0, 0, 0, 1, 1])
-
-    def __len__(self):
-        return len(self.input_img_paths) // self.batch_size
-
-    def __getitem__(self, idx):
-        """Returns tuple (input, target) correspond to batch #idx."""
-        i = idx * self.batch_size
-        self.batch_img_paths = self.input_img_paths[i : i + self.batch_size]
-        batch_target_paths = [
-            path.replace(self.img_string, self.label_string)
-            for path in self.batch_img_paths
-        ]
-        x = np.zeros((self.batch_size,) + self.img_size + (3,), dtype="float32")
-        y = np.zeros((self.batch_size,) + self.img_size + (1,), dtype="uint8")
-        for j, (img_path, target_path) in enumerate(
-            zip(batch_input_img_paths, batch_target_img_paths)
-        ):
-            img = (
-                img_to_array(
-                    load_img(img_path, target_size=self.img_size), dtype="float32"
-                )
-                / 255.0
-            )
-            target = load_ground_truth_image(target_path, target_size=self.img_size)
-
-            if self.augment:
-                img, target = get_transformed_img_and_target(
-                    img,
-                    target,
-                    zoom_factor=self.zoom_factor,
-                    shift_factor=self.shift_factor,
-                    shear_factor=self.shear_factor,
-                )
-            x[j] = img
-            y[j] = target
-        return x, y
-
-
-class CrystalClickDataset(keras.utils.Sequence):
-    def __init__(
-        self,
-        batch_size,
-        img_size,
-        img_paths,
-        augment=False,
-        transpose=True,
-        flip=True,
-        zoom_factor=0.2,
-        shift_factor=0.25,
-        shear_factor=15,
-        default_transform_gang=[0, 0, 0, 0, 1, 1],
-        scale_click=False,
-        click_radius=320e-3,
-        min_scale=0.15,
-        max_scale=1.0,
-        dynamic_batch_size=True,
-        number_batch_size_scales=32,
-        possible_ratios=[0.75, 1.0],
-        pixel_budget=768 * 992,
-    ):
-        self.batch_size = batch_size
-        self.img_size = img_size
-        self.img_paths = img_paths
-        self.augment = augment
-        self.transpose = transpose
-        self.flip = flip
-        self.zoom_factor = zoom_factor
-        self.shift_factor = shift_factor
-        self.shear_factor = shear_factor
-        self.default_transform_gang = np.array(default_transform_gang)
-        self.scale_click = scale_click
-        self.click_radius = click_radius
-        self.dynamic_batch_size = dynamic_batch_size
-        self.possible_scales = np.linspace(
-            min_scale, max_scale, number_batch_size_scales
-        )
-        self.possible_ratios = possible_ratios
-        self.pixel_budget = pixel_budget
-
-        if self.dynamic_batch_size:
-            self.batch_size = 1
-
-    def __len__(self):
-        return math.ceil(len(self.img_paths) / self.batch_size)
-
-    def __getitem__(self, idx):
-        if idx == 0:
-            random.Random().shuffle(self.img_paths)
-        if self.dynamic_batch_size:
-            img_size = get_img_size_as_scale_of_pixel_budget(
-                random.choice(self.possible_scales),
-                pixel_budget=self.pixel_budget,
-                ratio=random.choice(self.possible_ratios),
-            )
-            batch_size = get_dynamic_batch_size(
-                img_size, pixel_budget=self.pixel_budget
-            )
-            i = idx
-        else:
-            img_size = self.img_size
-            batch_size = self.batch_size
-            i = idx * self.batch_size
-
-        final_img_size = img_size[:]
-        batch_img_paths = self.img_paths[i : i + batch_size]
-        batch_size = len(batch_img_paths)  # this handles case at the very last step ...
-
-        if self.augment:
-            do_transpose = False
-            if self.transpose and random.random() > 0.5:
-                final_img_size = img_size[::-1]
-                do_transpose = True
-            do_flip = False
-            if self.flip and random.random() > 0.5:
-                do_flip = True
-
-        x = np.zeros((batch_size,) + final_img_size + (3,), dtype="float32")
-        y = np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
-        for j, img_path in enumerate(batch_img_paths):
-            user_click = None
-            try:
-                original_image = load_img(img_path)
-                original_size = original_image.size[::-1]
-                img = img_to_array(original_image, dtype="float32") / 255.0
-                if np.any(np.isnan(img)):
-                    os.system(
-                        "echo this gave nan, please check %s >> click_generation_problems_new.txt"
-                        % img_path
-                    )
-                    continue
-                if original_size[0] > original_size[1]:
-                    original_size = original_size[::-1]
-                    img = np.reshape(img, original_size + img.shape[2:])
-                    os.system(
-                        "echo wrong ratio, please check %s >> click_generation_problems_new.txt"
-                        % img_path
-                    )
-                img = resize(img, final_img_size)
-            except BaseException:
-                print(traceback.print_exc())
-                os.system(
-                    "echo load_img failed %s >> click_generation_problems_new.txt"
-                    % img_path
-                )
-                img = np.zeros(img_size + (3,))
-                original_size = img_size[:]
-                user_click = np.array([-1, -1])
-
-            try:
-                zoom = int(re.findall(".*_zoom_([\\d]*).*", img_path)[0])
-            except BaseException:
-                zoom = 1
-            if os.path.basename(img_path) == "img.jpg" and user_click is None:
-                user_click = np.load(img_path.replace("img.jpg", "user_click.npy"))
-            elif "shapes_of_background" in img_path:
-                user_click = np.array([-1.0, -1.0])
-            else:
-                try:
-                    user_click = np.array(
-                        list(
-                            map(
-                                float,
-                                re.findall(".*_y_([-\\d]*)_x_([-\\d]*).*", img_path)[0],
-                            )
-                        )
-                    )
-                except BaseException:
-                    user_click = np.array([-1.0, -1.0])
-
-            resize_factor = np.array([1.0, 1.0])
-            if original_size[0] != img_size[0] and original_size[1] != img_size[1]:
-                resize_factor = np.array(img_size) / np.array(original_size)
-
-            user_click *= resize_factor
-            user_click = user_click.astype("float32")
-            cpi = get_cpi_from_user_click(
-                user_click,
-                final_img_size,
-                resize_factor,
-                img_path,
-                click_radius=self.click_radius,
-                zoom=zoom,
-                scale_click=self.scale_click,
-            )
-            if cpi is None:
-                continue
-            if self.augment:
-                if do_transpose is True:
-                    img, cpi = get_transposed_img_and_target(img, cpi)
-                if do_flip is True:
-                    img, cpi = get_flipped_img_and_target(img, cpi)
-                img, cpi = get_transformed_img_and_target(
-                    img,
-                    cpi,
-                    zoom_factor=self.zoom_factor,
-                    shift_factor=self.shift_factor,
-                    shear_factor=self.shear_factor,
-                )
-
-                if all(user_click[:2] >= 0):
-                    user_click = np.unravel_index(np.argmax(cpi), cpi.shape)
-                cpi = get_cpi_from_user_click(
-                    user_click[:2],
-                    final_img_size,
-                    resize_factor,
-                    img_path + "augment",
-                    click_radius=self.click_radius,
-                    zoom=zoom,
-                    scale_click=self.scale_click,
-                )
-
-            x[j] = img
-            y[j] = cpi
-
-        return x, y
-
-
-def get_data_augmentation():
-    data_augmentation = keras.Sequential(
-        [
-            layers.RandomRotation(0.5),
-            layers.RandomFlip(),
-            layers.RandomZoom(0.2),
-        ]
-    )
-    return data_augmentation

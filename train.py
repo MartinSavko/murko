@@ -14,14 +14,14 @@ import matplotlib.pyplot as plt
 
 from murko import (
     params,
-    networks, 
+    networks,
     loss_weights_from_stats,
-    get_uncompiled_tiramisu, 
+    get_uncompiled_tiramisu,
     get_num_segmentation_classes,
     WSConv2D,
     WSSeparableConv2D,
 )
-    
+
 
 from dataset_loader import (
     get_dynamic_batch_size,
@@ -170,7 +170,7 @@ def get_tiramisu(
                 if lw > loss_weights_from_stats["crystal"]:
                     lw = loss_weights_from_stats["crystal"]
         else:
-            lw = 1.
+            lw = 1.0
         loss_weights[head["name"]] = lw
 
     print("loss weights", loss_weights)
@@ -183,15 +183,16 @@ def get_tiramisu(
             l.trainable = False
 
     model.compile(
-        optimizer=optimizer, 
-        loss=losses, 
-        loss_weights=loss_weights, 
+        optimizer=optimizer,
+        loss=losses,
+        loss_weights=loss_weights,
         metrics=metrics,
     )
 
     print("model.losses", len(model.losses), model.losses)
     print("model.metrics", len(model.metrics), model.metrics)
     return model
+
 
 def train(
     base="/nfs/data2/Martin/Research/murko",
@@ -366,12 +367,14 @@ def train(
         if not finetune:
             try:
                 model.load_weights(model_name)
-            except:
-                model = keras.models.load_model(model_name,
-                                                custom_objects={
-                                                "WSConv2D": WSConv2D,
-                                                "WSSeparableConv2D": WSSeparableConv2D,
-                                                },)
+            except BaseException:
+                model = keras.models.load_model(
+                    model_name,
+                    custom_objects={
+                        "WSConv2D": WSConv2D,
+                        "WSSeparableConv2D": WSSeparableConv2D,
+                    },
+                )
         history_name = history_name.replace(".history", "_next_superepoch.history")
         png_name = png_name.replace(".png", "_next_superepoch.png")
     else:
@@ -401,8 +404,8 @@ def train(
         epochs=epochs,
         validation_data=val_gen,
         callbacks=callbacks,
-        use_multiprocessing=True, 
-        workers=32, 
+        use_multiprocessing=True,
+        workers=32,
         max_queue_size=128,
     )
 
