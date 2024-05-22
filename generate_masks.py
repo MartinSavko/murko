@@ -44,7 +44,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--source", type=str, default="soleil_proxima_dataset")
+    parser.add_argument("-s", "--source", type=str, default="soleil_proxima_dataset_v0.1")
     parser.add_argument("-d", "--destination", type=str, default="images_and_labels")
     parser.add_argument("-c", "--check_file", type=str, default="img.jpg")
     args = parser.parse_args()

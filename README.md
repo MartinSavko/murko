@@ -74,3 +74,12 @@ else:
 print('Most likely click in fractional coordinates: (vertical %.3f, horizontal %.3f)' % (most_likely_click))
 
 ```
+
+
+## Development
+
+```
+docker build -t murko-training Dockerfile-training
+
+```
+run the docker image with volume mounts for results file

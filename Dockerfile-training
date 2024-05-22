@@ -1,0 +1,32 @@
+FROM docker://tensorflow/tensorflow:2.15.0-gpu
+
+RUN apt-get update && apt-get install -y libgl1 && apt-get upgrade -y python3
+
+RUN mkdir /opt/app
+
+RUN pip install --upgrade pip && pip install numpy scipy zmq psutil scikit-image matplotlib simplejpeg seaborn labelme 
+
+COPY train.py /opt/app
+
+
+COPY generate_masks.py /opt/app
+
+COPY model.h5 /opt/app
+
+COPY murko.py /opt/app
+
+COPY convert_labelme_json_to_masks.py /opt/app
+
+COPY utils.py /opt/app
+
+WORKDIR /opt/app
+
+
+COPY fcdn103_murko_from_scratch.keras /opt/app
+COPY dataset_loader.py /opt/app
+
+RUN mkdir /opt/app/results
+
+#CMD ["python","generate_masks.py","-s","soleil_proxima_dataset_v0.1"]
+
+CMD ["python", "train.py","--name","murko_ada_identity_hierarchy_74","--epochs","74","--identity","1","--hierarchy","1"]

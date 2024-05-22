@@ -14,14 +14,14 @@ import matplotlib.pyplot as plt
 
 from murko import (
     params,
-    networks,
+    networks, 
     loss_weights_from_stats,
-    get_uncompiled_tiramisu,
+    get_uncompiled_tiramisu, 
     get_num_segmentation_classes,
     WSConv2D,
     WSSeparableConv2D,
 )
-
+    
 
 from dataset_loader import (
     get_dynamic_batch_size,
@@ -170,7 +170,7 @@ def get_tiramisu(
                 if lw > loss_weights_from_stats["crystal"]:
                     lw = loss_weights_from_stats["crystal"]
         else:
-            lw = 1.0
+            lw = 1.
         loss_weights[head["name"]] = lw
 
     print("loss weights", loss_weights)
@@ -183,16 +183,15 @@ def get_tiramisu(
             l.trainable = False
 
     model.compile(
-        optimizer=optimizer,
-        loss=losses,
-        loss_weights=loss_weights,
+        optimizer=optimizer, 
+        loss=losses, 
+        loss_weights=loss_weights, 
         metrics=metrics,
     )
 
     print("model.losses", len(model.losses), model.losses)
     print("model.metrics", len(model.metrics), model.metrics)
     return model
-
 
 def train(
     base="/nfs/data2/Martin/Research/murko",
@@ -250,9 +249,9 @@ def train(
 
     notions = [head["name"] for head in heads]
     distinguished_name = "%s_%s" % (network, name)
-    model_name = os.path.join(base, "%s.keras" % distinguished_name)
-    history_name = os.path.join(base, "%s.history" % distinguished_name)
-    png_name = os.path.join(base, "%s_losses.png" % distinguished_name)
+    model_name = os.path.join(base, 'results', "%s.keras" % distinguished_name)
+    history_name = os.path.join(base, 'results', "%s.history" % distinguished_name)
+    png_name = os.path.join(base, 'results', "%s_losses.png" % distinguished_name)
     checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
     # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
@@ -367,14 +366,12 @@ def train(
         if not finetune:
             try:
                 model.load_weights(model_name)
-            except BaseException:
-                model = keras.models.load_model(
-                    model_name,
-                    custom_objects={
-                        "WSConv2D": WSConv2D,
-                        "WSSeparableConv2D": WSSeparableConv2D,
-                    },
-                )
+            except:
+                model = keras.models.load_model(model_name,
+                                                custom_objects={
+                                                "WSConv2D": WSConv2D,
+                                                "WSSeparableConv2D": WSSeparableConv2D,
+                                                },)
         history_name = history_name.replace(".history", "_next_superepoch.history")
         png_name = png_name.replace(".png", "_next_superepoch.png")
     else:
@@ -399,13 +396,17 @@ def train(
         # sys.exit()
     print(model.summary())
 
+    print(f"train_gen: {train_gen}")
+    print(f"epochs: {epochs}")
+    print(f"val_gen: {val_gen}")
+
     history = model.fit(
         train_gen,
         epochs=epochs,
         validation_data=val_gen,
         callbacks=callbacks,
-        use_multiprocessing=True,
-        workers=32,
+        use_multiprocessing=True, 
+        workers=32, 
         max_queue_size=128,
     )
 
