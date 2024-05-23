@@ -26,12 +26,38 @@ More details can be gleaned from the following [presentation](https://bit.ly/mur
 If you find the code useful or want to learn more about how to deploy it at your beamline please drop me a line.
 
 ## Installation
+Installation is via pip using the `pyproject.toml` file. We recommend creating a virtual environment prior to installation. 
 
 ```
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate
 ```
+
+### install murko client packages
+```
+pip install -e .
+```
+
+### install murko server packages
+```
+pip install -e .[server]
+```
+Note: on a Mac you need to put '' around [] 
+```
+pip install -e .'[server]'
+```
+
+### install murko development packages
+```
+pip install -e .[dev]
+```
+Note: on a Mac you need to put '' around [] 
+```
+pip install -e .'[dev]'
+```
+
 ## Usage
-1. Start server 
+1. Start server from inside server environment
 ```
 ./server.py &
 ```
@@ -44,7 +70,7 @@ docker-compose up -d
 
 Note: model loading and warmup run will take about 10 seconds.
 
-2. query the server
+2. query the server with client environment
 ```
 ./client.py -t examples/image.jpg --save
 

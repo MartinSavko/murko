@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "murko"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPL-3.0)",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+description = "Making sense of MX sample optical image"
+dependencies = [
+    "zmq", # client and server communicate with zeroMQ
+]
+
+dynamic = ["version"]
+license.file = "LICENSE"
+readme = "README.md"
+
+[project.optional-dependencies]
+server = [
+    "simplejpeg",
+    "seaborn",
+    "psutil",
+    "tensorflow<=2.15.0",
+    "keras",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "scikit-image",
+]
+dev = [
+    "simplejpeg",
+    "seaborn",
+    "psutil",
+    "tensorflow<=2.15.0",
+    "keras",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "scikit-image",
+    "black",
+    "mypy",
+    "ruff",
+]
+
+[project.urls]
+GitHub = "https://github.com/MartinSavko/murko"
+
+[[project.authors]] # Further authors may be added by duplicating this section
+email = "martin.savko@synchrotron-soleil.fr"
+name = "Martin Savko"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+
+[tool.ruff]
+src = ["."]
+line-length = 88
+lint.extend-ignore = [
+    "E501", # Line too long
+    "F811", # support typing.overload decorator
+]
+
+lint.select = [
+    "C4",   # flake8-comprehensions - https://beta.ruff.rs/docs/rules/#flake8-comprehensions-c4
+    "E",    # pycodestyle errors - https://beta.ruff.rs/docs/rules/#error-e
+    "F",    # pyflakes rules - https://beta.ruff.rs/docs/rules/#pyflakes-f
+    "W",    # pycodestyle warnings - https://beta.ruff.rs/docs/rules/#warning-w
+    "I001", # isort
+]

@@ -10,7 +10,7 @@ services:
       - 8008:8008
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - #add your site specific filepath mount here
+      #add your site specific filepath mount here
     networks:
       - my-network
 
