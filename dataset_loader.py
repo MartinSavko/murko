@@ -579,7 +579,7 @@ def get_data_augmentation():
     return data_augmentation
 
 
-class MultiTargetDataset(keras.utils.PyDataset):
+class MultiTargetDataset(keras.utils.Sequence):
     def __init__(
         self,
         batch_size,
