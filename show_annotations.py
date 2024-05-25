@@ -138,6 +138,7 @@ def get_hierarchical_mask(
     hierarchical_mask = np.argmax(hierarchical_target, axis=2)
     return hierarchical_mask
 
+
 @timeit
 def get_label_mask(oois, labels):
     image_shape = oois["image_shape"]
@@ -303,6 +304,7 @@ def get_rps(mask):
     rps = skimage.measure.regionprops(skimage.measure.label(mask))[0]
     return rps
 
+
 @timeit
 def get_ellipse_from_mask(mask):
     rps = get_rps(mask)
@@ -312,6 +314,7 @@ def get_ellipse_from_mask(mask):
     orientation = rps.orientation
     return r, c, major, minor, orientation
 
+
 @timeit
 def get_ellipse_from_rps(rps):
     r, c = rps.centroid
@@ -319,6 +322,7 @@ def get_ellipse_from_rps(rps):
     minor = rps.axis_minor_length
     orientation = rps.orientation
     return r, c, major, minor, orientation
+
 
 @timeit
 def get_mask_from_polygon(polygon, image_shape=(1200, 1600)):
@@ -331,7 +335,7 @@ def get_objects_of_interest(json_file):
     shapes = get_shapes(json_file)
     image_shape = get_image_shape(json_file)
     objects_of_interest = {"image_shape": image_shape}
-    
+
     points = []
     labels = []
     i_start = 0
@@ -347,9 +351,10 @@ def get_objects_of_interest(json_file):
         i_end = i_start + ooi.shape[0]
         labels.append((label, i_start, i_end))
         i_start = i_end
-    labeled_points = {'labels': labels, 'points': points}
-    objects_of_interest['labeled_points'] = labeled_points
+    labeled_points = {"labels": labels, "points": points}
+    objects_of_interest["labeled_points"] = labeled_points
     return objects_of_interest
+
 
 @timeit
 def get_rectangle(bbox, encoding="matplotlib"):
@@ -367,11 +372,13 @@ def get_rectangle(bbox, encoding="matplotlib"):
         rectangle = [pvmin, phmin, pvmax, phmax]
     return rectangle
 
+
 @timeit
 def get_rectangle_from_rps(rps, encoding="matplotlib"):
     rectangle = get_rectangle(rps.bbox, encoding=encoding)
     return rectangle
-     
+
+
 @timeit
 def get_rectangle_from_polygon(polygon, encoding="matplotlib"):
     pvmax = polygon[:, 0].max()
@@ -382,6 +389,7 @@ def get_rectangle_from_polygon(polygon, encoding="matplotlib"):
     rectangle = get_rectangle(bbox, encoding=encoding)
     return rectangle
 
+
 @timeit
 def get_support_mask(oois):
     support = get_label_mask(oois, ["loop", "stem", "cd_loop", "cd_stem"]).astype(int)
@@ -389,33 +397,37 @@ def get_support_mask(oois):
     support_mask = np.logical_xor(support, nsupport)
     return support_mask
 
+
 @timeit
 def get_aoi_mask(oois):
-    aoi_mask = get_label_mask(oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"])
+    aoi_mask = get_label_mask(
+        oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"]
+    )
     return aoi_mask
+
 
 def show_annotations(json_file):
     image = get_image(json_file)
     pylab.figure(figsize=(16, 9))
-    pylab.title('Sample image', fontsize=22)
+    pylab.title("Sample image", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
-    #pylab.savefig('sample_image.jpg')
+    # pylab.savefig('sample_image.jpg')
     pylab.show()
     pylab.figure(figsize=(16, 9))
-    pylab.title('Segmentation map', fontsize=22)
+    pylab.title("Segmentation map", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
     oois = get_objects_of_interest(json_file)
     hierarchical_mask = get_hierarchical_mask(json_file)
     pylab.imshow(hierarchical_mask, alpha=0.75)
-    #pylab.savefig('hierarchical_mask.jpg')
+    # pylab.savefig('hierarchical_mask.jpg')
     pylab.show()
     image_shape = oois["image_shape"]
     pylab.figure(figsize=(16, 9))
-    pylab.title('All targets', fontsize=22)
+    pylab.title("All targets", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
@@ -439,9 +451,16 @@ def show_annotations(json_file):
                 )
                 ax.add_patch(patch)
                 mask = get_mask_from_polygon(points, image_shape)
-                #ax.imshow(mask, alpha=0.15)
+                # ax.imshow(mask, alpha=0.15)
                 r, c, r_radius, c_radius, orientation = get_ellipse_from_polygon(points)
-                print ('ellipse', r*image_shape[0], c*image_shape[1], r_radius*image_shape[0], c_radius*image_shape[1], orientation)
+                print(
+                    "ellipse",
+                    r * image_shape[0],
+                    c * image_shape[1],
+                    r_radius * image_shape[0],
+                    c_radius * image_shape[1],
+                    orientation,
+                )
                 r, c, major, minor, orientation = get_ellipse_from_mask(mask)
                 print("ellipse", (r, c), major, minor, orientation)
                 patch = matplotlib.patches.Ellipse(
@@ -475,7 +494,7 @@ def show_annotations(json_file):
         ax.add_patch(patch)
 
     support = get_support_mask(oois)
-    
+
     # pylab.figure()
     # pylab.imshow(support)
     if np.any(support):
@@ -490,7 +509,7 @@ def show_annotations(json_file):
         ax.add_patch(patch)
 
     # all_but_pin = get_label_mask(oois, ['crystal', 'loop_inside', 'loop', 'stem', 'cd_loop', 'cd_stem'])
-    pylab.savefig('all_together.jpg')
+    pylab.savefig("all_together.jpg")
     pylab.show()
 
 
