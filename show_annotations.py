@@ -124,7 +124,7 @@ def get_hierarchical_mask(
     image_shape = oois["image_shape"]
     hierarchical_target = np.zeros(tuple(image_shape) + (len(notions),))
     for label in oois:
-        if label in ["image_shape", "user_click", "background"]:
+        if label in ["image_shape", "user_click", "background", "labeled_points"]:
             continue
         label_mask = get_label_mask(oois, [label])
         if label in notions:
@@ -139,6 +139,7 @@ def get_hierarchical_mask(
     return hierarchical_mask
 
 
+@timeit
 def get_label_mask(oois, labels):
     image_shape = oois["image_shape"]
     label_mask = np.zeros(image_shape, dtype=np.uint8)
@@ -299,8 +300,23 @@ def get_ellipse_from_polygon(polygon):
 
 
 @timeit
-def get_ellipse_from_mask(mask):
+def get_rps(mask):
     rps = skimage.measure.regionprops(skimage.measure.label(mask))[0]
+    return rps
+
+
+@timeit
+def get_ellipse_from_mask(mask):
+    rps = get_rps(mask)
+    r, c = rps.centroid
+    major = rps.axis_major_length
+    minor = rps.axis_minor_length
+    orientation = rps.orientation
+    return r, c, major, minor, orientation
+
+
+@timeit
+def get_ellipse_from_rps(rps):
     r, c = rps.centroid
     major = rps.axis_major_length
     minor = rps.axis_minor_length
@@ -319,6 +335,10 @@ def get_objects_of_interest(json_file):
     shapes = get_shapes(json_file)
     image_shape = get_image_shape(json_file)
     objects_of_interest = {"image_shape": image_shape}
+
+    points = []
+    labels = []
+    i_start = 0
     for shape in shapes:
         label = shape["label"]
         ooi = np.array(shape["points"])
@@ -327,7 +347,36 @@ def get_objects_of_interest(json_file):
         if label not in objects_of_interest:
             objects_of_interest[label] = []
         objects_of_interest[label].append(ooi)
+        points = np.vstack([points, ooi]) if points != [] else ooi
+        i_end = i_start + ooi.shape[0]
+        labels.append((label, i_start, i_end))
+        i_start = i_end
+    labeled_points = {"labels": labels, "points": points}
+    objects_of_interest["labeled_points"] = labeled_points
     return objects_of_interest
+
+
+@timeit
+def get_rectangle(bbox, encoding="matplotlib"):
+    if encoding in ["preferred", "matplotlib"]:
+        pvmin, phmin, pvmax, phmax = bbox
+        extent_v = pvmax - pvmin
+        extent_h = phmax - phmin
+    if encoding == "preferred":
+        center_v = pvmin + extent_v / 2
+        center_h = phmin + extent_h / 2
+        rectangle = [center_v, center_h, extent_v, extent_h]
+    elif encoding == "matplotlib":
+        rectangle = [phmin, pvmin, extent_h, extent_v]
+    else:
+        rectangle = [pvmin, phmin, pvmax, phmax]
+    return rectangle
+
+
+@timeit
+def get_rectangle_from_rps(rps, encoding="matplotlib"):
+    rectangle = get_rectangle(rps.bbox, encoding=encoding)
+    return rectangle
 
 
 @timeit
@@ -336,44 +385,54 @@ def get_rectangle_from_polygon(polygon, encoding="matplotlib"):
     pvmin = polygon[:, 0].min()
     phmax = polygon[:, 1].max()
     phmin = polygon[:, 1].min()
-    extent_v = pvmax - pvmin
-    extent_h = phmax - phmin
-    center_v = pvmin + extent_v / 2
-    center_h = phmin + extent_h / 2
-    if encoding == "preferred":
-        rectangle = [center_v, center_h, extent_v, extent_h]
-    elif encoding == "matplotlib":
-        rectangle = [phmin, pvmin, extent_h, extent_v]
+    bbox = [pvmin, phmin, pvmax, phmax]
+    rectangle = get_rectangle(bbox, encoding=encoding)
     return rectangle
+
+
+@timeit
+def get_support_mask(oois):
+    support = get_label_mask(oois, ["loop", "stem", "cd_loop", "cd_stem"]).astype(int)
+    nsupport = get_label_mask(oois, ["loop_inside"])
+    support_mask = np.logical_xor(support, nsupport)
+    return support_mask
+
+
+@timeit
+def get_aoi_mask(oois):
+    aoi_mask = get_label_mask(
+        oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"]
+    )
+    return aoi_mask
 
 
 def show_annotations(json_file):
     image = get_image(json_file)
     pylab.figure(figsize=(16, 9))
-    pylab.title('Sample image', fontsize=22)
+    pylab.title("Sample image", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
-    #pylab.savefig('sample_image.jpg')
+    # pylab.savefig('sample_image.jpg')
     pylab.show()
     pylab.figure(figsize=(16, 9))
-    pylab.title('Segmentation map', fontsize=22)
+    pylab.title("Segmentation map", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
     oois = get_objects_of_interest(json_file)
     hierarchical_mask = get_hierarchical_mask(json_file)
     pylab.imshow(hierarchical_mask, alpha=0.75)
-    #pylab.savefig('hierarchical_mask.jpg')
+    # pylab.savefig('hierarchical_mask.jpg')
     pylab.show()
     image_shape = oois["image_shape"]
     pylab.figure(figsize=(16, 9))
-    pylab.title('All targets', fontsize=22)
+    pylab.title("All targets", fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
     for label in oois:
-        if label == "image_shape":
+        if label in ["image_shape", "labeled_points"]:
             continue
         print("label", label)
         if label not in colors_for_labels and label in additional_labels:
@@ -392,9 +451,16 @@ def show_annotations(json_file):
                 )
                 ax.add_patch(patch)
                 mask = get_mask_from_polygon(points, image_shape)
-                #ax.imshow(mask, alpha=0.15)
+                # ax.imshow(mask, alpha=0.15)
                 r, c, r_radius, c_radius, orientation = get_ellipse_from_polygon(points)
-                print ('ellipse', r*image_shape[0], c*image_shape[1], r_radius*image_shape[0], c_radius*image_shape[1], orientation)
+                print(
+                    "ellipse",
+                    r * image_shape[0],
+                    c * image_shape[1],
+                    r_radius * image_shape[0],
+                    c_radius * image_shape[1],
+                    orientation,
+                )
                 r, c, major, minor, orientation = get_ellipse_from_mask(mask)
                 print("ellipse", (r, c), major, minor, orientation)
                 patch = matplotlib.patches.Ellipse(
@@ -412,7 +478,7 @@ def show_annotations(json_file):
                 patch = pylab.Circle(matlab_points[0], radius=7, color=color)
                 ax.add_patch(patch)
 
-    aoi = get_label_mask(oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"])
+    aoi = get_aoi_mask(oois)
 
     if np.any(aoi):
         print("aoi")
@@ -427,9 +493,8 @@ def show_annotations(json_file):
         )
         ax.add_patch(patch)
 
-    support = get_label_mask(oois, ["loop", "stem", "cd_loop", "cd_stem"]).astype(int)
-    nsupport = get_label_mask(oois, ["loop_inside"])
-    support = np.logical_xor(support, nsupport)
+    support = get_support_mask(oois)
+
     # pylab.figure()
     # pylab.imshow(support)
     if np.any(support):
@@ -444,7 +509,7 @@ def show_annotations(json_file):
         ax.add_patch(patch)
 
     # all_but_pin = get_label_mask(oois, ['crystal', 'loop_inside', 'loop', 'stem', 'cd_loop', 'cd_stem'])
-    pylab.savefig('all_together.jpg')
+    pylab.savefig("all_together.jpg")
     pylab.show()
 
 
