@@ -5,7 +5,7 @@
 import json
 import numpy as np
 import pylab
-import matplotlib
+import matplotlib.patches
 import seaborn as sns
 from skimage.draw import polygon2mask
 from labelme import utils
@@ -44,10 +44,10 @@ colors_for_labels = {
     "ice": "custard",
     "dust": "cool grey",
     "capillary": "faded blue",
-    "crystal": "carmine",
+    "crystal": "banana yellow",
     "drop": "orangeish",
     "support": "dusk blue",
-    "user_click": "pale purple",
+    "user_click": "banana yellow",
     "extreme": "dark aquamarine",
     "start_likely": "coral",
     "start_possible": "crimson",
@@ -350,14 +350,28 @@ def get_rectangle_from_polygon(polygon, encoding="matplotlib"):
 def show_annotations(json_file):
     image = get_image(json_file)
     pylab.figure(figsize=(16, 9))
+    pylab.title('Sample image', fontsize=22)
+    ax = pylab.gca()
+    pylab.axis("off")
+    ax.imshow(image)
+    #pylab.savefig('sample_image.jpg')
+    pylab.show()
+    pylab.figure(figsize=(16, 9))
+    pylab.title('Segmentation map', fontsize=22)
     ax = pylab.gca()
     pylab.axis("off")
     ax.imshow(image)
     oois = get_objects_of_interest(json_file)
     hierarchical_mask = get_hierarchical_mask(json_file)
-    pylab.imshow(hierarchical_mask, alpha=0.5)
-    # pylab.show()
+    pylab.imshow(hierarchical_mask, alpha=0.75)
+    #pylab.savefig('hierarchical_mask.jpg')
+    pylab.show()
     image_shape = oois["image_shape"]
+    pylab.figure(figsize=(16, 9))
+    pylab.title('All targets', fontsize=22)
+    ax = pylab.gca()
+    pylab.axis("off")
+    ax.imshow(image)
     for label in oois:
         if label == "image_shape":
             continue
@@ -378,16 +392,16 @@ def show_annotations(json_file):
                 )
                 ax.add_patch(patch)
                 mask = get_mask_from_polygon(points, image_shape)
-                ax.imshow(mask, alpha=0.15)
-                # r, c, r_radius, c_radius, orientation = get_ellipse_from_polygon(points)
-                # print ('ellipse', r*image_shape[0], c*image_shape[1], r_radius*image_shape[0], c_radius*image_shape[1], orientation)
+                #ax.imshow(mask, alpha=0.15)
+                r, c, r_radius, c_radius, orientation = get_ellipse_from_polygon(points)
+                print ('ellipse', r*image_shape[0], c*image_shape[1], r_radius*image_shape[0], c_radius*image_shape[1], orientation)
                 r, c, major, minor, orientation = get_ellipse_from_mask(mask)
                 print("ellipse", (r, c), major, minor, orientation)
                 patch = matplotlib.patches.Ellipse(
                     (c, r),
                     major,
                     minor,
-                    -np.degrees(orientation - np.pi / 2),
+                    angle=-np.degrees(orientation - np.pi / 2),
                     color=color,
                     fill=False,
                     lw=2,
@@ -395,7 +409,7 @@ def show_annotations(json_file):
                 ax.add_patch(patch)
 
             elif len(points) == 1:
-                patch = pylab.Circle(matlab_points[0], color=color)
+                patch = pylab.Circle(matlab_points[0], radius=7, color=color)
                 ax.add_patch(patch)
 
     aoi = get_label_mask(oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"])
@@ -405,11 +419,11 @@ def show_annotations(json_file):
         # pylab.imshow(aoi, alpha=0.5)
         epo, epi, epooa, epioa, pa = get_extreme_point(aoi)
         patch = pylab.Circle(
-            epooa[::-1], radius=5, color=sns.xkcd_rgb[colors_for_labels["extreme"]]
+            epooa[::-1], radius=7, color=sns.xkcd_rgb[colors_for_labels["extreme"]]
         )
         ax.add_patch(patch)
         patch = pylab.Circle(
-            epioa[::-1], radius=5, color=sns.xkcd_rgb[colors_for_labels["start_likely"]]
+            epioa[::-1], radius=7, color=sns.xkcd_rgb[colors_for_labels["start_likely"]]
         )
         ax.add_patch(patch)
 
@@ -424,13 +438,13 @@ def show_annotations(json_file):
         epo, epi, epooa, epioa, pa = get_extreme_point(support)
         patch = pylab.Circle(
             epioa[::-1],
-            radius=5,
+            radius=7,
             color=sns.xkcd_rgb[colors_for_labels["start_possible"]],
         )
         ax.add_patch(patch)
 
     # all_but_pin = get_label_mask(oois, ['crystal', 'loop_inside', 'loop', 'stem', 'cd_loop', 'cd_stem'])
-
+    pylab.savefig('all_together.jpg')
     pylab.show()
 
 
