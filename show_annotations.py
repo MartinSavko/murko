@@ -4,14 +4,16 @@
 
 import json
 import numpy as np
+import skimage as ski
+from skimage.draw import polygon2mask
+
 import pylab
 import matplotlib.patches
 import seaborn as sns
-from skimage.draw import polygon2mask
+
 from labelme import utils
 import time
 import copy
-import skimage
 
 # from utils import get_extreme_point
 
@@ -53,10 +55,7 @@ colors_for_labels = {
     "start_possible": "crimson",
 }
 
-additional_labels = {
-    "cd_loop": "loop",
-    "cd_stem": "stem",
-}
+additional_labels = {"cd_loop": "loop", "cd_stem": "stem"}
 
 
 def timeit(f):
@@ -288,7 +287,7 @@ def get_ellipse_from_polygon(polygon):
     # https://stackoverflow.com/questions/47873759/how-to-fit-a-2d-ellipse-to-given-points
     Y = polygon[:, 0:1]
     X = polygon[:, 1:]
-    A = np.hstack([X**2, X * Y, Y**2, X, Y])
+    A = np.hstack([X ** 2, X * Y, Y ** 2, X, Y])
     print("A.shape", A.shape)
     print("A")
     print(A)
@@ -301,7 +300,7 @@ def get_ellipse_from_polygon(polygon):
 
 @timeit
 def get_rps(mask):
-    rps = skimage.measure.regionprops(skimage.measure.label(mask))[0]
+    rps = ski.measure.regionprops(ski.measure.label(mask))[0]
     return rps
 
 
@@ -404,6 +403,113 @@ def get_aoi_mask(oois):
         oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"]
     )
     return aoi_mask
+
+
+@timeit
+def make_points_homogeneous(points):
+    hpoints = np.append(points, np.ones((points.shape[0], 1)), axis=1)
+    return hpoints
+
+
+def get_corners():
+    corners = np.array([[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0.5]])
+    return corners
+
+@timeit
+def get_output_shape(input_shape, transformation_matrix):
+    corners = get_corners()
+    print('corners')
+    print(corners)
+    print(f'input_shape {input_shape}')
+    print(f"transformation_matrix")
+    print(transformation_matrix)
+    corners *= input_shape
+    print(f"corners {corners}")
+    hcorners = make_points_homogeneous(corners)
+    print(f"hcorners {hcorners}")
+    tcorners = get_transformed_points(hcorners, transformation_matrix)
+    print(f"tcorners {tcorners}")
+    # distances = np.abs(tcorners[:-1, :2] - tcorners[-1, :2])
+    # print(f'distances {distances}')
+    output_shape = np.max(tcorners[:, :2], axis=0)
+    print(f"output_shape {output_shape}")
+    return output_shape.astype(int)
+
+
+@timeit
+def get_random_transformation(
+    rotation_range=np.pi,
+    scale_range=0.5,
+    translation_range=0.5,
+    shear_range=0.5 * np.pi,
+    img_shape=np.array((1200, 1600)),
+):
+
+    rotation = (np.random.rand() * 2 - 1) * rotation_range
+    scale = 1 + (np.random.rand() - 0.5) * scale_range
+    shear = np.random.rand() * shear_range
+    translation = (np.random.random(size=2) - 0.5) * translation_range * img_shape
+
+    print(f"rotation {rotation}")
+    print(f"scale {scale}")
+    print(f"shear {shear}")
+    print(f"translation {translation}")
+
+    random_transformation = ski.transform.AffineTransform(
+        scale=scale, rotation=rotation, shear=shear, translation=translation
+    )
+
+    return random_transformation
+
+
+#def plot_keypoints(ax, keypoints):
+    #colors = colors_for_labels.keys()
+    #for k, point in enumerate(keypoints):
+        #patch = pylab.Circle(point[:2], radius=7, color=sns.xkcd_rgb[colors[k]])
+        #ax.add_patch(patch)
+
+def plot_keypoints(keypoints, radius=1, colors=xkcd_colors_that_i_like, ax=None):
+    if ax is None:
+        ax = pylab.gca()
+    for k, p in enumerate(keypoints):
+        c = pylab.Circle(p[:2][::-1], radius=radius, color=sns.xkcd_rgb[colors[k]])
+        ax.add_patch(c)
+
+@timeit
+def get_transformed_points(points, transformation_matrix):
+    points = points[:, [1, 0, 2]]
+    transformed_points = np.dot(transformation_matrix, points.T).T
+    transformed_points = transformed_points[:, [1, 0, 2]]
+    return transformed_points
+
+
+def plot_transformed_image_and_keypoints(img=None, keypoints=None, transformation=None):
+    if img is None:
+        img = load_test_image()
+        
+    img_shape = np.array(img.shape[:2])
+    if keypoints is None:
+        keypoints = get_corners() * img_shape
+        keypoints = make_points_homogeneous(keypoints)
+        
+    if transformation is None:
+        transformation = get_random_transformation()
+
+    #output_shape = get_output_shape(img_shape, transformation.params)
+    transformed_image = ski.transform.warp(img, transformation, cval=1)
+    transformed_keypoints = get_transformed_points(keypoints, transformation.inverse)
+
+    fig, axes = pylab.subplots(1, 2)
+
+    axes[0].imshow(img)
+    axes[0].set_title("Original image")
+    plot_keypoints(keypoints, radius=7, ax=axes[0])
+
+    axes[1].imshow(transformed_image)
+    axes[1].set_title("Transformed image")
+    plot_keypoints(transformed_keypoints, radius=7, ax=axes[1])
+    #pylab.axis("off")
+    pylab.show()
 
 
 def show_annotations(json_file):
@@ -513,7 +619,14 @@ def show_annotations(json_file):
     pylab.show()
 
 
-if __name__ == "__main__":
+def load_test_image():
+    json_file = json.load(open("soleil_proxima_dataset/double_clicks_100161_Wed_Jul_10_210910_2019_double_click_zoom_2_y_529_x_606.json", "rb"))
+    img = get_image(json_file)
+    return img
+
+
+
+def main():
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -528,3 +641,19 @@ if __name__ == "__main__":
     print("args", args)
     json_file = json.load(open(args.json, "rb"))
     show_annotations(json_file)
+    
+if __name__ == "__main__":
+    #main()
+    translation = np.array([20, 45])
+    rotation = np.deg2rad(-15)
+    transformation = ski.transform.AffineTransform(rotation=rotation, translation=translation)
+    img = load_test_image()/255.
+
+    keypoints = get_corners() * np.array(img.shape[:2])
+    keypoints += np.array((200, 200))
+    keypoints = make_points_homogeneous(keypoints)
+    
+    img = np.pad(img, pad_width=((200, 200), (200, 200), (0, 0)), constant_values=1)
+    plot_transformed_image_and_keypoints(img=img, keypoints=keypoints, transformation=transformation)
+    
+    
