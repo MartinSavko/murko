@@ -19,11 +19,13 @@ import gc
 import simplejpeg
 from murko import (
     get_uncompiled_tiramisu,
-    get_descriptions,
-    get_notion_string,
-    plot_analysis,
 )
 
+from utils import (
+    get_notion_string,
+    get_descriptions,
+    plot_analysis,
+)
 
 def print_memory_use():
     # https://stackoverflow.com/questions/44327803/memory-leak-with-tensorflow
