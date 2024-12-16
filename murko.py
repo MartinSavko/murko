@@ -3089,7 +3089,7 @@ def get_hierarchical_mask_from_prediction(
         "foreground": 1,
     },
     min_size=32,
-    massage=True,
+    massage=False,
 ):
     hierarchical_mask = np.zeros(prediction.shape[:2])
     for notion in notions:
@@ -3135,7 +3135,7 @@ def get_hierarchical_mask_from_predictions(
         "foreground": 1,
     },
     min_size=32,
-    massage=True,
+    massage=False,
 ):
     hierarchical_mask = np.zeros(predictions[0].shape[1:3], dtype=np.uint8)
     for notion in notions[::-1]:
@@ -3167,10 +3167,11 @@ def massage_mask(mask, min_size=32, massager="convex"):
     labeled_image = mask.astype("uint8")
     properties = regionprops(labeled_image)[0]
     bbox = properties.bbox
-    if massager == "convex":
-        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
-    elif massager == "filled":
-        mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
+    if not raw:
+        if massager == "convex":
+            mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
+        elif massager == "filled":
+            mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
     return mask
 
 
