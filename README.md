@@ -50,7 +50,7 @@ Note: model loading and warmup run will take about 10 seconds.
 
 ```
 
-In practice you will most likely use the code from your own python client. You might want to have a look in predict.py to get a more precise idea of how to use it. Here is an example
+In practice you will most likely use the code from your own python client. You might want to have a look in client.py to get a more precise idea of how to use it. Here is an example
 
 ```python
 from murko import ( 

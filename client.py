@@ -8,7 +8,7 @@ import time
 import pickle
 
 
-def get_predictions(request_arguments, host="localhost", port=89011, verbose=False):
+def get_predictions(request_arguments, host="localhost", port=8901, verbose=False):
     start = time.time()
     context = zmq.Context()
     if verbose:
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-s", "--save", action="store_true", help="save")
     parser.add_argument("-P", "--prefix", type=str, default="test", help="prefix")
-    parser.add_argument("-p", "--port", type=int, default=89011, help="port")
+    parser.add_argument("-p", "--port", type=int, default=8901, help="port")
     parser.add_argument("-o", "--host", type=str, default="localhost", help="host")
     parser.add_argument(
         "-m", "--min_size", type=int, default=64, help="minimum object size"
