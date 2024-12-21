@@ -17,6 +17,7 @@ import psutil
 import gc
 
 import simplejpeg
+from imageio import imread
 from murko import (
     get_uncompiled_tiramisu,
 )
@@ -35,11 +36,11 @@ def print_memory_use():
     print("memory use: %.3f GB" % memoryUse)
 
 
-def get_model(model_name="model.h5", model_img_size=(256, 320), default_gpu="0"):
+def get_model(model_name="model.h5", model_img_size=(256, 320), gpu="0"):
     _start_load = time.time()
 
     if "CUDA_VISIBLE_DEVICES" not in os.environ:
-        os.environ["CUDA_VISIBLE_DEVICES"] = default_gpu
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu
     gpus = tf.config.list_physical_devices("GPU")
     for gpu in gpus:
         print("setting memory_growth on", gpu)
@@ -77,13 +78,13 @@ def get_model(model_name="model.h5", model_img_size=(256, 320), default_gpu="0")
 def serve(
     port=8901,
     model_name="model.h5",
-    default_gpu="0",
+    gpu="0",
     batch_size=16,
     model_img_size=(256, 320),
 ):
     _start = time.time()
     if "CUDA_VISIBLE_DEVICES" not in os.environ:
-        os.environ["CUDA_VISIBLE_DEVICES"] = default_gpu
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu
     gpus = tf.config.list_physical_devices("GPU")
     print("gpu found", gpus)
     if gpus:
@@ -96,7 +97,7 @@ def serve(
             print("setting memory_growth on", gpu)
             tf.config.experimental.set_memory_growth(gpu, True)
     model = get_model(
-        model_name=model_name, default_gpu=default_gpu, model_img_size=model_img_size
+        model_name=model_name, gpu=gpu, model_img_size=model_img_size
     )
     context = zmq.Context()
     socket = context.socket(zmq.REP)
@@ -108,79 +109,89 @@ def serve(
         request = pickle.loads(requests)
         _start = time.time()
         print("%s received request" % (time.asctime(),))
-        to_predict = request["to_predict"]
-        image_paths = []
-        min_size = 64
-        if "min_size" in request:
-            min_size = request["min_size"]
-        print("debug type(to_predict)", type(to_predict))
-        if isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
-            print("debug 1")
-            to_predict = np.array([simplejpeg.decode_jpeg(to_predict)])
-        elif isinstance(to_predict, str) and (
-            to_predict.lower().endswith(".jpg") or to_predict.lower().endswith(".jpeg")
-        ):
-            print("debug 2")
-            image_paths = [to_predict[:]]
-            to_predict = np.array(simplejpeg.decode_jpeg(open(to_predict, "rb").read()))
-        elif isinstance(to_predict, list) and os.path.isfile(to_predict[0]):
-            print("debug 3")
-            image_paths = to_predict[:]
-            to_predict = np.array(
-                [simplejpeg.decode_jpeg(open(item, "rb").read()) for item in to_predict]
-            )
-        elif isinstance(to_predict, list) and len(to_predict[0].shape) != 3:
-            print("debug 4")
-            try:
+        analysis = {}
+        try:
+            to_predict = request["to_predict"]
+            image_paths = []
+            min_size = 64
+            if "min_size" in request:
+                min_size = request["min_size"]
+            print("debug type(to_predict)", type(to_predict))
+            if isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
+                print("debug 1")
+                to_predict = np.array([simplejpeg.decode_jpeg(to_predict)])
+            elif isinstance(to_predict, str) and (
+                to_predict.lower().endswith(".jpg")
+                or to_predict.lower().endswith(".jpeg")
+            ):
+                print("debug 2")
+                image_paths = [to_predict[:]]
+                to_predict = np.array(
+                    simplejpeg.decode_jpeg(open(to_predict, "rb").read())
+                )
+            elif isinstance(to_predict, str) and to_predict.lower().endswith(".png"):
+                image_paths = [to_predict[:]]
+                to_predict = imread(to_predict)
+            elif isinstance(to_predict, list) and os.path.isfile(to_predict[0]):
+                print("debug 3")
+                image_paths = to_predict[:]
+                to_predict = np.array(
+                    [
+                        simplejpeg.decode_jpeg(open(item, "rb").read())
+                        for item in to_predict
+                    ]
+                )
+            elif isinstance(to_predict, list) and len(to_predict[0].shape) != 3:
+                print("debug 4")
                 to_predict = np.array(
                     [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
                 )
-            except BaseException:
-                pass
-        if isinstance(to_predict, np.ndarray) and len(to_predict.shape) == 3:
-            print("debug 5")
-            to_predict = np.expand_dims(to_predict, 0)
-        print("to_predict type, it", type(to_predict))
-        original_image_shape = to_predict[0].shape
-        analysis = {"original_image_shape": original_image_shape}
-        print("to_predict.shape", to_predict.shape)
-        try:
+            if isinstance(to_predict, np.ndarray) and len(to_predict.shape) == 3:
+                print("debug 5")
+                to_predict = np.expand_dims(to_predict, 0)
+            print("to_predict type, it", type(to_predict))
+            original_image_shape = to_predict[0].shape
+            analysis["original_image_shape"] = original_image_shape
+            print("to_predict.shape", to_predict.shape)
             all_predictions = model.predict(
                 to_predict, batch_size=min([len(to_predict), batch_size])
             )
-        except BaseException:
-            print(traceback.print_exc())
-            all_predictions = []
-        duration = time.time() - _start
-        N = len(all_predictions[0])
-        print(
-            "%d predictions took %.3f seconds (%.3f per image)"
-            % (N, duration, duration / N)
-        )
-        if "description" in request and request["description"] is not False:
-            _start_description = time.time()
-
-            descriptions = get_descriptions(
-                all_predictions,
-                notions=request["description"],
-                original_image_shape=original_image_shape,
-                min_size=min_size,
+            duration = time.time() - _start
+            N = len(all_predictions[0])
+            print(
+                "%d predictions took %.3f seconds (%.3f per image)"
+                % (N, duration, duration / N)
             )
-            analysis["descriptions"] = descriptions
-            print("descriptions took %.3f seconds" % (time.time() - _start_description))
-            if "raw_predictions" in request and request["raw_predictions"] is True:
-                analysis["predictions"] = all_predictions
-        else:
-            descriptions = []
-            analysis = all_predictions
-        if "save" in request and request["save"]:
-            plot_analysis(to_predict, analysis, image_paths=image_paths)
+            if "description" in request and request["description"] is not False:
+                _start_description = time.time()
 
+                descriptions = get_descriptions(
+                    all_predictions,
+                    notions=request["description"],
+                    original_image_shape=original_image_shape,
+                    min_size=min_size,
+                )
+                analysis["descriptions"] = descriptions
+                print(
+                    "descriptions took %.3f seconds"
+                    % (time.time() - _start_description)
+                )
+                if "raw_predictions" in request and request["raw_predictions"] is True:
+                    analysis["predictions"] = all_predictions
+            else:
+                descriptions = []
+                analysis = all_predictions
+            if "save" in request and request["save"]:
+                plot_analysis(to_predict, analysis, image_paths=image_paths)
+
+            del all_predictions
+            if descriptions:
+                del descriptions
+
+        except:
+            traceback.print_exc()
         socket.send(pickle.dumps(analysis))
         print("complete analysis took %.3f seconds" % (time.time() - _start))
-        del all_predictions
-        if descriptions:
-            del descriptions
         del analysis
         gc.collect()
         print_memory_use()
@@ -206,6 +217,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d", "--directory", default=None, type=str, help="optional model directory"
     )
+    parser.add_argument(
+        "-g", "--gpu", default="0", type=str, help="gpu to use"
+    )
     args = parser.parse_args()
     model_img_size = eval(args.model_img_size)
     if not os.path.isfile(args.model_name) and args.directory is not None:
@@ -214,4 +228,9 @@ if __name__ == "__main__":
         model_name = args.model_name
     args = parser.parse_args()
     print("args", args)
-    serve(port=args.port, model_name=model_name, model_img_size=model_img_size)
+    serve(
+        port=args.port,
+        model_name=model_name,
+        model_img_size=model_img_size,
+        gpu=args.gpu,
+    )
