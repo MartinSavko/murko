@@ -6,6 +6,8 @@ from skimage.measure import regionprops
 from skimage.transform import resize
 
 import os
+import time
+import traceback
 import pylab
 import keras
 from keras.preprocessing.image import (
@@ -14,6 +16,7 @@ from keras.preprocessing.image import (
     img_to_array,
     array_to_img,
 )
+import scipy.ndimage as ndi
 import numpy as np
 import random
 from dataset_loader import (
@@ -268,8 +271,8 @@ def get_clicks_from_click_image_batch(click_image_batch):
 
 def display_target(target_array):
     normalized_array = (target_array.astype("uint8")) * 127
-    plt.axis("off")
-    plt.imshow(normalized_array[:, :, 0])
+    pylab.axis("off")
+    pylab.imshow(normalized_array[:, :, 0])
 
 
 def get_dataset(batch_size, img_size, img_paths, augment=False):
@@ -606,9 +609,9 @@ def save_predictions(
         np.save(predicted_masks_name, predicted_masks)
 
         if target:
-            fig, axes = plt.subplots(1, 3)
+            fig, axes = pylab.subplots(1, 3)
         else:
-            fig, axes = plt.subplots(1, 2)
+            fig, axes = pylab.subplots(1, 2)
         fig.set_size_inches(16, 9)
         title = name
         fig.suptitle(title)
@@ -630,11 +633,11 @@ def save_predictions(
         most_likely_click = np.array(get_most_likely_click(predictions, k=k))
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
-            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color="green")
+            click_patch_ii = pylab.Circle(mlc_ii[::-1], radius=2, color="green")
             axes[0].add_patch(click_patch_ii)
 
             mlc_hm = most_likely_click * prediction_shape
-            click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color="green")
+            click_patch_hm = pylab.Circle(mlc_hm[::-1], radius=2, color="green")
             axes[1].add_patch(click_patch_hm)
 
         loop_present, r, c, h, w = get_loop_bbox(predictions, k=k)
@@ -645,7 +648,7 @@ def save_predictions(
             w *= original_shape[1]
             C, R = int(c - w / 2), int(r - h / 2)
             W, H = int(w), int(h)
-            loop_bbox_patch = plt.Rectangle(
+            loop_bbox_patch = pylab.Rectangle(
                 (C, R), W, H, linewidth=1, edgecolor="green", facecolor="none"
             )
             axes[0].add_patch(loop_bbox_patch)
@@ -653,8 +656,8 @@ def save_predictions(
         comparison_path = prediction_img_path.replace(
             "hierarchical_mask_high_contrast_predicted", "comparison"
         )
-        plt.savefig(comparison_path)
-        plt.close()
+        pylab.savefig(comparison_path)
+        pylab.close()
         print("saving %s" % comparison_path)
     end = time.time()
 
@@ -698,7 +701,7 @@ def plot_analysis(
         # predicted_masks_name = os.path.join(directory, '%s.npy' % template)
         # np.save(predicted_masks_name, predicted_masks)
 
-        fig, axes = plt.subplots(1, 2)
+        fig, axes = pylab.subplots(1, 2)
         fig.set_size_inches(figsize)
         fig.suptitle(name)
         axes[0].set_title(
@@ -717,11 +720,11 @@ def plot_analysis(
 
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
-            click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color="green")
+            click_patch_ii = pylab.Circle(mlc_ii[::-1], radius=2, color="green")
             axes[0].add_patch(click_patch_ii)
 
             mlc_hm = most_likely_click * prediction_shape
-            click_patch_hm = plt.Circle(mlc_hm[::-1], radius=2, color="green")
+            click_patch_hm = pylab.Circle(mlc_hm[::-1], radius=2, color="green")
             axes[1].add_patch(click_patch_hm)
 
         loop_present, r, c, h, w = descriptions[k]["aoi_bbox"]
@@ -733,7 +736,7 @@ def plot_analysis(
                 w *= original_shape[1]
                 C, R = int(c - w / 2), int(r - h / 2)
                 W, H = int(w), int(h)
-                loop_bbox_patch = plt.Rectangle(
+                loop_bbox_patch = pylab.Rectangle(
                     (C, R), W, H, linewidth=1, edgecolor="green", facecolor="none"
                 )
                 axes[0].add_patch(loop_bbox_patch)
@@ -743,8 +746,8 @@ def plot_analysis(
         comparison_path = prediction_img_path.replace(
             "hierarchical_mask_high_contrast_predicted", "comparison"
         )
-        plt.savefig(comparison_path)
-        plt.close()
+        pylab.savefig(comparison_path)
+        pylab.close()
         print("saving %s" % comparison_path)
     end = time.time()
 
@@ -1423,13 +1426,13 @@ def segment(base="/nfs/data2/Martin/Research/murko", epochs=25, patience=5):
     epochs = range(1, len(history.history["loss"]) + 1)
     loss = history.history["loss"]
     val_loss = history.history["val_loss"]
-    plt.figure()
-    plt.plot(epochs, loss, "bo-", label="Training loss")
-    plt.plot(epochs, val_loss, "ro-", label="Validation loss")
-    plt.title("Training and validation loss")
-    plt.legend()
-    plt.savefig("sample_foreground_segmentation_%s.png" % date)
-    plt.show()
+    pylab.figure()
+    pylab.plot(epochs, loss, "bo-", label="Training loss")
+    pylab.plot(epochs, val_loss, "ro-", label="Validation loss")
+    pylab.title("Training and validation loss")
+    pylab.legend()
+    pylab.savefig("sample_foreground_segmentation_%s.png" % date)
+    pylab.show()
 
 
 def get_cpi_from_user_click(
