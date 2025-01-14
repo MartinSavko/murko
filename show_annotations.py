@@ -17,6 +17,7 @@ import seaborn as sns
 from labelme import utils
 import time
 import copy
+import traceback 
 
 # from utils import get_extreme_point
 
@@ -41,6 +42,15 @@ xkcd_colors_that_i_like = [
 ]
 
 colors_for_labels = {
+    "background": "dark green",
+    "degraded_protein": "chartreuse",
+    "crystal_cluster": "greenish yellow",
+    "air_bubble": "light aqua",
+    "precipitate": "pale yellow",
+    "crystalline_precipitate": "pale yellow",
+    "crystal_shower": "olive drab",
+    "feather-like": "greyish blue",
+    "urchin": "light olive",
     "not_background": "greyish",
     "pin": "dusk blue",
     "stem": "crimson",
@@ -59,7 +69,7 @@ colors_for_labels = {
     "most_likely_point": "orangeish",
     "extreme_point": "carmine",
     "start_likely_point": "dusk blue",
-    "start_possible_point": "cool grey",
+    "start_possible_point": "cool grey",    
 }
 
 additional_labels = {"cd_loop": "loop", "cd_stem": "stem"}
@@ -270,7 +280,6 @@ def get_hierarchy_from_masks(
         "background": 100.0,
     },
 ):
-
     notions.sort(key=lambda x: -notion_importance[x])
     notion_values = np.array([notion_importance[notion] for notion in notions])
 
@@ -291,17 +300,17 @@ def get_hierarchy_from_masks(
 # @timeit
 def get_label_mask(oois, labels):
     image_shape = oois["image_shape"]
-    print(f'image_shape {image_shape} {type(image_shape)}')
+    print(f"image_shape {image_shape} {type(image_shape)}")
     label_mask = np.zeros(image_shape, dtype=np.uint8)
 
     for label in labels:
-        print(f'label {label}')
+        print(f"label {label}")
         if label not in oois or label in ["image", "labels"]:
             continue
         for points in oois[label]:
             if len(points) < 3:
                 continue
-            print(f'points {points}')
+            print(f"points {points}")
             polygon = points * image_shape
             mask = get_mask_from_polygon(polygon, image_shape)
             label_mask = np.logical_or(label_mask == 1, mask == 1)
@@ -455,7 +464,6 @@ def get_targets_old(
         "start_possible_point": {"type": "point_regression"},
     },
 ):
-
     targets = {}
     for notion in notions:
         if notions[notion]["type"] == "binary_segmentation":
@@ -464,7 +472,11 @@ def get_targets_old(
             rectangles = None
             ellipses = None
             if notion == "crystal":
-                label_mask, rectangles, ellipses = get_mask_rectangles_ellipses_from_points(
+                (
+                    label_mask,
+                    rectangles,
+                    ellipses,
+                ) = get_mask_rectangles_ellipses_from_points(
                     oois, [notion], points=points
                 )
                 targets[notion] = label_mask
@@ -752,7 +764,7 @@ def get_ellipse_from_polygon(polygon):
     # print("solution ", x)
     # solution = x[0].squeeze()
     ellipse = cv.fitEllipse(polygon.astype(int))
-    print(f'ellipse {ellipse}')
+    print(f"ellipse {ellipse}")
     return ellipse
 
 
@@ -920,7 +932,6 @@ def get_objects_of_interest(
     ],
     debug=False,
 ):
-
     shapes = get_shapes(json_file)
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
@@ -980,24 +991,29 @@ def get_objects_of_interest(
 
     i_start, i_end = indices[-1]
     for notion in notions["secondary"]:
-        i_start = i_end
-        contours, h = cv.findContours(
-            masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
-        )
-        shape = contours[0].shape
-        new_shape = (shape[0], shape[2])
-        polygon = contours[0].reshape(new_shape)
-        notion_points = polygon[:, ::-1] / image_shape
+        try:
+            contours, h = cv.findContours(
+                masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
+            )
+            shape = contours[0].shape
+            new_shape = (shape[0], shape[2])
+            polygon = contours[0].reshape(new_shape)
+            notion_points = polygon[:, ::-1] / image_shape
 
-        i_end = i_start + notion_points.shape[0]
-        labels.append(notion)
-        indices.append((i_start, i_end))
-        points = np.vstack([points, notion_points])
+            i_start = i_end
+            i_end = i_start + notion_points.shape[0]
+            labels.append(notion)
+            indices.append((i_start, i_end))
+            points = np.vstack([points, notion_points])
 
-        keypoint_labels, keypoint_points = add_to_keypoint_labels_and_points(
-            notion, polygon, image_shape, keypoint_labels, keypoint_points
-        )
-
+            keypoint_labels, keypoint_points = add_to_keypoint_labels_and_points(
+                notion, polygon, image_shape, keypoint_labels, keypoint_points
+            )
+        except IndexError:
+            print(f"notion {notion} not relevant")
+        except:
+            print("notion", notion, "failed")
+            traceback.print_exc()
     labels, indices, points = add_keypoints(
         keypoint_labels, keypoint_points, labels, indices, points
     )
@@ -1312,7 +1328,6 @@ def get_random_transformation(
     img_shape=np.array((1200, 1600)),
     rotation_center="random",
 ):
-
     if rotation_center == "random":
         r_center = np.random.random(size=2) * img_shape
     else:
@@ -1521,6 +1536,70 @@ def plot_transformed_image_and_keypoints(
     # print(f'{matrix}')
     # transformed_image = get_transformed_image(img, estimated_transformation, output_shape=output_shape, doer=doer)
 
+def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=False):
+    json_file = load_json(annotation)
+    image = get_image(json_file)
+    fig = pylab.figure(figsize=np.array(image.shape[:2][::-1])/dpi)
+    pylab.imshow(image)
+    
+    if masks:
+        hm = get_hierarchical_mask(json_file)
+        pylab.imshow(hm, alpha=alpha)
+    else:
+        oois = get_objects_of_interest(json_file)
+        image_shape = oois["image_shape"]
+        ax = pylab.gca()
+        for label in oois:
+            if label in [
+                "image_shape",
+                "labeled_points",
+                "image",
+                "labels",
+                "points",
+                "indices",
+            ]:
+                continue
+            
+            if label in colors_for_labels:
+                color = sns.xkcd_rgb[colors_for_labels[label]]
+            elif label not in colors_for_labels and label in additional_labels:
+                label = additional_labels[label]
+            else:
+                print(f"label {label} not accounted for, please check")
+                color = sns.xkcd_rgb[colors_for_labels["not_background"]]
+            
+            legends = []
+            coois = copy.deepcopy(oois)
+            for points in coois[label]:
+                points *= image_shape
+                matlab_points = points[:, ::-1]
+                if len(points) >= 3:
+                    patch = pylab.Polygon(matlab_points, color=color, lw=2, fill=False)
+                    ax.add_patch(patch)
+                elif len(points) == 2:
+                    print("Rectangle")
+                    x, y, width, height = get_rectangle_from_polygon(points)
+                    print('x, y, w, h', x, y, width, height)
+                    patch = pylab.Rectangle(
+                        (y - height // 2, x - width // 2),
+                        height,
+                        width,
+                        color=color,
+                        lw=2,
+                        fill=False,
+                    )
+                    ax.add_patch(patch)
+                elif len(points) == 1:
+                    patch = pylab.Circle(matlab_points[0], radius=7, color=color)
+                    ax.add_patch(patch)
+            if label not in legends:
+                print(f'setting legend for label {label}')
+                legends.append(label)
+                patch.set_label(label)
+                
+    pylab.axis('off')
+    pylab.legend()
+    fig.savefig(annotation.replace(".json", "_overview.jpg"), bbox_inches='tight', pad_inches=0, dpi=dpi*factor)
 
 def show_annotations(json_file):
     image = get_image(json_file)
@@ -1548,7 +1627,14 @@ def show_annotations(json_file):
     pylab.axis("off")
     ax.imshow(image)
     for label in oois:
-        if label in ["image_shape", "labeled_points", "image", "labels", "points", "indices"]:
+        if label in [
+            "image_shape",
+            "labeled_points",
+            "image",
+            "labels",
+            "points",
+            "indices",
+        ]:
             continue
         print("label", label)
         if label not in colors_for_labels and label in additional_labels:
@@ -1564,27 +1650,34 @@ def show_annotations(json_file):
                 ax.add_patch(patch)
                 x, y, width, height = get_rectangle_from_polygon(points)
                 patch = pylab.Rectangle(
-                    (y-height//2, x-width//2), height, width, color=color, lw=2, fill=False
+                    (y - height // 2, x - width // 2),
+                    height,
+                    width,
+                    color=color,
+                    lw=2,
+                    fill=False,
                 )
                 ax.add_patch(patch)
-                
+
                 # ax.imshow(mask, alpha=0.15)
-                (r, c), (r_radius, c_radius), orientation = get_ellipse_from_polygon(points)
-                #print(
-                    #"ellipse",
-                    #r * image_shape[0],
-                    #c * image_shape[1],
-                    #r_radius * image_shape[0],
-                    #c_radius * image_shape[1],
-                    #orientation,
-                #)
-                #mask = get_mask_from_polygon(points, image_shape)
-                #r, c, major, minor, orientation = get_ellipse_from_mask(mask)
-                #print("ellipse", (r, c), major, minor, orientation)
+                (r, c), (r_radius, c_radius), orientation = get_ellipse_from_polygon(
+                    points
+                )
+                # print(
+                # "ellipse",
+                # r * image_shape[0],
+                # c * image_shape[1],
+                # r_radius * image_shape[0],
+                # c_radius * image_shape[1],
+                # orientation,
+                # )
+                # mask = get_mask_from_polygon(points, image_shape)
+                # r, c, major, minor, orientation = get_ellipse_from_mask(mask)
+                # print("ellipse", (r, c), major, minor, orientation)
                 patch = matplotlib.patches.Ellipse(
                     (c, r),
-                    c_radius, #major
-                    r_radius, #minor
+                    c_radius,  # major
+                    r_radius,  # minor
                     angle=-orientation,
                     color=color,
                     fill=False,
@@ -1631,6 +1724,11 @@ def show_annotations(json_file):
     pylab.show()
 
 
+def load_json(fname="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/dls_i04/6116020_fullscreen-30086648_201.40800000000002.json"):
+    
+    f = json.load(open(fname, "rb"))
+    return f
+    
 def load_test_json_file():
     json_file = json.load(
         open(
@@ -1660,9 +1758,10 @@ def main():
     )
     args = parser.parse_args()
     print("args", args)
-    json_file = json.load(open(args.json, "rb"))
-    show_annotations(json_file)
+    #json_file = json.load(open(args.json, "rb"))
+    #show_annotations(json_file)
 
+    save_annotation_figure(args.json)
 
 if __name__ == "__main__":
     # main()
@@ -1685,8 +1784,8 @@ if __name__ == "__main__":
     # img = np.pad(img, pad_width=((200, 200), (200, 200), (0, 0)), constant_values=1)
     # plot_transformed_image_and_keypoints(json_file=None, keypoints=None, transformation=None, doer='cv')
     main()
-    json_file = load_test_json_file()
-    oois = get_objects_of_interest(json_file)
-    targets = get_targets(oois)
+    #json_file = load_test_json_file()
+    #oois = get_objects_of_interest(json_file)
+    #targets = get_targets(oois)
     ##print('targets')
     # print(targets)
