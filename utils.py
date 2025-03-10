@@ -778,7 +778,7 @@ def get_hierarchical_mask_from_prediction(
         "foreground": 1,
     },
     min_size=32,
-    massage=True,
+    massage=False,
 ):
     hierarchical_mask = np.zeros(prediction.shape[:2])
     for notion in notions:
@@ -824,7 +824,7 @@ def get_hierarchical_mask_from_predictions(
         "foreground": 1,
     },
     min_size=32,
-    massage=True,
+    massage=False,
 ):
     hierarchical_mask = np.zeros(predictions[0].shape[1:3], dtype=np.uint8)
     for notion in notions[::-1]:
