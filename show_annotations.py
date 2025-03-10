@@ -9,6 +9,7 @@ import skimage as ski
 from skimage.draw import polygon2mask
 import scipy.ndimage as ndi
 import cv2 as cv
+import imageio
 
 import pylab
 import matplotlib.patches
@@ -17,7 +18,7 @@ import seaborn as sns
 from labelme import utils
 import time
 import copy
-import traceback 
+import traceback
 
 # from utils import get_extreme_point
 
@@ -56,7 +57,7 @@ colors_for_labels = {
     "stem": "crimson",
     "loop": "faded green",
     "loop_inside": "moss green",
-    "ice": "custard",
+    "ice": "ice",
     "dust": "cool grey",
     "capillary": "faded blue",
     "crystal": "banana yellow",
@@ -69,10 +70,17 @@ colors_for_labels = {
     "most_likely_point": "orangeish",
     "extreme_point": "carmine",
     "start_likely_point": "dusk blue",
-    "start_possible_point": "cool grey",    
+    "start_possible_point": "cool grey",
 }
 
-additional_labels = {"cd_loop": "loop", "cd_stem": "stem"}
+additional_labels = {
+    "cd_loop": "loop",
+    "cd_stem": "stem",
+    "loop_cd": "loop",
+    "stem_cd": "stem",
+    "loop_mt": "loop",
+    "stem_mt": "stem",
+}
 
 # 8 + 1 + 2 + 8 + 8 + 4 = 31
 targets = {
@@ -131,7 +139,11 @@ def timeit(f):
 
 
 def get_image(json_file):
-    image = utils.img_b64_to_arr(json_file.get("imageData")) / 255.0
+    imageData = json_file.get("imageData")
+    if imageData is not None:
+        image = utils.img_b64_to_arr(imageData) / 255.0
+    else:
+        image = imageio.imread(json_file.get("imagePath"))
     return image
 
 
@@ -583,7 +595,6 @@ def get_targets(
     debug=False,
 ):
     targets = {}
-    image = oois["image"]
     image_shape = oois["image_shape"]
     if points is None:
         points = oois["points"]
@@ -592,10 +603,8 @@ def get_targets(
     masks = {}
     for notion in notions["primary"]:
         masks[notion] = np.zeros(image_shape, dtype=np.uint8)
-    hierarchy = np.zeros(image_shape, dtype=np.uint8)
 
     props = []
-    support = {}
     for k, label in enumerate(oois["labels"]):
         i_start, i_end = oois["indices"][k]
         ps = points[i_start:i_end]
@@ -615,6 +624,8 @@ def get_targets(
 
     notions_list = list(notion_hierarchy_indices.keys())
     notions_list.sort(key=lambda x: -notion_hierarchy_indices[x])
+
+    hierarchy = np.zeros(image_shape, dtype=np.uint8)
     for notion in notions_list:
         if notion in masks:
             hierarchy[masks[notion] == 1] = notion_hierarchy_indices[notion]
@@ -622,6 +633,7 @@ def get_targets(
             hierarchy[masks["foreground"] != 1] = notion_hierarchy_indices["background"]
 
     masks["hierarchy"] = hierarchy
+    image = oois["image"]
     masks["identity"] = image
     masks["identity_grey"] = image.mean(axis=2)
     targets["masks"] = masks
@@ -915,12 +927,93 @@ def get_mask_from_polygon(polygon, image_shape=(1200, 1600), doer="cv"):
         )
     return mask
 
+def get_labelme_shape_from_mask(mask, label):
+    shape = {}
+    shape["label"] = label
+    shape["group_id"] = None
+    shape["description"] = ""
+    shape["flags"] = {}
+    shape["mask"] = None
+    contours = cv.findContours(mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    points = contours[0][0].astype(float)
+    points = points.reshape((points.shape[0], points.shape[-1]))
+    #points = points[:, ::-1]
+    pts = []
+    for p in points:
+        pts.append(list(p))
+    if len(points) >= 3:
+        shape_type = "polygon"
+    elif len(points) == 2:
+        shape_type = "rectangle"
+    else:
+        shape_type = "point"
+    shape["shape_type"] = shape_type
+    shape["points"] = pts
+    return shape
+    
+    
+def get_new_json_file(
+    shapes, # list of shape directories
+    imagePath,
+    imageHeight=None,
+    imageWidth=None,
+    version="5.4.1",
+    imageData=None,
+    flags={},
+):
+    json_file = {}
+    json_file["version"] = version
+    json_file["flags"] = flags
+    json_file["shapes"] = shapes
+    json_file["imagePath"] = imagePath
+    if imageHeight is None or imageWidth is None:
+        img = imageio.imread(imagePath)
+        imageHeight, imageWidth = img.shape[:2]
+    json_file["imageHeight"] = imageHeight
+    json_file["imageWidth"] = imageWidth
+    json_file["imageData"] = imageData
+    
+    return json_file
 
+def get_labelme_shapes_from_chimp_record(imagepath):
+    realpath = os.path.realpath(imagepath)
+    record = np.load(realpath.replace("images", "masks").replace(".jpg", ".npz"))
+    labels = record["class_labels"]
+    masks = record["masks"]
+    shapes = []
+    for mask, label in zip(masks, labels):
+        shape = get_labelme_shape_from_mask(mask, label)
+        shapes.append(shape)
+
+    return shapes
+    
+def create_labelme_file_from_chimp_record(imagepath):
+    realpath = os.path.realpath(imagepath)
+    shapes = get_labelme_shapes_from_chimp_record(realpath)
+    jsonpath = realpath.replace("images", "json").replace(".jpg", ".json")
+    
+    json_file = get_new_json_file(
+        shapes, 
+        realpath
+    )
+        
+    if not os.path.isdir(os.path.dirname(jsonpath)):
+        os.makedirs(os.path.dirname(jsonpath))
+    fp = open(jsonpath, "w")
+    json.dump(json_file, fp)
+    fp.close()
+    
 # @timeit
 def get_objects_of_interest(
     json_file,
     notions={
-        "secondary": ["area_of_interest", "support", "foreground", "largest_crystal"],
+        "secondary": [
+            "area_of_interest",
+            "support",
+            "support_filled",
+            "foreground",
+            "largest_crystal",
+        ],
         "keypoints": ["left", "right", "top", "bottom"],
     },
     keypoint_labels=["top_left", "top_right", "bottom_right", "bottom_left"],
@@ -932,23 +1025,18 @@ def get_objects_of_interest(
     ],
     debug=False,
 ):
-    shapes = get_shapes(json_file)
+    objects_of_interest = {}
+
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
 
-    objects_of_interest = {"image": image}
+    objects_of_interest["image"] = image
     objects_of_interest["image_shape"] = image_shape
 
-    points = []
-    labels = []
-    indices = []
-
-    masks = {}
-    for notion in notions["secondary"]:
-        masks[notion] = np.zeros(image_shape, dtype=np.uint8)
+    points, labels, indices = [], [], []
 
     i_start, i_end = 0, 0
-    for shape in shapes:
+    for shape in get_shapes(json_file):
         i_start = i_end
         label = shape["label"]
         if label in additional_labels:
@@ -959,39 +1047,57 @@ def get_objects_of_interest(
         if label not in objects_of_interest:
             objects_of_interest[label] = []
         objects_of_interest[label].append(ooi)
-
         i_end = i_start + ooi.shape[0]
-
         labels.append(label)
         indices.append((i_start, i_end))
+        print('points', points)
+        print('ooi', ooi)
         points = np.vstack([points, ooi]) if len(points) else ooi
 
+    masks = {}
     largest_crystal_area = -1
     for k, label in enumerate(labels):
+        if label == "background":
+            continue
         i_start, i_end = indices[k]
         ps = points[i_start:i_end]
         if len(ps) < 3:
             continue
         polygon = (ps * image_shape).astype(np.int32)[:, ::-1]
         mask = cv.fillPoly(np.zeros(image_shape, dtype=np.uint8), [polygon], 1)
-        masks["foreground"] = np.logical_or(masks["foreground"], mask)
+        masks["foreground"] = (
+            np.logical_or(masks["foreground"], mask) if "foreground" in masks else mask
+        )
         if label == "crystal":
             area = cv.contourArea(polygon)
             if area > largest_crystal_area:
                 masks["largest_crystal"] = mask
                 largest_crystal_area = area
         if label in ["crystal", "loop"]:
-            masks["area_of_interest"] = np.logical_or(masks["area_of_interest"], mask)
-        if label in ["loop", "stem"]:
-            masks["support"] = np.logical_or(masks["support"], mask)
-        if label == "pin":
-            keypoint_labels, keypoint_points = add_to_keypoint_labels_and_points(
-                label, polygon, image_shape, keypoint_labels, keypoint_points
+            masks["area_of_interest"] = (
+                np.logical_or(masks["area_of_interest"], mask)
+                if "area_of_interest" in masks
+                else mask
             )
+        if label in ["loop", "stem"]:
+            masks["support_filled"] = (
+                np.logical_or(masks["support_filled"], mask)
+                if "support_filled" in masks
+                else mask
+            )
+
+    if "support_filled" in masks and "pin" in masks:
+        belongs_to_both = np.logical_and(masks["support_filled"], masks["pin"])
+        belongs_to_both_not = np.logical_not(belongs_to_both)
+        masks["support_filled"] = np.logical_and(
+            masks["support_filled"], belongs_to_both_not
+        )
+    if "support_filled" in masks and "loop_inside" in masks:
+        masks["support"] = np.logical_xor(masks["support_filled"], masks["loop_inside"])
 
     i_start, i_end = indices[-1]
     for notion in notions["secondary"]:
-        try:
+        if notion in masks:
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
@@ -999,30 +1105,19 @@ def get_objects_of_interest(
             new_shape = (shape[0], shape[2])
             polygon = contours[0].reshape(new_shape)
             notion_points = polygon[:, ::-1] / image_shape
-
             i_start = i_end
             i_end = i_start + notion_points.shape[0]
             labels.append(notion)
             indices.append((i_start, i_end))
             points = np.vstack([points, notion_points])
-
             keypoint_labels, keypoint_points = add_to_keypoint_labels_and_points(
                 notion, polygon, image_shape, keypoint_labels, keypoint_points
             )
-        except IndexError:
-            print(f"notion {notion} not relevant")
-        except:
-            print("notion", notion, "failed")
-            traceback.print_exc()
+
     labels, indices, points = add_keypoints(
         keypoint_labels, keypoint_points, labels, indices, points
     )
     labels, indices, points = add_critical_keypoints(labels, indices, points)
-
-    if debug:
-        print("labels indices", len(labels), len(indices))
-        for item in list(zip(labels, indices)):
-            print(item)
 
     objects_of_interest["labels"] = labels
     objects_of_interest["indices"] = indices
@@ -1536,12 +1631,13 @@ def plot_transformed_image_and_keypoints(
     # print(f'{matrix}')
     # transformed_image = get_transformed_image(img, estimated_transformation, output_shape=output_shape, doer=doer)
 
+
 def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=False):
     json_file = load_json(annotation)
     image = get_image(json_file)
-    fig = pylab.figure(figsize=np.array(image.shape[:2][::-1])/dpi)
+    fig = pylab.figure(figsize=np.array(image.shape[:2][::-1]) / dpi)
     pylab.imshow(image)
-    
+
     if masks:
         hm = get_hierarchical_mask(json_file)
         pylab.imshow(hm, alpha=alpha)
@@ -1559,7 +1655,7 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
                 "indices",
             ]:
                 continue
-            
+
             if label in colors_for_labels:
                 color = sns.xkcd_rgb[colors_for_labels[label]]
             elif label not in colors_for_labels and label in additional_labels:
@@ -1567,7 +1663,7 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
             else:
                 print(f"label {label} not accounted for, please check")
                 color = sns.xkcd_rgb[colors_for_labels["not_background"]]
-            
+
             legends = []
             coois = copy.deepcopy(oois)
             for points in coois[label]:
@@ -1579,7 +1675,7 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
                 elif len(points) == 2:
                     print("Rectangle")
                     x, y, width, height = get_rectangle_from_polygon(points)
-                    print('x, y, w, h', x, y, width, height)
+                    print("x, y, w, h", x, y, width, height)
                     patch = pylab.Rectangle(
                         (y - height // 2, x - width // 2),
                         height,
@@ -1593,13 +1689,19 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
                     patch = pylab.Circle(matlab_points[0], radius=7, color=color)
                     ax.add_patch(patch)
             if label not in legends:
-                print(f'setting legend for label {label}')
+                print(f"setting legend for label {label}")
                 legends.append(label)
                 patch.set_label(label)
-                
-    pylab.axis('off')
+
+    pylab.axis("off")
     pylab.legend()
-    fig.savefig(annotation.replace(".json", "_overview.jpg"), bbox_inches='tight', pad_inches=0, dpi=dpi*factor)
+    fig.savefig(
+        annotation.replace(".json", "_overview.jpg"),
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=dpi * factor,
+    )
+
 
 def show_annotations(json_file):
     image = get_image(json_file)
@@ -1724,11 +1826,13 @@ def show_annotations(json_file):
     pylab.show()
 
 
-def load_json(fname="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/dls_i04/6116020_fullscreen-30086648_201.40800000000002.json"):
-    
+def load_json(
+    fname="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/dls_i04/6116020_fullscreen-30086648_201.40800000000002.json",
+):
     f = json.load(open(fname, "rb"))
     return f
-    
+
+
 def load_test_json_file():
     json_file = json.load(
         open(
@@ -1758,10 +1862,11 @@ def main():
     )
     args = parser.parse_args()
     print("args", args)
-    #json_file = json.load(open(args.json, "rb"))
-    #show_annotations(json_file)
+    # json_file = json.load(open(args.json, "rb"))
+    # show_annotations(json_file)
 
     save_annotation_figure(args.json)
+
 
 if __name__ == "__main__":
     # main()
@@ -1784,8 +1889,8 @@ if __name__ == "__main__":
     # img = np.pad(img, pad_width=((200, 200), (200, 200), (0, 0)), constant_values=1)
     # plot_transformed_image_and_keypoints(json_file=None, keypoints=None, transformation=None, doer='cv')
     main()
-    #json_file = load_test_json_file()
-    #oois = get_objects_of_interest(json_file)
-    #targets = get_targets(oois)
+    # json_file = load_test_json_file()
+    # oois = get_objects_of_interest(json_file)
+    # targets = get_targets(oois)
     ##print('targets')
     # print(targets)
