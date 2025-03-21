@@ -63,6 +63,8 @@ colors_for_labels = {
     "crystal": "banana yellow",
     "drop": "orangeish",
     "support": "dusk blue",
+    "support_filled": "orangeish",
+    "area_of_interest": "dark green",
     "user_click": "banana yellow",
     "extreme": "dark aquamarine",
     "start_likely": "coral",
@@ -80,6 +82,8 @@ additional_labels = {
     "stem_cd": "stem",
     "loop_mt": "loop",
     "stem_mt": "stem",
+    "mt_loop": "loop",
+    "mt_stem": "stem",
 }
 
 # 8 + 1 + 2 + 8 + 8 + 4 = 31
@@ -123,6 +127,52 @@ targets = {
     "start_likely_point": {"type": "point_regression"},
     "start_possible_point": {"type": "point_regression"},
 }
+
+notion_importance = {
+    "user_click": 1,
+    "crystal": 1,
+    "loop_inside": 2,
+    "loop": 3,
+    "area_of_interest": 4,
+    "stem": 5,
+    "support": 6,
+    "support_filled": 7,
+    "pin": 8,
+    "capillary": 9,
+    "ice": 10,
+    "dust": 11,
+    "drop": 12,
+    "foreground": 13,
+    "not_background": 14,
+    "background": 100.0,
+}
+
+line_styles = {
+    "loop_inside": "dashed",
+    "loop": "dotted",
+    "area_of_interest": "dashdot",
+    "stem": "dotted",
+    "support": "dashed",
+    "support_filled": "dashed",
+    "ice": "dotted",
+    "crystal": "dotted",
+    "pin": "dashed",
+}
+
+# {
+# "crystal": 1,
+# "loop_inside": 2,
+# "loop": 3,
+# "stem": 4,
+# "pin": 5,
+# "capillary": 6,
+# "ice": 7,
+# "dust": 8,
+# "drop": 9,
+# "foreground": 10,
+# "not_background": 11,
+# "background": 100.0,
+# },
 
 
 def timeit(f):
@@ -173,20 +223,7 @@ def get_hierarchical_mask(
         "foreground",
         "background",
     ],
-    notion_importance={
-        "crystal": 1,
-        "loop_inside": 2,
-        "loop": 3,
-        "stem": 4,
-        "pin": 5,
-        "capillary": 6,
-        "ice": 7,
-        "dust": 8,
-        "drop": 9,
-        "foreground": 10,
-        "not_background": 11,
-        "background": 100.0,
-    },
+    notion_importance=notion_importance,
 ):
     notions.sort(key=lambda x: -notion_importance[x])
     notion_values = np.array([notion_importance[notion] for notion in notions])
@@ -1062,6 +1099,7 @@ def get_objects_of_interest(json_file, fractional=False):
     objects_of_interest = {
         "image": image,
         "image_shape": image_shape,
+        "fractional": fractional,
         "labels": labels,
         "indices": indices,
         "points": points,
@@ -1651,7 +1689,9 @@ def plot_transformed_image_and_keypoints(
     # transformed_image = get_transformed_image(img, estimated_transformation, output_shape=output_shape, doer=doer)
 
 
-def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=False):
+def save_annotation_figure(
+    annotation, alpha=0.25, dpi=192, factor=1.299, lw=1, masks=False
+):
     json_file = load_json(annotation)
     image = get_image(json_file)
     fig = pylab.figure(figsize=np.array(image.shape[:2][::-1]) / dpi)
@@ -1662,51 +1702,62 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
         pylab.imshow(hm, alpha=alpha)
     else:
         oois = get_objects_of_interest(json_file)
+        fractional = oois["fractional"]
         image_shape = oois["image_shape"]
-        ax = pylab.gca()
-        #for label in oois:
-            #if label in [
-                #"image_shape",
-                #"labeled_points",
-                #"image",
-                #"labels",
-                #"points",
-                #"indices",
-            #]:
-                #continue
-        for label in oois["labels"]:
+
+        patches = []
+        for label, indices in zip(oois["labels"], oois["indices"]):
+            if label in ["not_background"]:
+                continue
+            ls = "solid"
+            if label in line_styles:
+                ls = line_styles[label]
             if label in colors_for_labels:
                 color = sns.xkcd_rgb[colors_for_labels[label]]
             elif label not in colors_for_labels and label in additional_labels:
-                label = additional_labels[label]
+                _label = additional_labels[label]
+                color = sns.xkcd_rgb[colors_for_labels[_label]]
             else:
                 print(f"label {label} not accounted for, please check")
                 color = sns.xkcd_rgb[colors_for_labels["not_background"]]
 
-            legends = []
-            coois = copy.deepcopy(oois)
-            for points in coois[label]:
-                points *= image_shape
-                matlab_points = points[:, ::-1]
-                if len(points) >= 3:
-                    patch = pylab.Polygon(matlab_points, color=color, lw=2, fill=False)
-                    ax.add_patch(patch)
-                elif len(points) == 2:
-                    print("Rectangle")
-                    x, y, width, height = get_rectangle_from_polygon(points)
-                    print("x, y, w, h", x, y, width, height)
-                    patch = pylab.Rectangle(
-                        (y - height // 2, x - width // 2),
-                        height,
-                        width,
-                        color=color,
-                        lw=2,
-                        fill=False,
-                    )
-                    ax.add_patch(patch)
-                elif len(points) == 1:
-                    patch = pylab.Circle(matlab_points[0], radius=7, color=color)
-                    ax.add_patch(patch)
+            points = oois["points"][indices[0] : indices[1], :]
+
+            if fractional:
+                points = points * image_shape
+
+            matlab_points = points[:, ::-1]
+            if len(points) >= 3:
+                patch = pylab.Polygon(
+                    matlab_points,
+                    color=color,
+                    lw=lw,
+                    fill=False,
+                    ls=ls,
+                )
+            elif len(points) == 2:
+                print("Rectangle")
+                x, y, width, height = get_rectangle_from_polygon(points)
+                print("x, y, w, h", x, y, width, height)
+                patch = pylab.Rectangle(
+                    (y - height // 2, x - width // 2),
+                    height,
+                    width,
+                    color=color,
+                    lw=lw,
+                    fill=False,
+                    ls=ls,
+                )
+            elif len(points) == 1:
+                patch = pylab.Circle(matlab_points[0], radius=7, color=color, ls=ls)
+
+            patches.append((label, patch))
+
+        ax = pylab.gca()
+        patches.sort(key=lambda x: -notion_importance[x[0]])
+        legends = []
+        for label, patch in patches:
+            ax.add_patch(patch)
             if label not in legends:
                 print(f"setting legend for label {label}")
                 legends.append(label)
