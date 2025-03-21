@@ -927,6 +927,7 @@ def get_mask_from_polygon(polygon, image_shape=(1200, 1600), doer="cv"):
         )
     return mask
 
+
 def get_labelme_shape_from_mask(mask, label):
     shape = {}
     shape["label"] = label
@@ -934,10 +935,12 @@ def get_labelme_shape_from_mask(mask, label):
     shape["description"] = ""
     shape["flags"] = {}
     shape["mask"] = None
-    contours = cv.findContours(mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = cv.findContours(
+        mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
+    )
     points = contours[0][0].astype(float)
     points = points.reshape((points.shape[0], points.shape[-1]))
-    #points = points[:, ::-1]
+    # points = points[:, ::-1]
     pts = []
     for p in points:
         pts.append(list(p))
@@ -950,10 +953,10 @@ def get_labelme_shape_from_mask(mask, label):
     shape["shape_type"] = shape_type
     shape["points"] = pts
     return shape
-    
-    
+
+
 def get_new_json_file(
-    shapes, # list of shape directories
+    shapes,  # list of shape directories
     imagePath,
     imageHeight=None,
     imageWidth=None,
@@ -972,8 +975,9 @@ def get_new_json_file(
     json_file["imageHeight"] = imageHeight
     json_file["imageWidth"] = imageWidth
     json_file["imageData"] = imageData
-    
+
     return json_file
+
 
 def get_labelme_shapes_from_chimp_record(imagepath):
     realpath = os.path.realpath(imagepath)
@@ -986,76 +990,109 @@ def get_labelme_shapes_from_chimp_record(imagepath):
         shapes.append(shape)
 
     return shapes
-    
+
+
 def create_labelme_file_from_chimp_record(imagepath):
     realpath = os.path.realpath(imagepath)
     shapes = get_labelme_shapes_from_chimp_record(realpath)
     jsonpath = realpath.replace("images", "json").replace(".jpg", ".json")
-    
-    json_file = get_new_json_file(
-        shapes, 
-        realpath
-    )
-        
+
+    json_file = get_new_json_file(shapes, realpath)
+
     if not os.path.isdir(os.path.dirname(jsonpath)):
         os.makedirs(os.path.dirname(jsonpath))
     fp = open(jsonpath, "w")
     json.dump(json_file, fp)
     fp.close()
-    
-# @timeit
-def get_objects_of_interest(
-    json_file,
-    notions={
-        "secondary": [
-            "area_of_interest",
-            "support",
-            "support_filled",
-            "foreground",
-            "largest_crystal",
-        ],
-        "keypoints": ["left", "right", "top", "bottom"],
-    },
-    keypoint_labels=["top_left", "top_right", "bottom_right", "bottom_left"],
-    keypoint_points=[
-        np.array([0, 0]),
-        np.array([0, 1]),
-        np.array([1, 1]),
-        np.array([1, 0]),
-    ],
-    debug=False,
-):
-    objects_of_interest = {}
 
+
+# this may be superfluous ? labels, indices, points, already contain everything, may save a little time when generating examples on the fly but it is probably negligible
+# if label not in objects_of_interest:
+# objects_of_interest[label] = []
+# objects_of_interest[label].append(ooi)
+
+
+def add_ooi(ooi, label, points, indices, labels):
+    if indices:
+        i_start = indices[-1][-1]
+    else:
+        i_start = 0
+    i_end = i_start + ooi.shape[0]
+    points = np.vstack([points, ooi]) if len(points) else ooi
+    indices.append((i_start, i_end))
+    labels.append(label)
+
+    return points, indices, labels
+
+
+# @timeit
+def get_objects_of_interest(json_file, fractional=False):
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
 
-    objects_of_interest["image"] = image
-    objects_of_interest["image_shape"] = image_shape
+    points, indices, labels = [], [], []
 
-    points, labels, indices = [], [], []
-
-    i_start, i_end = 0, 0
     for shape in get_shapes(json_file):
-        i_start = i_end
         label = shape["label"]
         if label in additional_labels:
             label = additional_labels[label]
         ooi = np.array(shape["points"])
-        ooi = ooi[:, ::-1]  # swap x and y
-        ooi /= image_shape
-        if label not in objects_of_interest:
-            objects_of_interest[label] = []
-        objects_of_interest[label].append(ooi)
-        i_end = i_start + ooi.shape[0]
-        labels.append(label)
-        indices.append((i_start, i_end))
-        print('points', points)
-        print('ooi', ooi)
-        points = np.vstack([points, ooi]) if len(points) else ooi
+        ooi = ooi[
+            :, ::-1  # swap x and y (labelme uses [h, v] convention, we use [v, h]
+        ]
+        if fractional:
+            ooi /= image_shape
+        points, indices, labels = add_ooi(ooi, label, points, indices, labels)
 
+    if "background" not in labels:
+        background = [
+            [0, 0],
+            [0, 1],
+            [1, 1],
+            [0, 1],
+        ]
+        if not fractional:
+            ooi = np.array(background) * image_shape
+        points, indices, labels = add_ooi(ooi, "background", points, indices, labels)
+
+    points, indices, labels = get_secondary_notions(
+        points, indices, labels, image_shape, fractional=fractional
+    )
+
+    objects_of_interest = {
+        "image": image,
+        "image_shape": image_shape,
+        "labels": labels,
+        "indices": indices,
+        "points": points,
+    }
+    return objects_of_interest
+
+
+# "largest_crystal",  # this is to help with most_likely_point keypoint prediction
+# largest_crystal_area = -1
+# if label == "crystal":
+# area = cv.contourArea(polygon)
+# if area > largest_crystal_area:
+# masks["largest_crystal"] = mask
+# largest_crystal_area = area
+
+
+def get_secondary_notions(
+    points,
+    indices,
+    labels,
+    image_shape,
+    fractional=False,
+    secondary_notions=[
+        "area_of_interest",
+        "support",
+        "support_filled",
+        "foreground",
+    ],
+):
     masks = {}
-    largest_crystal_area = -1
+
     for k, label in enumerate(labels):
         if label == "background":
             continue
@@ -1063,16 +1100,14 @@ def get_objects_of_interest(
         ps = points[i_start:i_end]
         if len(ps) < 3:
             continue
-        polygon = (ps * image_shape).astype(np.int32)[:, ::-1]
+        if fractional:
+            ps *= image_shape
+        polygon = ps.astype(np.int32)[:, ::-1]
         mask = cv.fillPoly(np.zeros(image_shape, dtype=np.uint8), [polygon], 1)
         masks["foreground"] = (
             np.logical_or(masks["foreground"], mask) if "foreground" in masks else mask
         )
-        if label == "crystal":
-            area = cv.contourArea(polygon)
-            if area > largest_crystal_area:
-                masks["largest_crystal"] = mask
-                largest_crystal_area = area
+
         if label in ["crystal", "loop"]:
             masks["area_of_interest"] = (
                 np.logical_or(masks["area_of_interest"], mask)
@@ -1095,35 +1130,19 @@ def get_objects_of_interest(
     if "support_filled" in masks and "loop_inside" in masks:
         masks["support"] = np.logical_xor(masks["support_filled"], masks["loop_inside"])
 
-    i_start, i_end = indices[-1]
-    for notion in notions["secondary"]:
+    for notion in secondary_notions:
         if notion in masks:
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
             shape = contours[0].shape
             new_shape = (shape[0], shape[2])
-            polygon = contours[0].reshape(new_shape)
-            notion_points = polygon[:, ::-1] / image_shape
-            i_start = i_end
-            i_end = i_start + notion_points.shape[0]
-            labels.append(notion)
-            indices.append((i_start, i_end))
-            points = np.vstack([points, notion_points])
-            keypoint_labels, keypoint_points = add_to_keypoint_labels_and_points(
-                notion, polygon, image_shape, keypoint_labels, keypoint_points
-            )
+            ooi = contours[0].reshape(new_shape)[:, ::-1]
+            if fractional:
+                ooi /= image_shape
+            points, indices, labels = add_ooi(ooi, notion, points, indices, labels)
 
-    labels, indices, points = add_keypoints(
-        keypoint_labels, keypoint_points, labels, indices, points
-    )
-    labels, indices, points = add_critical_keypoints(labels, indices, points)
-
-    objects_of_interest["labels"] = labels
-    objects_of_interest["indices"] = indices
-    objects_of_interest["points"] = points
-
-    return objects_of_interest
+    return points, indices, labels
 
 
 def add_to_keypoint_labels_and_points(
@@ -1645,17 +1664,17 @@ def save_annotation_figure(annotation, alpha=0.25, dpi=192, factor=1.299, masks=
         oois = get_objects_of_interest(json_file)
         image_shape = oois["image_shape"]
         ax = pylab.gca()
-        for label in oois:
-            if label in [
-                "image_shape",
-                "labeled_points",
-                "image",
-                "labels",
-                "points",
-                "indices",
-            ]:
-                continue
-
+        #for label in oois:
+            #if label in [
+                #"image_shape",
+                #"labeled_points",
+                #"image",
+                #"labels",
+                #"points",
+                #"indices",
+            #]:
+                #continue
+        for label in oois["labels"]:
             if label in colors_for_labels:
                 color = sns.xkcd_rgb[colors_for_labels[label]]
             elif label not in colors_for_labels and label in additional_labels:
