@@ -148,12 +148,12 @@ notion_importance = {
 }
 
 line_styles = {
-    "loop_inside": "dashed",
+    "loop_inside": "dotted",
     "loop": "dotted",
     "area_of_interest": "dashdot",
     "stem": "dotted",
     "support": "dashed",
-    "support_filled": "dashed",
+    "support_filled": "dashdot",
     "ice": "dotted",
     "crystal": "dotted",
     "pin": "dashed",
@@ -647,9 +647,9 @@ def get_targets(
         ps = points[i_start:i_end]
         if len(ps) < 3:
             continue
-        
+
         mask = get_mask_from_polygon(ps, image_shape=image_shape)
-        
+
         if label in notions["primary"]:
             prop = get_regionprops(polygon)
             prop["label"] = label
@@ -1082,12 +1082,7 @@ def get_objects_of_interest(json_file, fractional=False):
         points, indices, labels = add_ooi(ooi, label, points, indices, labels)
 
     if "background" not in labels:
-        background = [
-            [0, 0],
-            [0, 1],
-            [1, 1],
-            [0, 1],
-        ]
+        background = [[0, 0], [0, 1], [1, 1], [0, 1]]
         background = np.array(background)
         if not fractional:
             ooi = background * image_shape
@@ -1108,27 +1103,14 @@ def get_objects_of_interest(json_file, fractional=False):
     return objects_of_interest
 
 
-# "largest_crystal",  # this is to help with most_likely_point keypoint prediction
-# largest_crystal_area = -1
-# if label == "crystal":
-# area = cv.contourArea(polygon)
-# if area > largest_crystal_area:
-# masks["largest_crystal"] = mask
-# largest_crystal_area = area
+def update_masks(masks, label, mask):
+    masks[label] = (
+        np.logical_or(masks[label], mask) if label in masks else mask
+    ).astype(np.uint8)
+    return masks
 
-def get_secondary_notions(
-    points,
-    indices,
-    labels,
-    image_shape,
-    fractional=False,
-    secondary_notions=[
-        "area_of_interest",
-        "support",
-        "support_filled",
-        "foreground",
-    ],
-):
+
+def get_masks(points, indices, labels, image_shape, fractional=False, image=None):
     masks = {}
 
     for k, label in enumerate(labels):
@@ -1140,34 +1122,33 @@ def get_secondary_notions(
             continue
         if fractional:
             ps *= image_shape
-        
+
         mask = get_mask_from_polygon(ps, image_shape=image_shape)
-        
-        masks["foreground"] = (
-            np.logical_or(masks["foreground"], mask) if "foreground" in masks else mask
-        )
+
+        masks = update_masks(masks, label, mask)
+        masks = update_masks(masks, "foreground", mask)
 
         if label in ["crystal", "loop"]:
-            masks["area_of_interest"] = (
-                np.logical_or(masks["area_of_interest"], mask)
-                if "area_of_interest" in masks
-                else mask
-            )
-        if label in ["loop", "stem"]:
-            masks["support_filled"] = (
-                np.logical_or(masks["support_filled"], mask)
-                if "support_filled" in masks
-                else mask
-            )
+            masks = update_masks(masks, "area_of_interest", mask)
 
-    if "support_filled" in masks and "pin" in masks:
-        belongs_to_both = np.logical_and(masks["support_filled"], masks["pin"])
-        belongs_to_both_not = np.logical_not(belongs_to_both)
-        masks["support_filled"] = np.logical_and(
-            masks["support_filled"], belongs_to_both_not
-        )
-    if "support_filled" in masks and "loop_inside" in masks:
-        masks["support"] = np.logical_xor(masks["support_filled"], masks["loop_inside"])
+        if label in ["loop", "stem"]:
+            masks = update_masks(masks, "support", mask)
+
+    if "support" in masks and "pin" in masks:
+        masks["support"][masks["pin"].astype(bool)] = 0
+
+    return masks
+
+
+def get_secondary_notions(
+    points,
+    indices,
+    labels,
+    image_shape,
+    fractional=False,
+    secondary_notions=["area_of_interest", "support", "foreground"],
+):
+    masks = get_masks(points, indices, labels, image_shape)
 
     for notion in secondary_notions:
         if notion in masks:
@@ -1730,11 +1711,7 @@ def save_annotation_figure(
             matlab_points = points[:, ::-1]
             if len(points) >= 3:
                 patch = pylab.Polygon(
-                    matlab_points,
-                    color=color,
-                    lw=lw,
-                    fill=False,
-                    ls=ls,
+                    matlab_points, color=color, lw=lw, fill=False, ls=ls
                 )
             elif len(points) == 2:
                 print("Rectangle")
@@ -1757,12 +1734,17 @@ def save_annotation_figure(
         ax = pylab.gca()
         patches.sort(key=lambda x: -notion_importance[x[0]])
         legends = []
+
         for label, patch in patches:
             ax.add_patch(patch)
             if label not in legends:
                 print(f"setting legend for label {label}")
                 legends.append(label)
                 patch.set_label(label)
+
+    print("all patches")
+    for patch in patches:
+        print(patch)
 
     pylab.axis("off")
     pylab.legend()
