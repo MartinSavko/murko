@@ -1063,7 +1063,9 @@ def add_ooi(ooi, label, points, indices, labels):
 
 
 # @timeit
-def get_objects_of_interest(json_file, fractional=False):
+def get_objects_of_interest(
+    json_file, fractional=False, rectangle=np.array([[0, 0], [0, 1], [1, 1], [0, 1]])
+):
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
 
@@ -1077,18 +1079,20 @@ def get_objects_of_interest(json_file, fractional=False):
         ooi = ooi[
             :, ::-1  # swap x and y (labelme uses [h, v] convention, we use [v, h]
         ]
+        if shape["shape_type"] == "rectangle" and ooi.shape[0] == 2:
+            ooi = rectangle * np.abs(ooi[0] - ooi[1])
+
         if fractional:
             ooi /= image_shape
         points, indices, labels = add_ooi(ooi, label, points, indices, labels)
 
     if "background" not in labels:
-        background = [[0, 0], [0, 1], [1, 1], [0, 1]]
-        background = np.array(background)
+        background = rectangle[:]
         if not fractional:
             ooi = background * image_shape
         points, indices, labels = add_ooi(ooi, "background", points, indices, labels)
 
-    points, indices, labels = get_secondary_notions(
+    points, indices, labels, masks = get_secondary_notions(
         points, indices, labels, image_shape, fractional=fractional
     )
 
@@ -1099,8 +1103,29 @@ def get_objects_of_interest(json_file, fractional=False):
         "labels": labels,
         "indices": indices,
         "points": points,
+        "masks": masks,
     }
+
     return objects_of_interest
+
+
+def get_distance_transform(
+    mask,
+    normalize=True,
+    distanceType=cv.DIST_L2,
+    maskSize=3,
+    invert=False,
+    exagerate=False,
+):
+    dt = cv.distanceTransform(mask, distanceType, maskSize)
+    if normalize:
+        cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+    if invert:
+        dt = 1 - dt
+        dt[mask == 0] = 0
+    if exagerate:
+        dt = np.power(dt, 10)
+    return dt
 
 
 def update_masks(masks, label, mask):
@@ -1162,7 +1187,7 @@ def get_secondary_notions(
                 ooi /= image_shape
             points, indices, labels = add_ooi(ooi, notion, points, indices, labels)
 
-    return points, indices, labels
+    return points, indices, labels, masks
 
 
 def add_to_keypoint_labels_and_points(
