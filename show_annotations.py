@@ -647,9 +647,9 @@ def get_targets(
         ps = points[i_start:i_end]
         if len(ps) < 3:
             continue
-        polygon = (ps * image_shape).astype(np.int32)[:, ::-1]
-        mask = cv.fillPoly(np.zeros(image_shape, dtype=np.uint8), [polygon], 1)
-
+        
+        mask = get_mask_from_polygon(ps, image_shape=image_shape)
+        
         if label in notions["primary"]:
             prop = get_regionprops(polygon)
             prop["label"] = label
@@ -1088,8 +1088,9 @@ def get_objects_of_interest(json_file, fractional=False):
             [1, 1],
             [0, 1],
         ]
+        background = np.array(background)
         if not fractional:
-            ooi = np.array(background) * image_shape
+            ooi = background * image_shape
         points, indices, labels = add_ooi(ooi, "background", points, indices, labels)
 
     points, indices, labels = get_secondary_notions(
@@ -1115,7 +1116,6 @@ def get_objects_of_interest(json_file, fractional=False):
 # masks["largest_crystal"] = mask
 # largest_crystal_area = area
 
-
 def get_secondary_notions(
     points,
     indices,
@@ -1140,8 +1140,9 @@ def get_secondary_notions(
             continue
         if fractional:
             ps *= image_shape
-        polygon = ps.astype(np.int32)[:, ::-1]
-        mask = cv.fillPoly(np.zeros(image_shape, dtype=np.uint8), [polygon], 1)
+        
+        mask = get_mask_from_polygon(ps, image_shape=image_shape)
+        
         masks["foreground"] = (
             np.logical_or(masks["foreground"], mask) if "foreground" in masks else mask
         )
