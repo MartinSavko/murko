@@ -836,7 +836,9 @@ def get_rps(mask):
 # https://docs.opencv.org/4.x/d1/d32/tutorial_py_contour_properties.html
 class cvRegionprops(object):
     def __init__(self, points=None):
-        self.points = points[::-1].astype(np.int32)
+        self.points = points[:, ::-1].astype(
+            np.int32
+        )  # assuming input is vxh, cv works in hxv
         self.bbox = None
         self.centroid = None
         self.min_rectangle = None
@@ -845,9 +847,25 @@ class cvRegionprops(object):
         self.area = None
         self.perimeter = None
         self.moments = None
+        self.mask = None
+        self.distance_transform = None
+        self.inner_center = None
+
+    def get_mask(self, image_shape):
+        self.mask = cv.fillPoly(np.zeros(image_shape, np.uint8), [self.points], 1)
+        return self.mask
 
     def get_centroid(self):
-        return self.points.mean(axis=0)
+        self.centroid = self.points.mean(axis=0)
+        return self.centroid
+
+    def get_distance_transform(self):
+        self.distance_transform = get_distance_transform(self.get_mask())
+
+    def get_inner_center(self):
+        dt = self.get_distance_transform()
+        self.inner_center = np.argmax(dt, keepdims=True)
+        return self.inner_center
 
     def get_bbox(self):
         # self.bbox = get_rectangle_from_polygon(self.points) #
@@ -882,19 +900,21 @@ class cvRegionprops(object):
         self.extreme_points = get_extreme_points(self.points)
         return self.extreme_points
 
-    def get_extreme_points_eigen(self):
-        center = np.mean(self.points, axis=0)
-        coord = self.points - center
-        inertia = np.dot(coord.transpose(), coord)
-        e_values, e_vectors = np.linalg.eig(inertia)
-        order = np.argsort(e_values)[::-1]
-        # eigenvalues = np.array(e_values[order])
-        S = np.array(e_vectors[:, order])
-        coord_S = np.dot(coord, S)
-        extreme_points_S = get_extreme_points(coord_S)
-        extreme_points_O = np.dot(extreme_points, np.linalg.inv(S)) + center
-        self.extreme_points_eigen = get_extreme_points(extreme_points_O)
-        return self.extreme_points_eigen
+    def get_eigen_points(self):
+        self.eigen_points = get_eigen_points(self.points)
+        return self.eigen_points
+
+        # center = np.mean(self.points, axis=0)
+        # coord = self.points - center
+        # inertia = np.dot(coord.transpose(), coord)
+        # e_values, e_vectors = np.linalg.eig(inertia)
+        # order = np.argsort(e_values)[::-1]
+        # S = np.array(e_vectors[:, order])
+        # coord_S = np.dot(coord, S)
+        # extreme_points_S = get_extreme_points(coord_S)
+        # extreme_points_O = np.dot(extreme_points, np.linalg.inv(S)) + center
+        # self.extreme_points_eigen = get_extreme_points(extreme_points_O)
+        # return self.extreme_points_eigen
 
     def get_aspect(self):
         x, y, w, h = cv.boundingRect(cnt)
@@ -1059,7 +1079,7 @@ def create_labelme_file_from_chimp_record(imagepath):
 # objects_of_interest[label].append(ooi)
 
 
-def add_ooi(ooi, label, points, indices, labels):
+def add_ooi(ooi, label, points, indices, labels, properties):
     if indices:
         i_start = indices[-1][-1]
     else:
@@ -1068,8 +1088,9 @@ def add_ooi(ooi, label, points, indices, labels):
     points = np.vstack([points, ooi]) if len(points) else ooi
     indices.append((i_start, i_end))
     labels.append(label)
+    properties.append(cvRegionprops(ooi))
 
-    return points, indices, labels
+    return points, indices, labels, properties
 
 
 # @timeit
@@ -1079,7 +1100,7 @@ def get_objects_of_interest(
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
 
-    points, indices, labels = [], [], []
+    points, indices, labels, properties = [], [], [], []
 
     for shape in get_shapes(json_file):
         label = shape["label"]
@@ -1094,16 +1115,20 @@ def get_objects_of_interest(
 
         if fractional:
             ooi /= image_shape
-        points, indices, labels = add_ooi(ooi, label, points, indices, labels)
+        points, indices, labels, properties = add_ooi(
+            ooi, label, points, indices, labels, properties
+        )
 
     if "background" not in labels:
         background = rectangle[:]
         if not fractional:
             ooi = background * image_shape
-        points, indices, labels = add_ooi(ooi, "background", points, indices, labels)
+        points, indices, labels, properties = add_ooi(
+            ooi, "background", points, indices, labels, properties
+        )
 
-    points, indices, labels, masks = get_secondary_notions(
-        points, indices, labels, image_shape, fractional=fractional
+    points, indices, labels, properties, masks = get_secondary_notions(
+        points, indices, labels, properties, image_shape, fractional=fractional
     )
 
     objects_of_interest = {
@@ -1113,6 +1138,7 @@ def get_objects_of_interest(
         "labels": labels,
         "indices": indices,
         "points": points,
+        "properties": properties,
         "masks": masks,
     }
 
@@ -1145,7 +1171,9 @@ def update_masks(masks, label, mask):
     return masks
 
 
-def get_masks(points, indices, labels, image_shape, fractional=False, image=None):
+def get_masks(
+    points, indices, labels, properties, image_shape, fractional=False, image=None
+):
     masks = {}
 
     for k, label in enumerate(labels):
@@ -1156,9 +1184,9 @@ def get_masks(points, indices, labels, image_shape, fractional=False, image=None
         if fractional:
             ps *= image_shape
 
-        mask = get_mask_from_polygon(ps, image_shape=image_shape)
-        
+        mask = properties[k].get_mask(image_shape)
         masks = update_masks(masks, label, mask)
+
         if label != "background":
             masks = update_masks(masks, "foreground", mask)
 
@@ -1174,8 +1202,8 @@ def get_masks(points, indices, labels, image_shape, fractional=False, image=None
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
     if "background" in masks:
-        masks["ether"] = masks["background"][:]
-        masks["ether"][not masks["foreground"].astype(bool)] = 1
+        masks["ether"] = copy.copy(masks["background"])
+        masks["ether"][masks["foreground"].astype(bool)] = 0
 
     return masks
 
@@ -1184,6 +1212,7 @@ def get_secondary_notions(
     points,
     indices,
     labels,
+    properties,
     image_shape,
     fractional=False,
     secondary_notions=[
@@ -1194,11 +1223,11 @@ def get_secondary_notions(
         "ether",
     ],
 ):
-    masks = get_masks(points, indices, labels, image_shape)
+    masks = get_masks(points, indices, labels, properties, image_shape)
 
     for notion in secondary_notions:
         if notion in masks:
-            
+                        
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
@@ -1207,9 +1236,11 @@ def get_secondary_notions(
             ooi = contours[0].reshape(new_shape)[:, ::-1]
             if fractional:
                 ooi /= image_shape
-            points, indices, labels = add_ooi(ooi, notion, points, indices, labels)
+            points, indices, labels, properties = add_ooi(
+                ooi, notion, points, indices, labels, properties
+            )
 
-    return points, indices, labels, masks
+    return points, indices, labels, properties, masks
 
 
 def add_to_keypoint_labels_and_points(
@@ -1220,7 +1251,7 @@ def add_to_keypoint_labels_and_points(
     keypoint_points,
     keypoints=["left", "right", "top", "bottom"],
 ):
-    extreme_points_eigen = np.reshape(get_extreme_points_eigen(polygon), (4, 2))
+    extreme_points_eigen = np.reshape(get_eigen_points(polygon), (4, 2))
     for name, point in zip(keypoints, extreme_points_eigen):
         label = f"{notion}_{name}_point"
         keypoint_labels.append(label)
@@ -1364,7 +1395,7 @@ def get_regionprops(points):
     (mx, my), (mw, mh), mo = cv.minAreaRect(points)
     (ex, ey), (eMA, ema), eo = cv.fitEllipse(points)
     (lx, ly), (rx, ry), (tx, ty), (bx, by) = get_extreme_points(points)
-    (elx, ely), (erx, ery), (etx, ety), (ebx, eby) = get_extreme_points_eigen(points)
+    (elx, ely), (erx, ery), (etx, ety), (ebx, eby) = get_eigen_points(points)
     area = cv.contourArea(points)
     perimeter = cv.arcLength(points, True)
     (ecx, ecy), ecr = cv.minEnclosingCircle(points)
@@ -1401,10 +1432,11 @@ def get_extreme_points(cnt):
     rightmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmax()][0]].mean(axis=0)
     topmost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmin()][1]].mean(axis=0)
     bottommost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmax()][1]].mean(axis=0)
-    return leftmost, rightmost, topmost, bottommost
+    # order l,t,r,b as in FCOS
+    return leftmost, topmost, rightmost, bottommost
 
 
-def get_extreme_points_eigen(points):
+def get_eigen_points(points):
     center = np.mean(points, axis=0)
     coord = points - center
     inertia = np.dot(coord.transpose(), coord)
