@@ -40,10 +40,17 @@ xkcd_colors_that_i_like = [
     "faded blue",
     "dark aquamarine",
     "cool grey",
+    "royal blue",
+    "light blue",
+    "bright green",
+    "pale green",
+    "pale yellow",
+    "lilac",
 ]
 
 colors_for_labels = {
     "background": "dark green",
+    "ether": "light blue",
     "degraded_protein": "chartreuse",
     "crystal_cluster": "greenish yellow",
     "air_bubble": "light aqua",
@@ -137,6 +144,7 @@ notion_importance = {
     "stem": 5,
     "support": 6,
     "support_filled": 7,
+    "explorable": 7.5,
     "pin": 8,
     "capillary": 9,
     "ice": 10,
@@ -144,6 +152,7 @@ notion_importance = {
     "drop": 12,
     "foreground": 13,
     "not_background": 14,
+    "ether": 99,
     "background": 100.0,
 }
 
@@ -157,6 +166,7 @@ line_styles = {
     "ice": "dotted",
     "crystal": "dotted",
     "pin": "dashed",
+    "ether": "dotted",
 }
 
 # {
@@ -1064,7 +1074,7 @@ def add_ooi(ooi, label, points, indices, labels):
 
 # @timeit
 def get_objects_of_interest(
-    json_file, fractional=False, rectangle=np.array([[0, 0], [0, 1], [1, 1], [0, 1]])
+    json_file, fractional=False, rectangle=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
 ):
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
@@ -1139,8 +1149,6 @@ def get_masks(points, indices, labels, image_shape, fractional=False, image=None
     masks = {}
 
     for k, label in enumerate(labels):
-        if label == "background":
-            continue
         i_start, i_end = indices[k]
         ps = points[i_start:i_end]
         if len(ps) < 3:
@@ -1149,9 +1157,10 @@ def get_masks(points, indices, labels, image_shape, fractional=False, image=None
             ps *= image_shape
 
         mask = get_mask_from_polygon(ps, image_shape=image_shape)
-
+        
         masks = update_masks(masks, label, mask)
-        masks = update_masks(masks, "foreground", mask)
+        if label != "background":
+            masks = update_masks(masks, "foreground", mask)
 
         if label in ["crystal", "loop"]:
             masks = update_masks(masks, "area_of_interest", mask)
@@ -1159,8 +1168,14 @@ def get_masks(points, indices, labels, image_shape, fractional=False, image=None
         if label in ["loop", "stem"]:
             masks = update_masks(masks, "support", mask)
 
+        if label in ["crystal", "loop", "stem"]:
+            mask = update_masks(masks, "explorable", mask)
+
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
+    if "background" in masks:
+        masks["ether"] = masks["background"][:]
+        masks["ether"][not masks["foreground"].astype(bool)] = 1
 
     return masks
 
@@ -1171,12 +1186,19 @@ def get_secondary_notions(
     labels,
     image_shape,
     fractional=False,
-    secondary_notions=["area_of_interest", "support", "foreground"],
+    secondary_notions=[
+        "area_of_interest",
+        "support",
+        "foreground",
+        "explorable",
+        "ether",
+    ],
 ):
     masks = get_masks(points, indices, labels, image_shape)
 
     for notion in secondary_notions:
         if notion in masks:
+            
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
