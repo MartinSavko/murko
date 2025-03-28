@@ -839,6 +839,7 @@ class cvRegionprops(object):
         self.points = points[:, ::-1].astype(
             np.int32
         )  # assuming input is vxh, cv works in hxv
+        self.image_shape = None
         self.bbox = None
         self.centroid = None
         self.min_rectangle = None
@@ -851,20 +852,23 @@ class cvRegionprops(object):
         self.distance_transform = None
         self.inner_center = None
 
-    def get_mask(self, image_shape):
-        self.mask = cv.fillPoly(np.zeros(image_shape, np.uint8), [self.points], 1)
+    def get_mask(self, image_shape=None):
+        if image_shape is not None:
+            self.image_shape = image_shape
+        self.mask = cv.fillPoly(np.zeros(self.image_shape, np.uint8), [self.points], 1)
         return self.mask
 
     def get_centroid(self):
         self.centroid = self.points.mean(axis=0)
         return self.centroid
 
-    def get_distance_transform(self):
-        self.distance_transform = get_distance_transform(self.get_mask())
-
-    def get_inner_center(self):
-        dt = self.get_distance_transform()
-        self.inner_center = np.argmax(dt, keepdims=True)
+    def get_distance_transform(self, image_shape=None):
+        self.distance_transform = get_distance_transform(self.get_mask(image_shape))
+        return self.distance_transform
+    
+    def get_inner_center(self, image_shape=None):
+        dt = self.get_distance_transform(image_shape)
+        self.inner_center = np.unravel_index(np.argmax(dt), self.image_shape)[::-1]
         return self.inner_center
 
     def get_bbox(self):
