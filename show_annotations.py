@@ -50,7 +50,7 @@ xkcd_colors_that_i_like = [
 
 colors_for_labels = {
     "background": "dark green",
-    "ether": "light blue",
+    "aether": "light blue",
     "degraded_protein": "chartreuse",
     "crystal_cluster": "greenish yellow",
     "air_bubble": "light aqua",
@@ -152,7 +152,7 @@ notion_importance = {
     "drop": 12,
     "foreground": 13,
     "not_background": 14,
-    "ether": 99,
+    "aether": 99,
     "background": 100.0,
 }
 
@@ -166,7 +166,7 @@ line_styles = {
     "ice": "dotted",
     "crystal": "dotted",
     "pin": "dashed",
-    "ether": "dotted",
+    "aether": "dotted",
 }
 
 # {
@@ -185,17 +185,30 @@ line_styles = {
 # },
 
 
-def timeit(f):
+def timeit(func):
     # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
     def timed(*args, **kw):
         ts = time.time()
-        result = f(*args, **kw)
+        result = func(*args, **kw)
         te = time.time()
 
-        print("func:%r took: %2.8f sec" % (f.__name__, te - ts))
+        print("func:%r took: %2.8f sec" % (func.__name__, te - ts))
         return result
 
     return timed
+
+
+def saver(func, force=False):
+
+    def introspect(*args, **kwargs):
+        attribute_name = func.__name__.replace("get_", "")
+        attribute = getattr(args[0], attribute)
+        if attribute is None or force:
+            attribute = func(*args, **kwargs)
+
+        return attribute
+
+    return introspect
 
 
 def get_image(json_file):
@@ -852,42 +865,76 @@ class cvRegionprops(object):
         self.distance_transform = None
         self.inner_center = None
 
+    @saver
     def get_mask(self, image_shape=None):
         if image_shape is not None:
             self.image_shape = image_shape
         self.mask = cv.fillPoly(np.zeros(self.image_shape, np.uint8), [self.points], 1)
         return self.mask
 
+    @saver
+    def get_mask_points(self):
+        self.mask_points = np.argwhere(self.get_mask().astype(bool))
+        return self.mask_points
+
     def get_centroid(self):
-        self.centroid = self.points.mean(axis=0)
+        self.centroid = np.mean(self.get_mask_points(), axis=0)[::-1]
         return self.centroid
 
+    @saver
     def get_distance_transform(self, image_shape=None):
         self.distance_transform = get_distance_transform(self.get_mask(image_shape))
         return self.distance_transform
-    
-    def get_inner_center(self, image_shape=None):
+
+    @saver
+    def get_inner_center(self, image_shape=None, first=False):
         dt = self.get_distance_transform(image_shape)
-        self.inner_center = np.unravel_index(np.argmax(dt), self.image_shape)[::-1]
+        if first:
+            winner = np.unravel_index(np.argmax(dt), self.image_shape)
+        else:
+            # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
+            indices = np.vstack(
+                np.unravel_index(np.flatnonzero(dt == dt.max()), self.image_shape)
+            ).T
+            imean = indices.mean(axis=0)
+            idist = np.linalg.norm(indices - imean, axis=1)
+            winner = indices[np.argmin(idist)]
+
+        self.inner_center = winner[::-1]
         return self.inner_center
 
+    @saver
     def get_bbox(self):
         # self.bbox = get_rectangle_from_polygon(self.points) #
+        # x, y , w, h (top-left coordinate, width, height)
         self.bbox = cv.boundingRect(self.points)
         return self.bbox
 
+    @saver
+    def get_bbox_center(self):
+        # x, y, w, h (top-left coordinate, width, height)
+        x, y, w, h = self.get_bbox()
+        cx = x + w / 2
+        cy = y + h / 2
+        self.bbox_center = np.array([cx, cy])
+        return self.bbox_center
+
+    @saver
     def get_ellipse(self):
-        self.ellipse = cv.fitEllipse(self.points)
+        self.ellipse = cv.fitEllipse(self.get_mask_points())
         return self.ellipse
 
+    @saver
     def get_min_rectangle(self):
         self.min_rectangle = cv.minAreaRect(self.points)
         return self.min_rectangle
 
+    @saver
     def get_min_enclosing_circle(self):
         self.min_enclosing_circle = cv.minEnclosingCircle(self.points)
         return self.min_enclosing_circle
 
+    @saver
     def get_area(self):
         self.area = cv.contourArea(self.points)
         return self.area
@@ -896,46 +943,64 @@ class cvRegionprops(object):
         self.perimeter = cv.arcLength(self.points, True)
         return self.perimeter
 
+    @saver
     def get_moments(self):
-        self.moments = cv.moments(self.points)
+        self.moments = cv.moments(self.get_mask_points())
         return self.moments
 
+    @saver
     def get_extreme_points(self):
-        self.extreme_points = get_extreme_points(self.points)
+        self.extreme_points = get_extreme_points(self.get_mask_points())
         return self.extreme_points
 
+    @saver
     def get_eigen_points(self):
-        self.eigen_points = get_eigen_points(self.points)
+        mask = self.get_mask()
+        self.eigen_points = get_eigen_points(self.get_mask_points())
         return self.eigen_points
 
-        # center = np.mean(self.points, axis=0)
-        # coord = self.points - center
-        # inertia = np.dot(coord.transpose(), coord)
-        # e_values, e_vectors = np.linalg.eig(inertia)
-        # order = np.argsort(e_values)[::-1]
-        # S = np.array(e_vectors[:, order])
-        # coord_S = np.dot(coord, S)
-        # extreme_points_S = get_extreme_points(coord_S)
-        # extreme_points_O = np.dot(extreme_points, np.linalg.inv(S)) + center
-        # self.extreme_points_eigen = get_extreme_points(extreme_points_O)
-        # return self.extreme_points_eigen
-
+    @saver
     def get_aspect(self):
-        x, y, w, h = cv.boundingRect(cnt)
+        x, y, w, h = self.get_bbox()
         self.aspect = float(w) / h
+        return self.aspcet
 
     def get_extent(self):
-        area = cv.contourArea(cnt)
-        x, y, w, h = cv.boundingRect(cnt)
+        area = self.get_area()
+        x, y, w, h = self.get_bbox()
         rect_area = w * h
         self.extent = float(area) / rect_area
         return self.extent
 
     def get_solidity(self):
-        area = cv.contourArea(cnt)
+        area = self.get_area()
         hull = cv.convexHull(cnt)
         hull_area = cv.contourArea(hull)
         self.solidity = float(area) / hull_area
+        return self.solidity
+
+
+def get_extreme_points(cnt):
+    leftmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmin()][0]].mean(axis=0)
+    rightmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmax()][0]].mean(axis=0)
+    topmost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmin()][1]].mean(axis=0)
+    bottommost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmax()][1]].mean(axis=0)
+    # order l,t,r,b as in FCOS
+    return leftmost, topmost, rightmost, bottommost
+
+
+def get_eigen_points(points):
+    center = np.mean(points, axis=0)
+    coord = points - center
+    inertia = np.dot(coord.transpose(), coord)
+    e_values, e_vectors = np.linalg.eig(inertia)
+    order = np.argsort(e_values)[::-1]
+    S = np.array(e_vectors[:, order])
+    coord_S = np.dot(coord, S)
+    extreme_points_S = get_extreme_points(coord_S)
+    extreme_points_O = np.dot(extreme_points_S, np.linalg.inv(S)) + center
+    extreme_points_eigen = get_extreme_points(extreme_points_O)
+    return extreme_points_eigen
 
 
 # @timeit
@@ -1077,12 +1142,6 @@ def create_labelme_file_from_chimp_record(imagepath):
     fp.close()
 
 
-# this may be superfluous ? labels, indices, points, already contain everything, may save a little time when generating examples on the fly but it is probably negligible
-# if label not in objects_of_interest:
-# objects_of_interest[label] = []
-# objects_of_interest[label].append(ooi)
-
-
 def add_ooi(ooi, label, points, indices, labels, properties):
     if indices:
         i_start = indices[-1][-1]
@@ -1206,8 +1265,8 @@ def get_masks(
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
     if "background" in masks:
-        masks["ether"] = copy.copy(masks["background"])
-        masks["ether"][masks["foreground"].astype(bool)] = 0
+        masks["aether"] = copy.copy(masks["background"])
+        masks["aether"][masks["foreground"].astype(bool)] = 0
 
     return masks
 
@@ -1224,14 +1283,14 @@ def get_secondary_notions(
         "support",
         "foreground",
         "explorable",
-        "ether",
+        "aether",
     ],
 ):
     masks = get_masks(points, indices, labels, properties, image_shape)
 
     for notion in secondary_notions:
         if notion in masks:
-                        
+
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
@@ -1429,29 +1488,6 @@ def get_regionprops(points):
     regionprops["solidity"] = solidity
 
     return regionprops
-
-
-def get_extreme_points(cnt):
-    leftmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmin()][0]].mean(axis=0)
-    rightmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmax()][0]].mean(axis=0)
-    topmost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmin()][1]].mean(axis=0)
-    bottommost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmax()][1]].mean(axis=0)
-    # order l,t,r,b as in FCOS
-    return leftmost, topmost, rightmost, bottommost
-
-
-def get_eigen_points(points):
-    center = np.mean(points, axis=0)
-    coord = points - center
-    inertia = np.dot(coord.transpose(), coord)
-    e_values, e_vectors = np.linalg.eig(inertia)
-    order = np.argsort(e_values)[::-1]
-    S = np.array(e_vectors[:, order])
-    coord_S = np.dot(coord, S)
-    extreme_points_S = get_extreme_points(coord_S)
-    extreme_points_O = np.dot(extreme_points_S, np.linalg.inv(S)) + center
-    extreme_points_eigen = get_extreme_points(extreme_points_O)
-    return extreme_points_eigen
 
 
 # @timeit
