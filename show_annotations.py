@@ -199,7 +199,6 @@ def timeit(func):
 
 
 def saver(func, force=False):
-
     def introspect(*args, **kwargs):
         attribute_name = func.__name__.replace("get_", "")
         attribute = getattr(args[0], attribute)
@@ -846,13 +845,15 @@ def get_rps(mask):
     return rps
 
 
+def ltrb(x, l, t, r, b):
+    return x[0] - l, x[1] - t, r - x[0], b - x[1]
+
+
 # https://docs.opencv.org/4.x/d1/d32/tutorial_py_contour_properties.html
 class cvRegionprops(object):
-    def __init__(self, points=None):
-        self.points = points[:, ::-1].astype(
-            np.int32
-        )  # assuming input is vxh, cv works in hxv
-        self.image_shape = None
+    def __init__(self, points, image_shape=None):
+        self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
+        self.image_shape = image_shape
         self.bbox = None
         self.centroid = None
         self.min_rectangle = None
@@ -864,13 +865,32 @@ class cvRegionprops(object):
         self.mask = None
         self.distance_transform = None
         self.inner_center = None
+        self.blank = None
+
+    @saver
+    def get_blank(self, image_shape=None):
+        if image_shape is not None:
+            self.image_shape = image_shape
+        self.blank = np.zeros(self.image_shape, np.uint8)
+        return self.blank
+
+    def _get_mask(self, points, image_shape):
+        mask = cv.fillPoly(
+            self.get_blank(image_shape)[:],
+            [points.astype(np.int32)],
+            1,
+        )
+        return mask
 
     @saver
     def get_mask(self, image_shape=None):
-        if image_shape is not None:
-            self.image_shape = image_shape
-        self.mask = cv.fillPoly(np.zeros(self.image_shape, np.uint8), [self.points], 1)
+        self.mask = self._get_mask(self.points, image_shape)
         return self.mask
+
+    @saver
+    def get_bbox_mask(self, image_shape=None):
+        self.bbox_mask = self._get_mask(self.get_bbox_points(), image_shape)
+        return self.bbox_mask
 
     @saver
     def get_mask_points(self):
@@ -887,11 +907,9 @@ class cvRegionprops(object):
         return self.distance_transform
 
     @saver
-    def get_inner_center(self, image_shape=None, first=False):
+    def get_inner_center(self, image_shape=None, method="medianmax"):
         dt = self.get_distance_transform(image_shape)
-        if first:
-            winner = np.unravel_index(np.argmax(dt), self.image_shape)
-        else:
+        if method == "medianmax":
             # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
             indices = np.vstack(
                 np.unravel_index(np.flatnonzero(dt == dt.max()), self.image_shape)
@@ -899,8 +917,11 @@ class cvRegionprops(object):
             imean = indices.mean(axis=0)
             idist = np.linalg.norm(indices - imean, axis=1)
             winner = indices[np.argmin(idist)]
-
-        self.inner_center = winner[::-1]
+        elif method == "firstmax":
+            winner = np.unravel_index(np.argmax(dt), self.image_shape)
+        elif method == "maximum_position":
+            winner = scipy.ndimage.maximum_position(dt)
+        self.inner_center = tuple(winner[::-1])
         return self.inner_center
 
     @saver
@@ -911,13 +932,67 @@ class cvRegionprops(object):
         return self.bbox
 
     @saver
+    def get_bbox_as_minbox(self):
+        center = self.get_bbox_center()
+        extent = self.get_bbox_extent()
+        self.get_bbox_as_minbox = (center, extent, 0)
+        return self.get_bbox_as_minbox
+
+    @saver
+    def get_bbox_points(self):
+        self.bbox_points = cb.boxPoints(self.get_bbox_as_minbox())
+        return self.bbox_points
+
+    @saver
+    def get_bbox_extent(self):
+        x, y, w, h = self.get_bbox()
+        self.bbox_extent = (w, h)
+        return self.bbox_extent
+
+    @saver
     def get_bbox_center(self):
-        # x, y, w, h (top-left coordinate, width, height)
+        # x, y, w, h (top-left coordinate (x, y), width, height)
         x, y, w, h = self.get_bbox()
         cx = x + w / 2
         cy = y + h / 2
-        self.bbox_center = np.array([cx, cy])
+        self.bbox_center = (cx, cy)
         return self.bbox_center
+
+    def get_ltrb_boundary(self):
+        self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
+        x = np.arange(0, self.image_shape[0], 1)
+        y = np.arange(0, self.image_shape[1], 1)
+        xv, yv = np.meshgrid(x, y)
+
+        mask = self.get_mask()
+
+    @saver
+    def get_ltrb_bbox(self):
+        l, t, w, h = self.get_bbox()
+        r, b = l + w, t + h
+        bbox_mask = self.get_bbox_mask().astype(bool)
+
+        self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
+        x = np.arange(0, self.image_shape[0], 1)
+        y = np.arange(0, self.image_shape[1], 1)
+        xv, yv = np.meshgrid(x, y)
+
+        for k, boundary in enumerate((l, t, r, b)):
+            bb = self.get_blank()
+            if k % 2 == 0:
+                bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
+            else:
+                bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
+            self.ltrb_bbox[:, :, k] = bb
+
+        # mask_points = np.argwhere(bbox_mask.astype(bool))
+        # offsets = np.apply_along_axis(ltrb, 1, mask_points, l, t, r, b)
+        return self.ltrb_bbox
+
+    def get_ltrb_boundary(self):
+        mask_points = self.get_mask_points()
+        self.ltrb_boundary
+        return self.ltrb_boundary
 
     @saver
     def get_ellipse(self):
@@ -926,6 +1001,7 @@ class cvRegionprops(object):
 
     @saver
     def get_min_rectangle(self):
+        # (cx, cy), (w, h), o
         self.min_rectangle = cv.minAreaRect(self.points)
         return self.min_rectangle
 
@@ -1290,7 +1366,6 @@ def get_secondary_notions(
 
     for notion in secondary_notions:
         if notion in masks:
-
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
