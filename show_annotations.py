@@ -970,29 +970,32 @@ class cvRegionprops(object):
     @saver
     def get_ltrb_boundary(self):
         self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
-        x = np.arange(0, self.image_shape[0], 1)
-        y = np.arange(0, self.image_shape[1], 1)
-        xv, yv = np.meshgrid(x, y)
 
-        boundary = self.get_dense_boundary()
+        dense_boundary = self.get_dense_boundary()
         
         L, R, T, B = [] * 4
-        for x in sorted(list(set(boundary[:, 0])))[1:-1]:
-            ys = boundary[ boundary[:, 0] == x ]
+        for x in sorted(list(set(dense_boundary[:, 0])))[1:-1]:
+            ys = dense_boundary[ dense_boundary[:, 0] == x ]
             t = min(ys)
             b = max(ys)
             T.append(t)
             B.append(b)
-        for y in sorted(list(set(boundary[:, 1])))[1:-1]:
-            xs = boundary[ boundary[:, 1] == y ]
+        for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
+            xs = dense_boundary[ dense_boundary[:, 1] == y ]
             l = min(xs)
             r = max(xs)
             L.append(l)
             R.append(r)
         
         mask = self.get_mask()
-        for k, boundary in enumerate((l, t, r, b)):
+        x = np.arange(0, self.image_shape[0], 1)
+        y = np.arange(0, self.image_shape[1], 1)
+        xv, yv = np.meshgrid(x, y)
+        
+        for k, boundary in enumerate((L, T, R, B)):
+            print(f"{k}, boundary.shape: {boundary.shape}")
             bb = self.get_blank()
+            boundary = np.array(boundary)
             if k % 2 == 0:
                 bb[mask] = np.abs(xv[mask] - boundary)
             else:
@@ -1002,11 +1005,12 @@ class cvRegionprops(object):
     
     @saver
     def get_ltrb_bbox(self):
+        self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
+
         l, t, w, h = self.get_bbox()
         r, b = l + w, t + h
-        bbox_mask = self.get_bbox_mask().astype(bool)
 
-        self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
+        bbox_mask = self.get_bbox_mask().astype(bool)
         x = np.arange(0, self.image_shape[0], 1)
         y = np.arange(0, self.image_shape[1], 1)
         xv, yv = np.meshgrid(x, y)
@@ -1025,12 +1029,13 @@ class cvRegionprops(object):
 
     @saver
     def get_ellipse(self):
+        # (cx, cy), (MA, ma), angle
         self.ellipse = cv.fitEllipse(self.get_mask_points())
         return self.ellipse
 
     @saver
     def get_min_rectangle(self):
-        # (cx, cy), (w, h), o
+        # (cx, cy), (w, h), angle
         self.min_rectangle = cv.minAreaRect(self.points)
         return self.min_rectangle
 
@@ -1086,10 +1091,14 @@ class cvRegionprops(object):
 
 def get_point_line_distance(point, l1, l2, method="fast"):
     if method == "slow":
+        # https://stackoverflow.com/questions/39840030/distance-between-point-and-a-line-from-two-points
+        # 19.9 µs ± 112 ns per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
         distance = np.cross(l1-l2, l1-point)  / np.linalg.norm(l1 - l2)
     else:
+        # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
+        # 3.5 µs ± 29.9 ns per loop (mean ± std. dev. of 7 runs, 100,000 loops each)
         A, B = l1 - l2
-        distance = (A * point[1] - B * point[0]  + l2[0]*l1[1] - l2[1]*l1[0]) / sqrt(A**2 + B**2)
+        distance = -(A*point[1] - B*point[0] + l2[0]*l1[1] - l2[1]*l1[0]) / sqrt(A**2 + B**2)
     
     return distance
     
