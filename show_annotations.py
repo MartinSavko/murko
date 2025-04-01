@@ -10,6 +10,7 @@ from skimage.draw import polygon2mask
 import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
+from math import sqrt
 
 import pylab
 import matplotlib.patches
@@ -958,14 +959,47 @@ class cvRegionprops(object):
         self.bbox_center = (cx, cy)
         return self.bbox_center
 
+    @saver
+    def get_dense_boundary(self):
+        mask = self.get_mask()
+        dense_boundary, _ = self.findContours(
+            mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
+        )
+        return self.dense_boundary
+    
+    @saver
     def get_ltrb_boundary(self):
-        self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
+        self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
         x = np.arange(0, self.image_shape[0], 1)
         y = np.arange(0, self.image_shape[1], 1)
         xv, yv = np.meshgrid(x, y)
 
+        boundary = self.get_dense_boundary()
+        
+        L, R, T, B = [] * 4
+        for x in sorted(list(set(boundary[:, 0])))[1:-1]:
+            ys = boundary[ boundary[:, 0] == x ]
+            t = min(ys)
+            b = max(ys)
+            T.append(t)
+            B.append(b)
+        for y in sorted(list(set(boundary[:, 1])))[1:-1]:
+            xs = boundary[ boundary[:, 1] == y ]
+            l = min(xs)
+            r = max(xs)
+            L.append(l)
+            R.append(r)
+        
         mask = self.get_mask()
-
+        for k, boundary in enumerate((l, t, r, b)):
+            bb = self.get_blank()
+            if k % 2 == 0:
+                bb[mask] = np.abs(xv[mask] - boundary)
+            else:
+                bb[mask] = np.abs(yv[mask] - boundary)
+            self.ltrb_boundary[:, :, k] = bb
+        return self.ltrb_boundary
+    
     @saver
     def get_ltrb_bbox(self):
         l, t, w, h = self.get_bbox()
@@ -988,11 +1022,6 @@ class cvRegionprops(object):
         # mask_points = np.argwhere(bbox_mask.astype(bool))
         # offsets = np.apply_along_axis(ltrb, 1, mask_points, l, t, r, b)
         return self.ltrb_bbox
-
-    def get_ltrb_boundary(self):
-        mask_points = self.get_mask_points()
-        self.ltrb_boundary
-        return self.ltrb_boundary
 
     @saver
     def get_ellipse(self):
@@ -1055,6 +1084,15 @@ class cvRegionprops(object):
         self.solidity = float(area) / hull_area
         return self.solidity
 
+def get_point_line_distance(point, l1, l2, method="fast"):
+    if method == "slow":
+        distance = np.cross(l1-l2, l1-point)  / np.linalg.norm(l1 - l2)
+    else:
+        A, B = l1 - l2
+        distance = (A * point[1] - B * point[0]  + l2[0]*l1[1] - l2[1]*l1[0]) / sqrt(A**2 + B**2)
+    
+    return distance
+    
 
 def get_extreme_points(cnt):
     leftmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmin()][0]].mean(axis=0)
