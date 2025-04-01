@@ -200,13 +200,15 @@ def timeit(func):
 
 
 def saver(func, force=False):
+    
     def introspect(*args, **kwargs):
-        attribute_name = func.__name__.replace("get_", "")
-        attribute = getattr(args[0], attribute)
-        if attribute is None or force:
-            attribute = func(*args, **kwargs)
 
-        return attribute
+        attribute_name = func.__name__.replace("get_", "")
+        value = getattr(args[0], attribute_name)
+        if value is None or force:
+            value = func(*args, **kwargs)
+
+        return value
 
     return introspect
 
@@ -856,6 +858,10 @@ class cvRegionprops(object):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
         self.image_shape = image_shape
         self.bbox = None
+        self.bbox_mask = None
+        self.bbox_points = None
+        self.bbox_extent = None
+        self.bbox_center = None
         self.centroid = None
         self.min_rectangle = None
         self.min_enclosing_circle = None
@@ -864,20 +870,29 @@ class cvRegionprops(object):
         self.perimeter = None
         self.moments = None
         self.mask = None
+        self.mask_points = None
         self.distance_transform = None
         self.inner_center = None
         self.blank = None
-
-    @saver
+        self.ltrb_bbox = None
+        self.ltrb_boundary = None
+        self.get_bbox_as_minbox = None
+        self.dense_boundary = None
+        self.aspect = None
+        self.eigen_points = None
+        self.extreme_points = None
+        self.extent = None
+        self.solidity = None
+        
     def get_blank(self, image_shape=None):
         if image_shape is not None:
             self.image_shape = image_shape
-        self.blank = np.zeros(self.image_shape, np.uint8)
-        return self.blank
+        blank = np.zeros(self.image_shape, np.uint8)
+        return blank
 
     def _get_mask(self, points, image_shape):
         mask = cv.fillPoly(
-            self.get_blank(image_shape)[:],
+            self.get_blank(image_shape),
             [points.astype(np.int32)],
             1,
         )
@@ -962,7 +977,7 @@ class cvRegionprops(object):
     @saver
     def get_dense_boundary(self):
         mask = self.get_mask()
-        dense_boundary, _ = self.findContours(
+        self.dense_boundary, _ = self.findContours(
             mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
         )
         return self.dense_boundary
@@ -1075,13 +1090,15 @@ class cvRegionprops(object):
         self.aspect = float(w) / h
         return self.aspcet
 
+    @saver
     def get_extent(self):
         area = self.get_area()
         x, y, w, h = self.get_bbox()
         rect_area = w * h
         self.extent = float(area) / rect_area
         return self.extent
-
+    
+    @saver
     def get_solidity(self):
         area = self.get_area()
         hull = cv.convexHull(cnt)
@@ -1265,7 +1282,7 @@ def create_labelme_file_from_chimp_record(imagepath):
     fp.close()
 
 
-def add_ooi(ooi, label, points, indices, labels, properties):
+def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
     if indices:
         i_start = indices[-1][-1]
     else:
@@ -1274,7 +1291,7 @@ def add_ooi(ooi, label, points, indices, labels, properties):
     points = np.vstack([points, ooi]) if len(points) else ooi
     indices.append((i_start, i_end))
     labels.append(label)
-    properties.append(cvRegionprops(ooi))
+    properties.append(cvRegionprops(ooi, image_shape))
 
     return points, indices, labels, properties
 
@@ -1302,7 +1319,7 @@ def get_objects_of_interest(
         if fractional:
             ooi /= image_shape
         points, indices, labels, properties = add_ooi(
-            ooi, label, points, indices, labels, properties
+            ooi, label, points, indices, labels, properties, image_shape,
         )
 
     if "background" not in labels:
@@ -1310,7 +1327,7 @@ def get_objects_of_interest(
         if not fractional:
             ooi = background * image_shape
         points, indices, labels, properties = add_ooi(
-            ooi, "background", points, indices, labels, properties
+            ooi, "background", points, indices, labels, properties, image_shape,
         )
 
     points, indices, labels, properties, masks = get_secondary_notions(
@@ -1422,7 +1439,7 @@ def get_secondary_notions(
             if fractional:
                 ooi /= image_shape
             points, indices, labels, properties = add_ooi(
-                ooi, notion, points, indices, labels, properties
+                ooi, notion, points, indices, labels, properties, image_shape,
             )
 
     return points, indices, labels, properties, masks
