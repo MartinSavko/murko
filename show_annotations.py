@@ -12,7 +12,7 @@ import cv2 as cv
 import imageio
 from math import sqrt
 from scipy.interpolate import CubicSpline, RBFInterpolator
-from scipy.special import eval_chebyt
+import scipy.special
 
 import pylab
 import matplotlib.patches
@@ -1117,7 +1117,20 @@ class cvRegionprops(object):
         return self.chebyshev_basis
 
     @saver
-    def get_boundary_interpolator(self, center=None, epsilon=1.e-5):
+    def get_boundary_interpolator(self):
+        
+        thetas, rs = self.get_thetas_rs()
+        
+        self.boundary_interpolator = CubicSpline(
+            thetas,
+            rs,
+            bc_type="periodic",
+        )
+
+        return self.boundary_interpolator
+
+    def get_thetas_rs(self, center=None, epsilon=1.e-5):
+    
         if center is None:
             center = np.array(self.get_inner_center())
 
@@ -1128,7 +1141,7 @@ class cvRegionprops(object):
         thetas = np.arctan2(ys, xs)
         
         tr = list(zip(thetas, rs))
-        tr.sort(key= lambda x: x[0])
+        tr.sort(key= lambda x: (x[0], -x[1]))
         
         tr = np.array(tr)
         thetas = tr[:, 0]
@@ -1141,15 +1154,9 @@ class cvRegionprops(object):
         
         thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
         rs = np.hstack([rs, [rs[0]]])
-
-        self.boundary_interpolator = CubicSpline(
-            thetas,
-            rs,
-            bc_type="periodic",
-        )
-
-        return self.boundary_interpolator
-
+        
+        return thetas, rs
+        
     @saver
     def get_chebyshev(self, n=20, thetas=None):
         if thetas is None:
@@ -1160,7 +1167,7 @@ class cvRegionprops(object):
         return self.chebyshev
 
     @saver
-    def get_thetas(self, domain=(0, 1), npoints=361):
+    def get_thetas(self, domain=(-0.5, 0.5), npoints=361):
         self.thetas = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
         return self.thetas
 
@@ -1176,10 +1183,13 @@ class cvRegionprops(object):
         return boundary
 
 
-def get_chebyshev_basis(n, domain=[0, 1], npoints=361):
-    points = np.linspace(domain[0], domain[1], npoints)
-    basis = [eval_chebyt(order, points) for order in range(1, n + 1)]
-    return np.matrix(basis).T
+def get_chebyshev_basis(n, domain=[-1, 1], points=None, npoints=361, typ="t", normalize=False):
+    if points is None:
+        points = np.linspace(domain[0], domain[1], npoints)
+    basis = np.array([getattr(scipy.special, f"eval_cheby{typ}")(order, points) for order in range(0, n)]).T
+    if normalize:
+        basis = basis / np.linalg.norm(basis, axis=0)
+    return np.matrix(basis)
 
 
 def get_point_line_distance(point, l1, l2, method="fast"):
