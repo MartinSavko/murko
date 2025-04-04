@@ -11,6 +11,8 @@ import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
 from math import sqrt
+from scipy.interpolate import CubicSpline, RBFInterpolator
+from scipy.special import eval_chebyt
 
 import pylab
 import matplotlib.patches
@@ -200,9 +202,7 @@ def timeit(func):
 
 
 def saver(func, force=False):
-    
     def introspect(*args, **kwargs):
-
         attribute_name = func.__name__.replace("get_", "")
         value = getattr(args[0], attribute_name)
         if value is None or force:
@@ -883,7 +883,11 @@ class cvRegionprops(object):
         self.extreme_points = None
         self.extent = None
         self.solidity = None
-        
+        self.chebyshev = None
+        self.boundary_interpolator = None
+        self.chebyshev_basis = None
+        self.thetas = None
+
     def get_blank(self, image_shape=None):
         if image_shape is not None:
             self.image_shape = image_shape
@@ -904,41 +908,14 @@ class cvRegionprops(object):
         return self.mask
 
     @saver
-    def get_bbox_mask(self, image_shape=None):
-        self.bbox_mask = self._get_mask(self.get_bbox_points(), image_shape)
-        return self.bbox_mask
-
-    @saver
     def get_mask_points(self):
         self.mask_points = np.argwhere(self.get_mask().astype(bool))
         return self.mask_points
-
-    def get_centroid(self):
-        self.centroid = np.mean(self.get_mask_points(), axis=0)[::-1]
-        return self.centroid
 
     @saver
     def get_distance_transform(self, image_shape=None):
         self.distance_transform = get_distance_transform(self.get_mask(image_shape))
         return self.distance_transform
-
-    @saver
-    def get_inner_center(self, image_shape=None, method="medianmax"):
-        dt = self.get_distance_transform(image_shape)
-        if method == "medianmax":
-            # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
-            indices = np.vstack(
-                np.unravel_index(np.flatnonzero(dt == dt.max()), self.image_shape)
-            ).T
-            imean = indices.mean(axis=0)
-            idist = np.linalg.norm(indices - imean, axis=1)
-            winner = indices[np.argmin(idist)]
-        elif method == "firstmax":
-            winner = np.unravel_index(np.argmax(dt), self.image_shape)
-        elif method == "maximum_position":
-            winner = scipy.ndimage.maximum_position(dt)
-        self.inner_center = tuple(winner[::-1])
-        return self.inner_center
 
     @saver
     def get_bbox(self):
@@ -960,6 +937,11 @@ class cvRegionprops(object):
         return self.bbox_points
 
     @saver
+    def get_bbox_mask(self, image_shape=None):
+        self.bbox_mask = self._get_mask(self.get_bbox_points(), image_shape)
+        return self.bbox_mask
+
+    @saver
     def get_bbox_extent(self):
         x, y, w, h = self.get_bbox()
         self.bbox_extent = (w, h)
@@ -975,38 +957,61 @@ class cvRegionprops(object):
         return self.bbox_center
 
     @saver
+    def get_centroid(self):
+        self.centroid = np.mean(self.get_mask_points(), axis=0)[::-1]
+        return self.centroid
+
+    @saver
+    def get_inner_center(self, image_shape=None, method="medianmax"):
+        dt = self.get_distance_transform(image_shape)
+        if method == "medianmax":
+            # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
+            indices = np.vstack(
+                np.unravel_index(np.flatnonzero(dt == dt.max()), self.image_shape)
+            ).T
+            imean = indices.mean(axis=0)
+            idist = np.linalg.norm(indices - imean, axis=1)
+            winner = indices[np.argmin(idist)]
+        elif method == "firstmax":
+            winner = np.unravel_index(np.argmax(dt), self.image_shape)
+        elif method == "maximum_position":
+            winner = scipy.ndimage.maximum_position(dt)
+        self.inner_center = tuple(winner[::-1])
+        return self.inner_center
+
+    @saver
     def get_dense_boundary(self):
         mask = self.get_mask()
         self.dense_boundary, _ = self.findContours(
             mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
         )
         return self.dense_boundary
-    
+
     @saver
     def get_ltrb_boundary(self):
         self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
 
         dense_boundary = self.get_dense_boundary()
-        
+
         L, R, T, B = [] * 4
         for x in sorted(list(set(dense_boundary[:, 0])))[1:-1]:
-            ys = dense_boundary[ dense_boundary[:, 0] == x ]
+            ys = dense_boundary[dense_boundary[:, 0] == x]
             t = min(ys)
             b = max(ys)
             T.append(t)
             B.append(b)
         for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
-            xs = dense_boundary[ dense_boundary[:, 1] == y ]
+            xs = dense_boundary[dense_boundary[:, 1] == y]
             l = min(xs)
             r = max(xs)
             L.append(l)
             R.append(r)
-        
+
         mask = self.get_mask()
         x = np.arange(0, self.image_shape[0], 1)
         y = np.arange(0, self.image_shape[1], 1)
         xv, yv = np.meshgrid(x, y)
-        
+
         for k, boundary in enumerate((L, T, R, B)):
             print(f"{k}, boundary.shape: {boundary.shape}")
             bb = self.get_blank()
@@ -1017,7 +1022,7 @@ class cvRegionprops(object):
                 bb[mask] = np.abs(yv[mask] - boundary)
             self.ltrb_boundary[:, :, k] = bb
         return self.ltrb_boundary
-    
+
     @saver
     def get_ltrb_bbox(self):
         self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
@@ -1097,7 +1102,7 @@ class cvRegionprops(object):
         rect_area = w * h
         self.extent = float(area) / rect_area
         return self.extent
-    
+
     @saver
     def get_solidity(self):
         area = self.get_area()
@@ -1106,19 +1111,92 @@ class cvRegionprops(object):
         self.solidity = float(area) / hull_area
         return self.solidity
 
+    @saver
+    def get_chebyshev_basis(self, n=20):
+        self.chebyshev_basis = get_chebyshev_basis(n)
+        return self.chebyshev_basis
+
+    @saver
+    def get_boundary_interpolator(self, center=None, epsilon=1.e-5):
+        if center is None:
+            center = np.array(self.get_inner_center())
+
+        points = self.points - center
+        rs = np.linalg.norm(points, axis=1)
+        xs = points[:, 0]
+        ys = points[:, 1]
+        thetas = np.arctan2(ys, xs)
+        
+        tr = list(zip(thetas, rs))
+        tr.sort(key= lambda x: x[0])
+        
+        tr = np.array(tr)
+        thetas = tr[:, 0]
+        rs = tr[:, 1]
+        
+        monotonic = np.argwhere(np.abs(thetas[1:] - thetas[:-1]) > epsilon)
+        
+        thetas = thetas[monotonic].flatten()
+        rs = rs[monotonic].flatten()
+        
+        thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
+        rs = np.hstack([rs, [rs[0]]])
+
+        self.boundary_interpolator = CubicSpline(
+            thetas,
+            rs,
+            bc_type="periodic",
+        )
+
+        return self.boundary_interpolator
+
+    @saver
+    def get_chebyshev(self, n=20, thetas=None):
+        if thetas is None:
+            thetas = self.get_thetas()
+        basis = self.get_chebyshev_basis(n)
+        v = np.matrix(self.get_boundary_interpolator()(thetas)).T
+        self.chebyshev = basis.T * v
+        return self.chebyshev
+
+    @saver
+    def get_thetas(self, domain=(0, 1), npoints=361):
+        self.thetas = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
+        return self.thetas
+
+    def get_boundary_from_chebyshev(self, coeff=None, thetas=None, center=None):
+        basis = self.get_chebyshev_basis()
+        if coeff is None:
+            coeff = self.get_chebyshev()
+        if thetas is None:
+            thetas = self.get_thetas()
+        if center is None:
+            center = np.array(self.get_inner_center())
+        boundary = basis * coeff + center
+        return boundary
+
+
+def get_chebyshev_basis(n, domain=[0, 1], npoints=361):
+    points = np.linspace(domain[0], domain[1], npoints)
+    basis = [eval_chebyt(order, points) for order in range(1, n + 1)]
+    return np.matrix(basis).T
+
+
 def get_point_line_distance(point, l1, l2, method="fast"):
     if method == "slow":
         # https://stackoverflow.com/questions/39840030/distance-between-point-and-a-line-from-two-points
         # 19.9 µs ± 112 ns per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
-        distance = np.cross(l1-l2, l1-point)  / np.linalg.norm(l1 - l2)
+        distance = np.cross(l1 - l2, l1 - point) / np.linalg.norm(l1 - l2)
     else:
         # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
         # 3.5 µs ± 29.9 ns per loop (mean ± std. dev. of 7 runs, 100,000 loops each)
         A, B = l1 - l2
-        distance = -(A*point[1] - B*point[0] + l2[0]*l1[1] - l2[1]*l1[0]) / sqrt(A**2 + B**2)
-    
+        distance = -(
+            A * point[1] - B * point[0] + l2[0] * l1[1] - l2[1] * l1[0]
+        ) / sqrt(A**2 + B**2)
+
     return distance
-    
+
 
 def get_extreme_points(cnt):
     leftmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmin()][0]].mean(axis=0)
@@ -1319,7 +1397,13 @@ def get_objects_of_interest(
         if fractional:
             ooi /= image_shape
         points, indices, labels, properties = add_ooi(
-            ooi, label, points, indices, labels, properties, image_shape,
+            ooi,
+            label,
+            points,
+            indices,
+            labels,
+            properties,
+            image_shape,
         )
 
     if "background" not in labels:
@@ -1327,7 +1411,13 @@ def get_objects_of_interest(
         if not fractional:
             ooi = background * image_shape
         points, indices, labels, properties = add_ooi(
-            ooi, "background", points, indices, labels, properties, image_shape,
+            ooi,
+            "background",
+            points,
+            indices,
+            labels,
+            properties,
+            image_shape,
         )
 
     points, indices, labels, properties, masks = get_secondary_notions(
@@ -1439,7 +1529,13 @@ def get_secondary_notions(
             if fractional:
                 ooi /= image_shape
             points, indices, labels, properties = add_ooi(
-                ooi, notion, points, indices, labels, properties, image_shape,
+                ooi,
+                notion,
+                points,
+                indices,
+                labels,
+                properties,
+                image_shape,
             )
 
     return points, indices, labels, properties, masks
