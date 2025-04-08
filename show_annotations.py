@@ -933,7 +933,9 @@ class cvRegionprops(object):
 
     @saver
     def get_bbox_points(self):
-        self.bbox_points = cb.boxPoints(self.get_bbox_as_minbox())
+        center = self.get_bbox_center()
+        extent = self.get_bbox_extent()
+        self.bbox_points = cv.boxPoints((center, extent, 0))
         return self.bbox_points
 
     @saver
@@ -982,9 +984,11 @@ class cvRegionprops(object):
     @saver
     def get_dense_boundary(self):
         mask = self.get_mask()
-        self.dense_boundary, _ = self.findContours(
+        contours, _ = cv.findContours(
             mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
         )
+        shape = contours[0].shape
+        self.dense_boundary = np.reshape(contours[0], (shape[0], shape[-1]))
         return self.dense_boundary
 
     @saver
@@ -1008,8 +1012,8 @@ class cvRegionprops(object):
             R.append(r)
 
         mask = self.get_mask()
-        x = np.arange(0, self.image_shape[0], 1)
-        y = np.arange(0, self.image_shape[1], 1)
+        x = np.arange(0, self.image_shape[1], 1)
+        y = np.arange(0, self.image_shape[0], 1)
         xv, yv = np.meshgrid(x, y)
 
         for k, boundary in enumerate((L, T, R, B)):
@@ -1031,8 +1035,8 @@ class cvRegionprops(object):
         r, b = l + w, t + h
 
         bbox_mask = self.get_bbox_mask().astype(bool)
-        x = np.arange(0, self.image_shape[0], 1)
-        y = np.arange(0, self.image_shape[1], 1)
+        x = np.arange(0, self.image_shape[1], 1)
+        y = np.arange(0, self.image_shape[0], 1)
         xv, yv = np.meshgrid(x, y)
 
         for k, boundary in enumerate((l, t, r, b)):
@@ -1117,7 +1121,7 @@ class cvRegionprops(object):
         return self.chebyshev_basis
 
     @saver
-    def get_boundary_interpolator(self,):
+    def get_boundary_interpolator(self, method="rbf"):
         
         tap = self.get_thetas_and_points()
         
@@ -1135,12 +1139,17 @@ class cvRegionprops(object):
         return self.boundary_interpolator
 
     
-    def get_thetas_and_points(self, center=None, ensure_monotonic=True, epsilon=1.e-5):
+    def get_thetas_and_points(self, center=None, ensure_monotonic=True, epsilon=1.e-5, dense=True):
     
         if center is None:
             center = np.array(self.get_inner_center())
 
-        points = self.points - center
+        if dense or self.points.shape[0] < 21:
+            points = self.get_dense_boundary()
+        else:
+            points = self.points
+        
+        points = points - center
         
         rs = np.linalg.norm(points, axis=1)
         
@@ -1164,7 +1173,7 @@ class cvRegionprops(object):
         return tap
         
     @saver
-    def get_chebyshev(self, degree=20, thetas=None, extend=3):
+    def get_chebyshev(self, degree=20, thetas=None, extend=7):
         tap = self.get_thetas_and_points()
         if extend:
             # hack to account for periodicity
@@ -1173,7 +1182,7 @@ class cvRegionprops(object):
             tap = np.vstack((end, tap))
             tap = np.vstack((tap, start))
         #https://www.oislas.com/blog/chebyshev-polynomials-fitting/
-        self.chebyshev = np.polynomial.chebyshev.chebyfit(tap[:,0], tap[:,-1], degree)
+        self.chebyshev = np.polynomial.chebyshev.chebfit(tap[:,0], tap[:,-1], degree)
         return self.chebyshev
 
     @saver
@@ -1190,7 +1199,9 @@ class cvRegionprops(object):
             center = np.array(self.get_inner_center())
         #boundary = basis * coeff + center
         rs = np.polynomial.chebyshev.chebval(thetas, coeff)
-        
+        xs = np.cos(thetas) * rs
+        ys = np.sin(thetas) * rs
+        boundary = center + np.vstack([xs, ys]).T
         return boundary
 
 def make_tap_monotonic(tap, epsilon=1.e-5):
