@@ -1117,76 +1117,107 @@ class cvRegionprops(object):
         return self.chebyshev_basis
 
     @saver
-    def get_boundary_interpolator(self):
+    def get_boundary_interpolator(self,):
         
-        thetas, rs = self.get_thetas_rs()
+        tap = self.get_thetas_and_points()
         
-        self.boundary_interpolator = CubicSpline(
-            thetas,
-            rs,
-            bc_type="periodic",
-        )
-
+        if method=="cs":
+            self.boundary_interpolator = CubicSpline(
+                tap[:,  0],
+                tap[:, -1],
+                #bc_type="periodic",
+            )
+        else:
+            self.boundary_interpolator = RBFInterpolator(
+                tap[:,1,2],
+                tap[:, -1],
+            )
         return self.boundary_interpolator
 
-    def get_thetas_rs(self, center=None, epsilon=1.e-5):
+    
+    def get_thetas_and_points(self, center=None, ensure_monotonic=True, epsilon=1.e-5):
     
         if center is None:
             center = np.array(self.get_inner_center())
 
         points = self.points - center
+        
         rs = np.linalg.norm(points, axis=1)
+        
         xs = points[:, 0]
         ys = points[:, 1]
+        
         thetas = np.arctan2(ys, xs)
         
-        tr = list(zip(thetas, rs))
-        tr.sort(key= lambda x: (x[0], -x[1]))
+        tap = list(zip(thetas, xs, ys, rs))
+        tap.sort(key= lambda x: (x[0], -x[-1]))
         
-        tr = np.array(tr)
-        thetas = tr[:, 0]
-        rs = tr[:, 1]
+        tap= np.array(tap)
+        #thetas = tr[:, 0]
+        #rs = tr[:, 1]
+        #xs = tr[:, 2]
+        #ys = tr[:, 3]
+        # if  ensure_monotonic==True we will identify thetas where there is more than just a single value and take the sample corresponding to the largest r value
+        if ensure_monotonic:
+            tap = make_tap_monotonic(tap, epsilon=epsilon)
         
-        monotonic = np.argwhere(np.abs(thetas[1:] - thetas[:-1]) > epsilon)
-        
-        thetas = thetas[monotonic].flatten()
-        rs = rs[monotonic].flatten()
-        
-        thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
-        rs = np.hstack([rs, [rs[0]]])
-        
-        return thetas, rs
+        return tap
         
     @saver
-    def get_chebyshev(self, n=20, thetas=None):
-        if thetas is None:
-            thetas = self.get_thetas()
-        basis = self.get_chebyshev_basis(n)
-        v = np.matrix(self.get_boundary_interpolator()(thetas)).T
-        self.chebyshev = basis.T * v
+    def get_chebyshev(self, degree=20, thetas=None, extend=3):
+        tap = self.get_thetas_and_points()
+        if extend:
+            # hack to account for periodicity
+            start = tap[:extend]
+            end = tap[-extend:]
+            tap = np.vstack((end, tap))
+            tap = np.vstack((tap, start))
+        #https://www.oislas.com/blog/chebyshev-polynomials-fitting/
+        self.chebyshev = np.polynomial.chebyshev.chebyfit(tap[:,0], tap[:,-1], degree)
         return self.chebyshev
 
     @saver
-    def get_thetas(self, domain=(-0.5, 0.5), npoints=361):
-        self.thetas = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
+    def get_thetas(self, domain=(-1, 1), npoints=361):
+        self.thetas = np.pi * np.linspace(domain[0], domain[1], npoints)
         return self.thetas
 
-    def get_boundary_from_chebyshev(self, coeff=None, thetas=None, center=None):
-        basis = self.get_chebyshev_basis()
-        if coeff is None:
-            coeff = self.get_chebyshev()
+    def get_boundary_from_chebyshev(self, coeff=None, center=None, thetas=None):
         if thetas is None:
             thetas = self.get_thetas()
+        if coeff is None:
+            coeff = self.get_chebyshev()
         if center is None:
             center = np.array(self.get_inner_center())
-        boundary = basis * coeff + center
+        #boundary = basis * coeff + center
+        rs = np.polynomial.chebyshev.chebval(thetas, coeff)
+        
         return boundary
 
+def make_tap_monotonic(tap, epsilon=1.e-5):
+    
+    thetas = tap[:, 0]
+    t0 = thetas[:-1]
+    t1 = thetas[1:]
+    
+    left_differences = t1 - t0
+
+    monotonic = np.argwhere(
+        left_differences > epsilon
+    )
+
+    tap = tap[monotonic.flatten()]
+    
+    #thetas = thetas[monotonic].flatten()
+    #rs = rs[monotonic].flatten()
+
+    #thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
+    #rs = np.hstack([rs, [rs[0]]])
+    return tap
 
 def get_chebyshev_basis(n, domain=[-1, 1], points=None, npoints=361, typ="t", normalize=False):
     if points is None:
         points = np.linspace(domain[0], domain[1], npoints)
-    basis = np.array([getattr(scipy.special, f"eval_cheby{typ}")(order, points) for order in range(0, n)]).T
+    basis = np.array([getattr(scipy.special, f"eval_cheby{typ}")(order, points) for order in range(0, n+1)]).T
     if normalize:
         basis = basis / np.linalg.norm(basis, axis=0)
     return np.matrix(basis)
