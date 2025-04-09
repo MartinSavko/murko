@@ -895,11 +895,7 @@ class cvRegionprops(object):
         return blank
 
     def _get_mask(self, points, image_shape):
-        mask = cv.fillPoly(
-            self.get_blank(image_shape),
-            [points.astype(np.int32)],
-            1,
-        )
+        mask = cv.fillPoly(self.get_blank(image_shape), [points.astype(np.int32)], 1)
         return mask
 
     @saver
@@ -1122,25 +1118,23 @@ class cvRegionprops(object):
 
     @saver
     def get_boundary_interpolator(self, method="rbf"):
-        
+
         tap = self.get_thetas_and_points()
-        
-        if method=="cs":
+
+        if method == "cs":
             self.boundary_interpolator = CubicSpline(
-                tap[:,  0],
+                tap[:, 0],
                 tap[:, -1],
-                #bc_type="periodic",
+                # bc_type="periodic",
             )
         else:
-            self.boundary_interpolator = RBFInterpolator(
-                tap[:,1,2],
-                tap[:, -1],
-            )
+            self.boundary_interpolator = RBFInterpolator(tap[:, 1, 2], tap[:, -1])
         return self.boundary_interpolator
 
-    
-    def get_thetas_and_points(self, center=None, ensure_monotonic=True, epsilon=1.e-5, dense=True):
-    
+    def get_thetas_and_points(
+        self, center=None, ensure_monotonic=True, epsilon=1.0e-5, dense=True
+    ):
+
         if center is None:
             center = np.array(self.get_inner_center())
 
@@ -1148,32 +1142,29 @@ class cvRegionprops(object):
             points = self.get_dense_boundary()
         else:
             points = self.points
-        
+
         points = points - center
-        
+
         rs = np.linalg.norm(points, axis=1)
-        
+
         xs = points[:, 0]
         ys = points[:, 1]
-        
+
         thetas = np.arctan2(ys, xs)
-        
+
         tap = list(zip(thetas, xs, ys, rs))
-        tap.sort(key= lambda x: (x[0], -x[-1]))
-        
-        tap= np.array(tap)
-        #thetas = tr[:, 0]
-        #rs = tr[:, 1]
-        #xs = tr[:, 2]
-        #ys = tr[:, 3]
-        # if  ensure_monotonic==True we will identify thetas where there is more than just a single value and take the sample corresponding to the largest r value
+        tap.sort(key=lambda x: (x[0], -x[-1]))
+
+        tap = np.array(tap)
+
         if ensure_monotonic:
+            # we will identify thetas where there is more than just a single value and take the sample corresponding to the largest r value
             tap = make_tap_monotonic(tap, epsilon=epsilon)
-        
+
         return tap
-        
+
     @saver
-    def get_chebyshev(self, degree=20, thetas=None, extend=7):
+    def get_chebyshev(self, degree=20, thetas=None, extend=7, method="numpy"):
         tap = self.get_thetas_and_points()
         if extend:
             # hack to account for periodicity
@@ -1181,57 +1172,153 @@ class cvRegionprops(object):
             end = tap[-extend:]
             tap = np.vstack((end, tap))
             tap = np.vstack((tap, start))
-        #https://www.oislas.com/blog/chebyshev-polynomials-fitting/
-        self.chebyshev = np.polynomial.chebyshev.chebfit(tap[:,0], tap[:,-1], degree)
+        thetas = tap[:, 0]
+        rs = tap[:, -1]
+        if method == "numpy":
+            # https://www.oislas.com/blog/chebyshev-polynomials-fitting/
+            x = np.polynomial.chebyshev.chebfit(thetas, rs, degree)
+        else:
+            basis = get_chebyshev_basis(degree, points=thetas)
+            x, residuals, rank, s = np.linalg.lstsq(basis, rs, rcond=None)
+
+        self.chebyshev = x
+
         return self.chebyshev
+
+    @saver
+    def get_sph_coeff(self, degree=20, thetas=None):
+        tap = self.get_thetas_and_points()
+        thetas = tap[:, 0]
+        rs = tap[:, -1]
+        basis = get_spherical_basis(degree, points=thetas)
+        x, residuals, rank, s = np.linalg.lstsq(basis, rs, rcond=None)
+        self.sph_coeff = np.matrix(x).T
+        return self.sph_coeff
 
     @saver
     def get_thetas(self, domain=(-1, 1), npoints=361):
         self.thetas = np.pi * np.linspace(domain[0], domain[1], npoints)
         return self.thetas
 
-    def get_boundary_from_chebyshev(self, coeff=None, center=None, thetas=None):
+    def get_boundary_from_chebyshev(
+        self, coeff=None, center=None, thetas=None, method="numpy"
+    ):
         if thetas is None:
             thetas = self.get_thetas()
         if coeff is None:
             coeff = self.get_chebyshev()
         if center is None:
             center = np.array(self.get_inner_center())
-        #boundary = basis * coeff + center
-        rs = np.polynomial.chebyshev.chebval(thetas, coeff)
-        xs = np.cos(thetas) * rs
-        ys = np.sin(thetas) * rs
-        boundary = center + np.vstack([xs, ys]).T
+
+        if method == "numpy":
+            rs = np.polynomial.chebyshev.chebval(thetas, coeff)
+        else:
+            order = len(coeff) - 1
+            basis = get_chebyshev_basis(order, points=thetas)
+            rs = np.dot(basis, coeff)
+
+        boundary = get_boundary_from_thetas_rs_and_center(thetas, rs, center)
+
         return boundary
 
-def make_tap_monotonic(tap, epsilon=1.e-5):
-    
+    def get_boundary_from_spherical(self, coeff=None, center=None, thetas=None):
+        if thetas is None:
+            thetas = self.get_thetas()
+        if coeff is None:
+            coeff = self.get_sph_coeff()
+        if center is None:
+            center = np.array(self.get_inner_center())
+
+        basis = get_spherical_basis(degree, points=thetas)
+
+        rs = np.dot(basis, coeff)
+
+        boundary = get_boundary_from_thetas_rs_and_center(thetas, rs, center)
+
+        return boundary
+
+
+def get_boundary_from_thetas_rs_and_center(thetas, rs, center):
+    xs = np.cos(thetas) * rs
+    ys = np.sin(thetas) * rs
+    boundary = center + np.vstack([xs, ys]).T
+    return boundary
+
+
+def make_tap_monotonic(tap, epsilon=1.0e-5):
+
     thetas = tap[:, 0]
     t0 = thetas[:-1]
     t1 = thetas[1:]
-    
+
     left_differences = t1 - t0
 
-    monotonic = np.argwhere(
-        left_differences > epsilon
-    )
+    monotonic = np.argwhere(left_differences > epsilon)
 
     tap = tap[monotonic.flatten()]
-    
-    #thetas = thetas[monotonic].flatten()
-    #rs = rs[monotonic].flatten()
 
-    #thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
-    #rs = np.hstack([rs, [rs[0]]])
+    # thetas = thetas[monotonic].flatten()
+    # rs = rs[monotonic].flatten()
+
+    # thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
+    # rs = np.hstack([rs, [rs[0]]])
     return tap
 
-def get_chebyshev_basis(n, domain=[-1, 1], points=None, npoints=361, typ="t", normalize=False):
+
+def get_spherical_basis(
+    degree, fname="sph_harm_y", domain=[0, 1], points=None, npoints=361, normalize=False
+):
     if points is None:
-        points = np.linspace(domain[0], domain[1], npoints)
-    basis = np.array([getattr(scipy.special, f"eval_cheby{typ}")(order, points) for order in range(0, n+1)]).T
+        points = np.pi * np.linspace(domain[0], domain[1], npoints)
+
+    basis = np.matrix(
+        [
+            getattr(scipy.special, fname)(n, m, 0.5 * np.pi, points)
+            for n in range(0, degree + 1)
+            for m in range(-n, n + 1)
+        ]
+    ).T
+
     if normalize:
         basis = basis / np.linalg.norm(basis, axis=0)
-    return np.matrix(basis)
+    return basis
+
+
+def get_spherical_basis2(
+    degree, fname="sph_harm", domain=[0, 1], points=None, npoints=361, normalize=False
+):
+    if points is None:
+        points = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
+
+    thetas = points
+    basis = np.matrix(
+        [
+            getattr(scipy.special, fname)(m, n, thetas, 0.5 * np.pi)
+            for n in range(0, degree + 1)
+            for m in range(-n, n + 1)
+        ]
+    ).T
+
+    if normalize:
+        basis = basis / np.linalg.norm(basis, axis=0)
+    return basis
+
+
+def get_chebyshev_basis(
+    degree, domain=[-1, 1], points=None, npoints=361, typ="t", normalize=False
+):
+    if points is None:
+        points = np.linspace(domain[0], domain[1], npoints)
+
+    basis = np.matrix(
+        [
+            getattr(scipy.special, f"eval_cheby{typ}")(n, points)
+            for n in range(0, degree + 1)
+        ]
+    ).T
+    if normalize:
+        basis = basis / np.linalg.norm(basis, axis=0)
+    return basis
 
 
 def get_point_line_distance(point, l1, l2, method="fast"):
@@ -1245,7 +1332,7 @@ def get_point_line_distance(point, l1, l2, method="fast"):
         A, B = l1 - l2
         distance = -(
             A * point[1] - B * point[0] + l2[0] * l1[1] - l2[1] * l1[0]
-        ) / sqrt(A**2 + B**2)
+        ) / sqrt(A ** 2 + B ** 2)
 
     return distance
 
@@ -1449,13 +1536,7 @@ def get_objects_of_interest(
         if fractional:
             ooi /= image_shape
         points, indices, labels, properties = add_ooi(
-            ooi,
-            label,
-            points,
-            indices,
-            labels,
-            properties,
-            image_shape,
+            ooi, label, points, indices, labels, properties, image_shape
         )
 
     if "background" not in labels:
@@ -1463,13 +1544,7 @@ def get_objects_of_interest(
         if not fractional:
             ooi = background * image_shape
         points, indices, labels, properties = add_ooi(
-            ooi,
-            "background",
-            points,
-            indices,
-            labels,
-            properties,
-            image_shape,
+            ooi, "background", points, indices, labels, properties, image_shape
         )
 
     points, indices, labels, properties, masks = get_secondary_notions(
@@ -1581,13 +1656,7 @@ def get_secondary_notions(
             if fractional:
                 ooi /= image_shape
             points, indices, labels, properties = add_ooi(
-                ooi,
-                notion,
-                points,
-                indices,
-                labels,
-                properties,
-                image_shape,
+                ooi, notion, points, indices, labels, properties, image_shape
             )
 
     return points, indices, labels, properties, masks
