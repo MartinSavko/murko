@@ -11,7 +11,7 @@ import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
 from math import sqrt
-from scipy.interpolate import CubicSpline, RBFInterpolator
+from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
 import scipy.special
 
 import pylab
@@ -887,6 +887,7 @@ class cvRegionprops(object):
         self.boundary_interpolator = None
         self.chebyshev_basis = None
         self.thetas = None
+        self.sph_coeff = None
 
     def get_blank(self, image_shape=None):
         if image_shape is not None:
@@ -894,13 +895,14 @@ class cvRegionprops(object):
         blank = np.zeros(self.image_shape, np.uint8)
         return blank
 
-    def _get_mask(self, points, image_shape):
-        mask = cv.fillPoly(self.get_blank(image_shape), [points.astype(np.int32)], 1)
+    def _get_mask(self, points, image_shape, pad=0):
+        ims = (image_shape[0] + 2 * pad, image_shape[1] + 2 * pad)
+        mask = cv.fillPoly(self.get_blank(ims), [points.astype(np.int32) + pad], 1)
         return mask
 
     @saver
-    def get_mask(self, image_shape=None):
-        self.mask = self._get_mask(self.points, image_shape)
+    def get_mask(self, image_shape=None, pad=0):
+        self.mask = self._get_mask(self.points, image_shape, pad=pad)
         return self.mask
 
     @saver
@@ -908,9 +910,13 @@ class cvRegionprops(object):
         self.mask_points = np.argwhere(self.get_mask().astype(bool))
         return self.mask_points
 
-    @saver
-    def get_distance_transform(self, image_shape=None):
-        self.distance_transform = get_distance_transform(self.get_mask(image_shape))
+    # @saver
+    def get_distance_transform(self, image_shape=None, pad=1):
+        if image_shape is None:
+            image_shape = self.image_shape
+        _mask = self._get_mask(self.points, image_shape, pad=pad)
+        dt = get_distance_transform(_mask)
+        self.distance_transform = dt[pad:-pad, pad:-pad]
         return self.distance_transform
 
     @saver
@@ -959,32 +965,36 @@ class cvRegionprops(object):
         self.centroid = np.mean(self.get_mask_points(), axis=0)[::-1]
         return self.centroid
 
-    @saver
+    # @saver
     def get_inner_center(self, image_shape=None, method="medianmax"):
         dt = self.get_distance_transform(image_shape)
         if method == "medianmax":
             # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
             indices = np.vstack(
-                np.unravel_index(np.flatnonzero(dt == dt.max()), self.image_shape)
+                np.unravel_index(np.flatnonzero(dt == dt.max()), dt.shape)
             ).T
             imean = indices.mean(axis=0)
             idist = np.linalg.norm(indices - imean, axis=1)
             winner = indices[np.argmin(idist)]
         elif method == "firstmax":
-            winner = np.unravel_index(np.argmax(dt), self.image_shape)
+            winner = np.unravel_index(np.argmax(dt), dt.shape)
         elif method == "maximum_position":
             winner = scipy.ndimage.maximum_position(dt)
-        self.inner_center = tuple(winner[::-1])
+        ic = tuple(winner[::-1])
+        print("inner_center", ic)
+        self.inner_center = ic
         return self.inner_center
 
-    @saver
-    def get_dense_boundary(self):
-        mask = self.get_mask()
+    # @saver
+    def get_dense_boundary(self, pad=1):
+        _mask = self._get_mask(self.points, self.image_shape, pad=pad)
         contours, _ = cv.findContours(
-            mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
+            _mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
         )
         shape = contours[0].shape
-        self.dense_boundary = np.reshape(contours[0], (shape[0], shape[-1]))
+        db = np.reshape(contours[0], (shape[0], shape[-1]))
+        print("db", db)
+        self.dense_boundary = db - pad
         return self.dense_boundary
 
     @saver
@@ -1163,34 +1173,75 @@ class cvRegionprops(object):
 
         return tap
 
-    @saver
-    def get_chebyshev(self, degree=20, thetas=None, extend=7, method="numpy"):
+    def get_chebyshev_basis(
+        self, degree=20, extend=True, method="numpy", npoints=401, domain=[-1.01, 1.01]
+    ):
         tap = self.get_thetas_and_points()
+        t = tap[:, 0]
+        r = tap[:, -1]
         if extend:
             # hack to account for periodicity
-            start = tap[:extend]
-            end = tap[-extend:]
-            tap = np.vstack((end, tap))
-            tap = np.vstack((tap, start))
-        thetas = tap[:, 0]
-        rs = tap[:, -1]
+            # start = tap[:extend]
+            # end = tap[-extend:]
+            # tap = np.vstack((end, tap))
+            # tap = np.vstack((tap, start))
+            tp = np.hstack([t, t + 2 * np.pi])
+            rp = np.hstack([r, r])
+            tp = np.hstack([t - 2 * np.pi, tp])
+            rp = np.hstack([r, rp])
+            t = tp[:]
+            r = rp[:]
+
+        interp = interp1d(t, r)
+        tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
+        rinterp = interp(tinterp)
+
+        basis = get_chebyshev_basis(degree, points=tinterp)
+        return basis
+
+    @saver
+    def get_chebyshev(
+        self, degree=20, extend=True, method="numpy", npoints=401, domain=[-1.01, 1.01]
+    ):
+        tap = self.get_thetas_and_points()
+        t = tap[:, 0]
+        r = tap[:, -1]
+        if extend:
+            # hack to account for periodicity
+            # start = tap[:extend]
+            # end = tap[-extend:]
+            # tap = np.vstack((end, tap))
+            # tap = np.vstack((tap, start))
+            tp = np.hstack([t, t + 2 * np.pi])
+            rp = np.hstack([r, r])
+            tp = np.hstack([t - 2 * np.pi, tp])
+            rp = np.hstack([r, rp])
+            t = tp[:]
+            r = rp[:]
+
+        interp = interp1d(t, r)
+        tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
+        rinterp = interp(tinterp)
+
         if method == "numpy":
             # https://www.oislas.com/blog/chebyshev-polynomials-fitting/
-            x = np.polynomial.chebyshev.chebfit(thetas, rs, degree)
+            x = np.polynomial.chebyshev.chebfit(t, r, degree)
         else:
-            basis = get_chebyshev_basis(degree, points=thetas)
-            x, residuals, rank, s = np.linalg.lstsq(basis, rs, rcond=None)
+            basis = get_chebyshev_basis(degree, points=t)
+            x, residuals, rank, s = np.linalg.lstsq(basis, r, rcond=None)
 
         self.chebyshev = x
 
         return self.chebyshev
 
     @saver
-    def get_sph_coeff(self, degree=20, thetas=None):
-        tap = self.get_thetas_and_points()
+    def get_sph_coeff(self, degree=5, basis=None, tap=None):
+        if tap is None:
+            tap = self.get_thetas_and_points()
         thetas = tap[:, 0]
         rs = tap[:, -1]
-        basis = get_spherical_basis(degree, points=thetas)
+        if basis is None:
+            basis = get_spherical_basis(degree, points=thetas)
         x, residuals, rank, s = np.linalg.lstsq(basis, rs, rcond=None)
         self.sph_coeff = np.matrix(x).T
         return self.sph_coeff
@@ -1266,26 +1317,46 @@ def make_tap_monotonic(tap, epsilon=1.0e-5):
 
 
 def get_spherical_basis(
-    degree, fname="sph_harm_y", domain=[0, 1], points=None, npoints=361, normalize=False
+    degree_max,
+    order_max=5,
+    degree_step=1,
+    order_step=2,
+    fname="sph_harm_y",
+    domain=[0, 1],
+    points=None,
+    npoints=361,
+    normalize=False,
+    theta=0.5 * np.pi,
 ):
     if points is None:
         points = np.pi * np.linspace(domain[0], domain[1], npoints)
 
+    phis = points
     basis = np.matrix(
         [
-            getattr(scipy.special, fname)(n, m, 0.5 * np.pi, points)
-            for n in range(0, degree + 1)
-            for m in range(-n, n + 1)
+            getattr(scipy.special, fname)(degree, order, theta, phis)
+            for degree in range(0, degree_max + 1, degree_step)
+            for order in range(
+                -min(order_max + degree % 2, degree),
+                min(order_max + degree % 2, degree) + 1,
+                order_step,
+            )
         ]
     ).T
-
+    # a = [(n, m) for n in range(0, 20+1, 2) for m in  range(-min(2, n), min(2, n) + 1, 2)]
     if normalize:
         basis = basis / np.linalg.norm(basis, axis=0)
     return basis
 
 
 def get_spherical_basis2(
-    degree, fname="sph_harm", domain=[0, 1], points=None, npoints=361, normalize=False
+    degree_max,
+    fname="sph_harm",
+    domain=[0, 1],
+    points=None,
+    npoints=361,
+    normalize=False,
+    phi=0.5 * np.pi,
 ):
     if points is None:
         points = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
@@ -1293,9 +1364,9 @@ def get_spherical_basis2(
     thetas = points
     basis = np.matrix(
         [
-            getattr(scipy.special, fname)(m, n, thetas, 0.5 * np.pi)
-            for n in range(0, degree + 1)
-            for m in range(-n, n + 1)
+            getattr(scipy.special, fname)(order, degree, thetas, phi)
+            for degree in range(0, degree_max + 1)
+            for order in range(-n, n + 1)
         ]
     ).T
 
