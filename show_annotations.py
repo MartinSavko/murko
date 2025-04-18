@@ -856,7 +856,7 @@ def ltrb(x, l, t, r, b):
 class cvRegionprops(object):
     def __init__(self, points, image_shape=None):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
-        self.image_shape = image_shape
+        self.image_shape = tuple(image_shape)
         self.bbox = None
         self.bbox_mask = None
         self.bbox_points = None
@@ -891,8 +891,10 @@ class cvRegionprops(object):
 
     def get_blank(self, image_shape=None):
         if image_shape is not None:
-            self.image_shape = image_shape
-        blank = np.zeros(self.image_shape, np.uint8)
+            image_shape = image_shape
+        else:
+            image_shape = self.image_shape
+        blank = np.zeros(image_shape, np.uint8)
         return blank
 
     def _get_mask(self, points, image_shape, pad=0):
@@ -902,6 +904,8 @@ class cvRegionprops(object):
 
     @saver
     def get_mask(self, image_shape=None, pad=0):
+        if image_shape is None:
+            image_shape = self.image_shape
         self.mask = self._get_mask(self.points, image_shape, pad=pad)
         return self.mask
 
@@ -942,6 +946,8 @@ class cvRegionprops(object):
 
     @saver
     def get_bbox_mask(self, image_shape=None):
+        if image_shape is None:
+            image_shape = self.image_shape
         self.bbox_mask = self._get_mask(self.get_bbox_points(), image_shape)
         return self.bbox_mask
 
@@ -1001,52 +1007,65 @@ class cvRegionprops(object):
     def get_ltrb_boundary(self):
         self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
 
+        print(f"self.ltrb_boundary shape {self.ltrb_boundary.shape}")
         dense_boundary = self.get_dense_boundary()
 
-        L, R, T, B = [] * 4
+        L, T, R, B = [], [], [], []
         for x in sorted(list(set(dense_boundary[:, 0])))[1:-1]:
             ys = dense_boundary[dense_boundary[:, 0] == x]
-            t = min(ys)
-            b = max(ys)
+            t = ys.min()
+            b = ys.max()
             T.append(t)
             B.append(b)
         for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
             xs = dense_boundary[dense_boundary[:, 1] == y]
-            l = min(xs)
-            r = max(xs)
+            l = xs.min()
+            r = xs.max()
             L.append(l)
             R.append(r)
 
-        mask = self.get_mask()
+        mask = self.get_mask().astype(bool)
         x = np.arange(0, self.image_shape[1], 1)
         y = np.arange(0, self.image_shape[0], 1)
         xv, yv = np.meshgrid(x, y)
-
+        print(f"xv {xv}")
+        print(f"yv {yv}")
         for k, boundary in enumerate((L, T, R, B)):
-            print(f"{k}, boundary.shape: {boundary.shape}")
-            bb = self.get_blank()
             boundary = np.array(boundary)
+            print(f"{k}, boundary.shape: {boundary.shape}")
+            bb = self.get_blank().astype(np.float32)
+            print(f"bb.shape {bb.shape}")
             if k % 2 == 0:
-                bb[mask] = np.abs(xv[mask] - boundary)
+                print(f"xv[mask].shape {xv[mask].shape}")
+                #bb[mask] = xv[mask][:, 1] - boundary
+                
+                #np.abs(
+                    #np.apply_along_axis(lambda x: x - boundary, 1, xv[mask])
+                #)
             else:
-                bb[mask] = np.abs(yv[mask] - boundary)
+                print(f"yv[mask].shape {yv[mask].shape}")
+                #bb[mask] = yv[mask][:, 0] - boundary
+                #np.abs(
+                    #np.apply_along_axis(lambda y: y - boundary, 0, yv[mask])
+                #)
             self.ltrb_boundary[:, :, k] = bb
         return self.ltrb_boundary
 
     @saver
     def get_ltrb_bbox(self):
+        print(f"self.image_shape {self.image_shape}")
         self.ltrb_bbox = np.zeros(self.image_shape + (4,), np.float32)
-
+        print(f"self.ltrb_bbox shape {self.ltrb_bbox.shape}")
         l, t, w, h = self.get_bbox()
         r, b = l + w, t + h
-
+        print(f"ltrb: {l}, {t}, {r}, {b}")
         bbox_mask = self.get_bbox_mask().astype(bool)
         x = np.arange(0, self.image_shape[1], 1)
         y = np.arange(0, self.image_shape[0], 1)
         xv, yv = np.meshgrid(x, y)
-
+        print(f"dtype xv, yv {xv.dtype}, {yv.dtype}")
         for k, boundary in enumerate((l, t, r, b)):
-            bb = self.get_blank()
+            bb = self.get_blank().astype(np.float32)
             if k % 2 == 0:
                 bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
             else:
@@ -1174,7 +1193,7 @@ class cvRegionprops(object):
         return tap
 
     def get_chebyshev_basis(
-        self, degree=20, extend=True, method="numpy", npoints=401, domain=[-1.01, 1.01]
+        self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
     ):
         tap = self.get_thetas_and_points()
         t = tap[:, 0]
@@ -1201,17 +1220,12 @@ class cvRegionprops(object):
 
     @saver
     def get_chebyshev(
-        self, degree=20, extend=True, method="numpy", npoints=401, domain=[-1.01, 1.01]
+        self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
     ):
         tap = self.get_thetas_and_points()
         t = tap[:, 0]
         r = tap[:, -1]
         if extend:
-            # hack to account for periodicity
-            # start = tap[:extend]
-            # end = tap[-extend:]
-            # tap = np.vstack((end, tap))
-            # tap = np.vstack((tap, start))
             tp = np.hstack([t, t + 2 * np.pi])
             rp = np.hstack([r, r])
             tp = np.hstack([t - 2 * np.pi, tp])
@@ -1225,10 +1239,10 @@ class cvRegionprops(object):
 
         if method == "numpy":
             # https://www.oislas.com/blog/chebyshev-polynomials-fitting/
-            x = np.polynomial.chebyshev.chebfit(t, r, degree)
+            x = np.polynomial.chebyshev.chebfit(tinterp, rinterp, degree)
         else:
-            basis = get_chebyshev_basis(degree, points=t)
-            x, residuals, rank, s = np.linalg.lstsq(basis, r, rcond=None)
+            basis = get_chebyshev_basis(degree, points=tinterp)
+            x, residuals, rank, s = np.linalg.lstsq(basis, rinterp, rcond=None)
 
         self.chebyshev = x
 
@@ -1247,17 +1261,24 @@ class cvRegionprops(object):
         return self.sph_coeff
 
     @saver
-    def get_thetas(self, domain=(-1, 1), npoints=361):
+    def get_thetas(self, domain=(-1, 1), npoints=401):
         self.thetas = np.pi * np.linspace(domain[0], domain[1], npoints)
         return self.thetas
 
     def get_boundary_from_chebyshev(
-        self, coeff=None, center=None, thetas=None, method="numpy"
+        self,
+        coeff=None,
+        center=None,
+        thetas=None,
+        method="numpy",
+        domain=(-1.05, 1.05),
+        npoints=401,
+        degree=19,
     ):
         if thetas is None:
-            thetas = self.get_thetas()
+            thetas = self.get_thetas(domain=domain, npoints=npoints)
         if coeff is None:
-            coeff = self.get_chebyshev()
+            coeff = self.get_chebyshev(degree=degree, domain=domain, npoints=npoints)
         if center is None:
             center = np.array(self.get_inner_center())
 
