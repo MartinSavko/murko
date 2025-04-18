@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 import pylab
 import numpy as np
 import copy
@@ -17,7 +18,7 @@ fname = "soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_brigh
 json = load_json(fname)
 oois = get_objects_of_interest(json)
 
-look_at_me = "pin"
+look_at_me = "area_of_interest"
 aoip = oois["properties"][oois["labels"].index(look_at_me)]
 
 pylab.figure()
@@ -25,6 +26,27 @@ pylab.imshow(aoip.get_distance_transform())
 ax1 = pylab.gca()
 db = pylab.Polygon(aoip.get_dense_boundary(), color="red", fill=False, ls="solid")
 ax1.add_patch(db)
+cb = pylab.Polygon(aoip.get_boundary_from_chebyshev(domain=(-1, 1)), color="green", fill=False, ls="dotted")
+ax1.add_patch(cb)
+
+
+ltrb_bbox = aoip.get_ltrb_bbox()
+
+fig, axes = pylab.subplots(2, 2)
+for k, ax in enumerate(axes.flatten()):
+    ax.imshow(ltrb_bbox[:,:,k])
+    ax.set_title(f"{k}")
+
+
+ltrb_boundary = aoip.get_ltrb_boundary()
+fig, axes = pylab.subplots(2, 2)
+for k, ax in enumerate(axes.flatten()):
+    ax.imshow(ltrb_boundary[:,:,k])
+    ax.set_title(f"{k}")
+
+pylab.show()
+
+sys.exit()
 
 tap = aoip.get_thetas_and_points()
 extend = -17
