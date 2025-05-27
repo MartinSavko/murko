@@ -1715,7 +1715,8 @@ def get_masks(
         masks["support"][masks["pin"].astype(bool)] = 0
     if "background" in masks:
         masks["aether"] = copy.copy(masks["background"])
-        masks["aether"][masks["foreground"].astype(bool)] = 0
+        if "foreground" in masks:
+            masks["aether"][masks["foreground"].astype(bool)] = 0
 
     return masks
 
