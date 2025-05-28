@@ -8,6 +8,8 @@ from skimage.transform import resize
 import os
 import time
 import traceback
+
+import matplotlib.pyplot as plt
 import pylab
 import keras
 from keras.preprocessing.image import save_img, load_img, img_to_array, array_to_img
@@ -20,20 +22,6 @@ from dataset_loader import (
     get_transformed_img_and_target,
     get_flipped_img_and_target,
 )
-
-# calibrations = {
-# 1: np.array([0.00160829, 0.001612]),
-# 2: np.array([0.00129349, 0.0012945]),
-# 3: np.array([0.00098891, 0.00098577]),
-# 4: np.array([0.00075432, 0.00075136]),
-# 5: np.array([0.00057437, 0.00057291]),
-# 6: np.array([0.00043897, 0.00043801]),
-# 7: np.array([0.00033421, 0.00033406]),
-# 8: np.array([0.00025234, 0.00025507]),
-# 9: np.array([0.00019332, 0.00019494]),
-# 10: np.array([0.00015812, 0.00015698]),
-# }
-
 
 def generate_click_loss_and_metric_figures(
     click_radius=360e-3, image_shape=(1024, 1360), nclicks=10, ntries=1000, display=True
@@ -474,6 +462,51 @@ def plot_batch(
         )
         ax[2 * t + 1].set_title("%d target" % (t))
     pylab.show()
+
+
+def plot_history(
+    history,
+    h=None,
+    notions=[
+        "crystal",
+        "loop_inside",
+        "loop",
+        "stem",
+        "pin",
+        "capillary",
+        "ice",
+        "foreground",
+    ],
+):
+    
+    template = history.replace(".history", "")
+
+    if h is None:
+        h = pickle.load(open(history, "rb"), encoding="bytes")
+        
+    epochs = range(1, len(h["loss"]) + 1)
+    loss = h["loss"]
+    val_loss = h["val_loss"]
+    
+    plt.figure(figsize=(16, 9))
+    plt.plot(epochs, loss, "bo-", label="Training loss")
+    plt.plot(epochs, val_loss, "ro-", label="Validation loss")
+    plt.title("Training and validation loss")
+    plt.legend()
+    plt.savefig(f"{template}_losses.png")
+    
+    plt.figure(figsize=(16, 9))
+    plt.title(template)
+    for notion in notions:
+        key = "val_%s_BIoU_1" % notion
+        if key in h:
+            plt.plot(h[key], "o-", label=notion)
+        else:
+            continue
+    plt.ylim([-0.1, 1.1])
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(f"{template}_metrics.png")
 
 
 def get_generator(
