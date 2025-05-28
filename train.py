@@ -9,19 +9,19 @@ import sys
 import pickle
 import tensorflow as tf
 from tensorflow import keras
+import copy
 
-import matplotlib.pyplot as plt
+from utils import plot_history
 
 from murko import (
     params,
-    networks, 
+    networks,
     loss_weights_from_stats,
-    get_uncompiled_tiramisu, 
+    get_uncompiled_tiramisu,
     get_num_segmentation_classes,
     WSConv2D,
     WSSeparableConv2D,
 )
-    
 
 from dataset_loader import (
     get_dynamic_batch_size,
@@ -29,38 +29,6 @@ from dataset_loader import (
     get_training_and_validation_datasets,
     MultiTargetDataset,
 )
-
-
-def plot_history(
-    history,
-    h=None,
-    notions=[
-        "crystal",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "capillary",
-        "ice",
-        "foreground",
-    ],
-):
-    if h is None:
-        h = pickle.load(open(history, "rb"), encoding="bytes")
-    template = history.replace(".history", "")
-    plt.figure(figsize=(16, 9))
-    plt.title(template)
-    for notion in notions:
-        key = "val_%s_BIoU_1" % notion
-        if key in h:
-            plt.plot(h[key], "o-", label=notion)
-        else:
-            continue
-    plt.ylim([-0.1, 1.1])
-    plt.grid(True)
-    plt.legend()
-    plt.savefig("%s_metrics.png" % template)
-
 
 def get_tiramisu(
     nfilters=48,
@@ -170,7 +138,7 @@ def get_tiramisu(
                 if lw > loss_weights_from_stats["crystal"]:
                     lw = loss_weights_from_stats["crystal"]
         else:
-            lw = 1.
+            lw = 1.0
         loss_weights[head["name"]] = lw
 
     print("loss weights", loss_weights)
@@ -183,15 +151,13 @@ def get_tiramisu(
             l.trainable = False
 
     model.compile(
-        optimizer=optimizer, 
-        loss=losses, 
-        loss_weights=loss_weights, 
-        metrics=metrics,
+        optimizer=optimizer, loss=losses, loss_weights=loss_weights, metrics=metrics
     )
 
     print("model.losses", len(model.losses), model.losses)
     print("model.metrics", len(model.metrics), model.metrics)
     return model
+
 
 def train(
     base="/nfs/data2/Martin/Research/murko",
@@ -249,9 +215,8 @@ def train(
 
     notions = [head["name"] for head in heads]
     distinguished_name = "%s_%s" % (network, name)
-    model_name = os.path.join(base, 'results', "%s.keras" % distinguished_name)
-    history_name = os.path.join(base, 'results', "%s.history" % distinguished_name)
-    png_name = os.path.join(base, 'results', "%s_losses.png" % distinguished_name)
+    model_name = os.path.join(base, "results", "%s.keras" % distinguished_name)
+    history_name = os.path.join(base, "results", "%s.history" % distinguished_name)
     checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
     # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
@@ -361,19 +326,20 @@ def train(
             limit_loss=limit_loss,
             weight_decay=weight_decay,
             activation=activation,
-            **network_parameters
+            **network_parameters,
         )
         if not finetune:
             try:
                 model.load_weights(model_name)
             except:
-                model = keras.models.load_model(model_name,
-                                                custom_objects={
-                                                "WSConv2D": WSConv2D,
-                                                "WSSeparableConv2D": WSSeparableConv2D,
-                                                },)
+                model = keras.models.load_model(
+                    model_name,
+                    custom_objects={
+                        "WSConv2D": WSConv2D,
+                        "WSSeparableConv2D": WSSeparableConv2D,
+                    },
+                )
         history_name = history_name.replace(".history", "_next_superepoch.history")
-        png_name = png_name.replace(".png", "_next_superepoch.png")
     else:
         print(model_name, "does not exist")
         # custom_objects = {"click_loss": click_loss, "ClickMetric": ClickMetric}
@@ -391,7 +357,7 @@ def train(
             limit_loss=limit_loss,
             weight_decay=weight_decay,
             activation=activation,
-            **network_parameters
+            **network_parameters,
         )
         # sys.exit()
     print(model.summary())
@@ -405,8 +371,8 @@ def train(
         epochs=epochs,
         validation_data=val_gen,
         callbacks=callbacks,
-        use_multiprocessing=True, 
-        workers=32, 
+        use_multiprocessing=True,
+        workers=32,
         max_queue_size=128,
     )
 
@@ -414,42 +380,95 @@ def train(
     pickle.dump(history.history, f)
     f.close()
 
-    epochs = range(1, len(history.history["loss"]) + 1)
-    loss = history.history["loss"]
-    val_loss = history.history["val_loss"]
-    plt.figure(figsize=(16, 9))
-    plt.plot(epochs, loss, "bo-", label="Training loss")
-    plt.plot(epochs, val_loss, "ro-", label="Validation loss")
-    plt.title("Training and validation loss")
-    plt.legend()
-    plt.savefig(png_name)
-    plot_history(png_name.replace("_losses.png", ""), history.history)
+    plot_history(history_name, history.history)
+
 
 
 def main():
-    default_candidates = ["crystal", "loop_inside", "loop", "stem", "pin", "foreground"]
+    default_active = ["crystal", "loop_inside", "loop", "stem", "pin", "area_of_interest", "support", "hierarchy", "identity", "identity_bw", "foreground"]
 
-    candidates = dict(
-        [
-            ("crystal", "binary_segmentation"),
-            ("loop_inside", "binary_segmentation"),
-            ("loop", "binary_segmentation"),
-            ("stem", "binary_segmentation"),
-            ("pin", "binary_segmentation"),
-            ("ice", "binary_segmentation"),
-            ("capillary", "binary_segmentation"),
-            ("foreground", "binary_segmentation"),
-            ("hierarchy", "categorical_segmentation"),
-            ("identity", "regression"),
-            ("click", "regression"),
-            ("crystal_bbox", "regression"),
-            ("loop_inside_bbox", "regression"),
-            ("loop_bbox", "regression"),
-            ("stem_bbox", "regression"),
-            ("pin_bbox", "regression"),
-        ]
-    )
+    binary_segmentations = [
+        "crystal",
+        "loop_inside",
+        "loop",
+        "stem",
+        "pin",
+        "ice",
+        "capillary",
+        "foreground",
+        "aether",
+        "explorable",
+        "support",
+        "area_of_interest",
+        "diffracting_area", # from raster scans
+    ]
+    
+    distance_transforms = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area"]:
+        del distance_transforms[distance_transforms.index(notion)]
+    
+    bounding_boxes = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether"]:
+        del bounding_boxes[bounding_boxes.index(notion)]
 
+    inner_points = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether"]:
+        del inner_points[inner_points.index(notion)]
+        
+    extreme_points = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether"]:
+        del extreme_points[extreme_points.index(notion)]
+    
+    eigen_points = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether"]:
+        del eigen_points[eigen_points.index(notion)]
+    
+    encoded_shapes = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether", "support", "foreground"]:
+        del encoded_shapes[encoded_shapes.index(notion)]
+    
+    
+    categorical = [
+        "hierarchy",
+    ]
+    
+    encoders = [
+        "identity",
+        "identity_bw",
+    ]
+    
+    points = [
+        "most_likely_click",
+        "extreme",
+        "end_likely",
+        "start_likely",
+        "start_possible",
+    ]
+    
+    candidates = []
+    for item in binary_segmentations: 
+        candidates.append((f"{item}_binary_segmentation", "binary_segmentation"))
+    for item in distance_transforms:
+        candidates.append((f"{item}_distance_transform", "distance_transform"))
+    for item in bounding_boxes:
+        candidates.append((f"{item}_bbox", "bounding_box"))
+    for item in inner_points:
+        candidates.append((f"{item}_inner_point", "inner_points"))
+    for item in extreme_points:
+        candidates.append((f"{item}_extreme_points", "extreme_points"))
+    for item in eigen_points:
+        candidates.append((f"{item}_eigen_points", "eigen_points"))
+    for item in encoded_shapes:
+        candidates.append((f"{item}_shape", "encoded_shape"))
+    for item in categorical:
+        candidates.append((item, "categorical_segmentation"))
+    for item in encoders:
+        candidates.append((item, "encoder"))
+    for item in points:
+        candidates.append((item, "point"))
+
+    candidates = dict(candidates)
+    
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -459,7 +478,7 @@ def main():
     for candidate in candidates:
         parser.add_argument(
             "--%s" % candidate,
-            default=1 if candidate in default_candidates else 0,
+            default=1 if candidate in default_active else 0,
             type=int,
             help="learn %s" % candidate,
         )
@@ -471,7 +490,9 @@ def main():
         type=float,
         help="resize factor to use, original size ~1024x1360",
     )
-    parser.add_argument("-R", "--ratio", default=1.0, type=float, help="H/W ratio")
+    parser.add_argument(
+        "-R", "--ratio", default=1.0, type=float, help="H/W ratio"
+    )
     parser.add_argument(
         "-n", "--network", default="fcdn103", help="network architecture"
     )
@@ -504,7 +525,9 @@ def main():
     parser.add_argument(
         "-a", "--augment", default=1, type=int, help="augment during training"
     )
-    parser.add_argument("-e", "--epochs", default=1, type=int, help="numbers of epochs")
+    parser.add_argument(
+        "-e", "--epochs", default=1, type=int, help="numbers of epochs"
+    )
     parser.add_argument(
         "-l", "--learning_rate", default=0.001, type=float, help="initial learning rate"
     )
@@ -526,13 +549,11 @@ def main():
         help="normalization type to use",
     )
     parser.add_argument(
-        "-A",
-        "--name",
-        default="test",
-        type=str,
-        help="name of the model",
+        "-A", "--name", default="test", type=str, help="name of the model"
     )
-    parser.add_argument("-f", "--finetune", default=0, type=int, help="finetune")
+    parser.add_argument(
+        "-f", "--finetune", default=0, type=int, help="finetune"
+    )
     parser.add_argument(
         "-P", "--patience", default=2, type=int, help="patience for lrreducer"
     )
@@ -545,11 +566,7 @@ def main():
         help="artificial size increase, integer",
     )
     parser.add_argument(
-        "-H",
-        "--include_plate_images",
-        default=0,
-        type=int,
-        help="include plate images",
+        "-H", "--include_plate_images", default=0, type=int, help="include plate images"
     )
     parser.add_argument(
         "-C",
@@ -575,7 +592,9 @@ def main():
     parser.add_argument(
         "-D", "--dropout_rate", default=0.2, type=float, help="dropout_rate"
     )
-    parser.add_argument("-L", "--limit_loss", default=1, type=int, help="limit loss")
+    parser.add_argument(
+        "-L", "--limit_loss", default=1, type=int, help="limit loss"
+    )
     parser.add_argument(
         "-w", "--weight_decay", default=1e-4, type=float, help="weight_decay"
     )
