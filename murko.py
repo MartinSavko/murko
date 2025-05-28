@@ -410,12 +410,7 @@ def generate_click_loss_and_metric_figures(
     }
 
     for k in range(nclicks):
-        click = (
-            np.array(image_shape)
-            * np.random.rand(
-                2,
-            )
-        ).astype(int)
+        click = (np.array(image_shape) * np.random.rand(2)).astype(int)
         cpi_true = click_probability_image(
             click[1],
             click[0],
@@ -426,12 +421,7 @@ def generate_click_loss_and_metric_figures(
         )
         cpi_true = np.expand_dims(cpi_true, (0, -1))
         for n in range(ntries // nclicks):
-            tclick = (
-                np.array(image_shape)
-                * np.random.rand(
-                    2,
-                )
-            ).astype(int)
+            tclick = (np.array(image_shape) * np.random.rand(2)).astype(int)
             cpi_pred = click_probability_image(
                 tclick[1],
                 tclick[0],
@@ -506,7 +496,7 @@ class ClickLoss(tf.keras.losses.MeanSquaredError):
 
 def gauss2d(x=0, y=0, mx=0, my=0, sx=1, sy=1):
     return np.exp(
-        -((x - mx) ** 2.0 / (2.0 * sx**2.0) + (y - my) ** 2.0 / (2.0 * sy**2.0))
+        -((x - mx) ** 2.0 / (2.0 * sx ** 2.0) + (y - my) ** 2.0 / (2.0 * sy ** 2.0))
     )
 
 
@@ -636,15 +626,9 @@ def flip_axis(x, axis):
 
 
 def get_transposed_img_and_target(img, target):
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(img.shape)))
+    new_axes_order = (1, 0) + tuple(range(2, len(img.shape)))
     img = np.transpose(img, new_axes_order)
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(target.shape)))
+    new_axes_order = (1, 0) + tuple(range(2, len(target.shape)))
     target = np.transpose(target, new_axes_order)  # [:len(target.shape)])
     return img, target
 
@@ -1401,11 +1385,7 @@ def get_cpi_from_user_click(
 
 def get_data_augmentation():
     data_augmentation = keras.Sequential(
-        [
-            layers.RandomRotation(0.5),
-            layers.RandomFlip(),
-            layers.RandomZoom(0.2),
-        ]
+        [layers.RandomRotation(0.5), layers.RandomFlip(), layers.RandomZoom(0.2)]
     )
     return data_augmentation
 
@@ -2526,31 +2506,58 @@ def get_notion_prediction(
 
 def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
     _start = time.time()
-    gmlc = False
+
     most_likely_click = -1, -1
 
-    for notion in ["crystal", "loop_inside", "loop"]:
+    for notion in ["crystal", "loop_inside", "loop", "foreground"]:
         notion_prediction = get_notion_prediction(
             predictions, notion, k=k, min_size=min_size
         )
         if notion_prediction[0] == 1:
+            shape = notion_prediction[-1].shape
+            # if only foreground found go for the extreme point, centroid otherwise
+            if notion != "foreground":
+                y_clue_index, x_clue_index = 1, 2
+            else:
+                y_clue_index, x_clue_index = 5, 6
+
             most_likely_click = (
-                notion_prediction[1] / notion_prediction[-1].shape[0],
-                notion_prediction[2] / notion_prediction[-1].shape[1],
+                notion_prediction[y_clue_index] / shape[0],
+                notion_prediction[x_clue_index] / shape[1],
             )
             if verbose:
                 print("%s found!" % notion)
-            gmlc = True
             break
-    if gmlc is False:
-        foreground = get_notion_prediction(
-            predictions, "foreground", k=k, min_size=min_size
-        )
-        if foreground[0] == 1:
-            most_likely_click = (
-                foreground[5] / foreground[-1].shape[0],
-                foreground[6] / foreground[-1].shape[1],
-            )
+
+    if verbose:
+        print("most likely click determined in %.4f seconds" % (time.time() - _start))
+
+    most_likely_click = np.array(most_likely_click)
+
+    return most_likely_click
+
+
+def get_most_likely_click_from_description(description, verbose=False):
+    _start = time.time()
+
+    most_likely_click = np.array([-1, -1])
+
+    shape = np.array(description["hierarchical_mask"].shape)
+    for notion in ["crystal", "loop_inside", "loop", "foreground"]:
+        notion_description = description[get_notion_string(notion)]
+        if notion_description["present"]:
+            # if only foreground found go for the extreme point, centroid otherwise
+            if notion != "foreground":
+                r = notion_description["r"]
+                c = notion_description["c"]
+            else:
+                r, c = notion_description["epo"]
+
+            most_likely_click = np.array((r, c)) / shape
+            if verbose:
+                print("%s found!" % notion)
+            break
+
     if verbose:
         print("most likely click determined in %.4f seconds" % (time.time() - _start))
     return most_likely_click
@@ -2721,31 +2728,6 @@ def get_descriptions(
         )
         descriptions.append(description)
     return descriptions
-
-
-def get_most_likely_click_from_description(description, verbose=False):
-    _start = time.time()
-    gmlc = False
-    most_likely_click = -1, -1
-    shape = np.array(description["hierarchical_mask"].shape)
-    for notion in ["crystal", "loop_inside", "loop"]:
-        notion_description = description[get_notion_string(notion)]
-        if notion_description["present"]:
-            r = notion_description["r"]
-            c = notion_description["c"]
-            most_likely_click = np.array((r, c)) / shape
-            if verbose:
-                print("%s found!" % notion)
-            gmlc = True
-            break
-    if gmlc is False:
-        notion_description = description["foreground"]
-        if notion_description["present"]:
-            epo = notion_description["epo"]
-            most_likely_click = np.array(epo) / shape
-    if verbose:
-        print("most likely click determined in %.4f seconds" % (time.time() - _start))
-    return most_likely_click
 
 
 def principal_axes(array, verbose=False):
@@ -3358,7 +3340,7 @@ def save_predictions(
 
         original_shape = np.array(input_image.shape[:2])
         prediction_shape = np.array(hierarchical_mask.shape)
-        most_likely_click = np.array(get_most_likely_click(predictions, k=k))
+        most_likely_click = get_most_likely_click(predictions, k=k)
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
             click_patch_ii = plt.Circle(mlc_ii[::-1], radius=2, color="green")
