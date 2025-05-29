@@ -939,9 +939,8 @@ class cvRegionprops(object):
 
     @saver
     def get_bbox_points(self):
-        center = self.get_bbox_center()
-        extent = self.get_bbox_extent()
-        self.bbox_points = cv.boxPoints((center, extent, 0))
+        center, extent, orientation = self.get_bbox_as_minbox()
+        self.bbox_points = cv.boxPoints((center, extent, orientation))
         return self.bbox_points
 
     @saver
@@ -1607,7 +1606,7 @@ def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
 
 # @timeit
 def get_objects_of_interest(
-    json_file, fractional=False, rectangle=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
+    json_file, fractional=False, unit_square=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
 ):
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
@@ -1623,7 +1622,7 @@ def get_objects_of_interest(
             :, ::-1  # swap x and y (labelme uses [h, v] convention, we use [v, h]
         ]
         if shape["shape_type"] == "rectangle" and ooi.shape[0] == 2:
-            ooi = rectangle * np.abs(ooi[0] - ooi[1])
+            ooi = unit_square * np.abs(ooi[0] - ooi[1])
 
         if fractional:
             ooi /= image_shape
@@ -1632,9 +1631,8 @@ def get_objects_of_interest(
         )
 
     if "background" not in labels:
-        background = rectangle[:]
         if not fractional:
-            ooi = background * image_shape
+            ooi = unit_square[:] * image_shape
         points, indices, labels, properties = add_ooi(
             ooi, "background", points, indices, labels, properties, image_shape
         )
@@ -1713,6 +1711,7 @@ def get_masks(
 
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
+    
     if "background" in masks:
         masks["aether"] = copy.copy(masks["background"])
         if "foreground" in masks:
