@@ -30,7 +30,8 @@ from dataset_loader import (
     MultiTargetDataset,
 )
 
-def get_tiramisu(
+
+def get_model(
     nfilters=48,
     growth_rate=16,
     layers_scheme=[4, 5, 7, 10, 12],
@@ -61,7 +62,7 @@ def get_tiramisu(
     limit_loss=True,
     weight_decay=1.0e-4,
 ):
-    print("get_tiramisu heads", heads)
+    print("get_model heads", heads)
     model = get_uncompiled_tiramisu(
         nfilters=nfilters,
         growth_rate=growth_rate,
@@ -311,7 +312,7 @@ def train(
     if os.path.isdir(model_name) or os.path.isfile(model_name):
         print("model exists, loading weights ...")
         # model = keras.models.load_model(model_name)
-        model = get_tiramisu(
+        model = get_model(
             convolution_type=convolution_type,
             model_img_size=(None, None),
             heads=heads,
@@ -344,7 +345,7 @@ def train(
         print(model_name, "does not exist")
         # custom_objects = {"click_loss": click_loss, "ClickMetric": ClickMetric}
         # with keras.utils.custom_object_scope(custom_objects):
-        model = get_tiramisu(
+        model = get_model(
             convolution_type=convolution_type,
             model_img_size=(None, None),
             heads=heads,
@@ -359,7 +360,7 @@ def train(
             activation=activation,
             **network_parameters,
         )
-        # sys.exit()
+
     print(model.summary())
 
     print(f"train_gen: {train_gen}")
@@ -383,9 +384,22 @@ def train(
     plot_history(history_name, history.history)
 
 
-
 def main():
-    default_active = ["crystal", "loop_inside", "loop", "stem", "pin", "area_of_interest", "support", "hierarchy", "identity", "identity_bw", "foreground"]
+    default_active = [
+        "crystal",
+        "loop_inside",
+        "loop",
+        "stem",
+        "pin",
+        "area_of_interest",
+        "support",
+        "drop",
+        #"precipitate"
+        "hierarchy",
+        "identity",
+        "identity_bw",
+        "foreground",
+    ]
 
     binary_segmentations = [
         "crystal",
@@ -400,75 +414,120 @@ def main():
         "explorable",
         "support",
         "area_of_interest",
-        "diffracting_area", # from raster scans
+        "drop",
+        #"precipitate",
+        "diffracting_area",  # from raster scans
     ]
-    
+
     distance_transforms = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area"]:
         del distance_transforms[distance_transforms.index(notion)]
-    
+
     bounding_boxes = copy.copy(binary_segmentations)
-    for notion in ["ice", "diffracting_area", "aether"]:
+    for notion in ["ice", "diffracting_area", "aether"]: # "support", "foreground"
         del bounding_boxes[bounding_boxes.index(notion)]
 
-    inner_points = copy.copy(binary_segmentations)
+    centerness = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area", "aether"]:
-        del inner_points[inner_points.index(notion)]
-        
+        del centerness[centerness.index(notion)
+
+    '''
+    How to represent and learn points ?
+    I see two options: 
+      a) lear offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
+            1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
+            2.) each category of points has one learing output i.e. "inner_centers"
+           each learning location than learns offset to the nearest inner point.
+        b) learn 2d representation of point locations, 
+            1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
+                What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
+                **) "extreme_points" has one output (four peak gaussian mixture)
+                    "start_likely" has one output (one gaussian)
+            2.) offset learners they learn x, y distance to the nearest keypoint
+    
+    What should offset learners do if there is no point of interest present?
+      a) do nothing ?
+      b) learn to report there is nothing by returning something specific e.g. -1 ?
+    
+    Learning bbox_centers? (centerness)
+             inner_centers?
+            
+    '''
+    
+    inner_centers = copy.copy(binary_segmentations)
+    for notion in ["ice", "diffracting_area", "aether"]: # "support", "foreground"
+        del inner_centers[inner_centers.index(notion)]
+
     extreme_points = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area", "aether"]:
         del extreme_points[extreme_points.index(notion)]
-    
+
     eigen_points = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area", "aether"]:
         del eigen_points[eigen_points.index(notion)]
-    
+
     encoded_shapes = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area", "aether", "support", "foreground"]:
         del encoded_shapes[encoded_shapes.index(notion)]
-    
-    
-    categorical = [
-        "hierarchy",
-    ]
-    
-    encoders = [
-        "identity",
-        "identity_bw",
-    ]
-    
+
+    categorical = ["hierarchy"]
+
+    encoders = ["identity", "identity_bw"]
+
     points = [
         "most_likely_click",
         "extreme",
         "end_likely",
         "start_likely",
         "start_possible",
+        "origin",
     ]
-    
+
     candidates = []
-    for item in binary_segmentations: 
-        candidates.append((f"{item}_binary_segmentation", "binary_segmentation"))
+    for item in binary_segmentations:
+        candidates.append((f"{item}_binary_segmentation", "binary_segmentation")) # clear
     for item in distance_transforms:
-        candidates.append((f"{item}_distance_transform", "distance_transform"))
+        candidates.append((f"{item}_distance_transform", "distance_transform")) # clear, what about sqrt(dt), 1-dt, sqrt(1-dt) ?
+    for item in distance_transforms:
+        candidates.append((f"{item}_inverse_distance_transform", "inverse_distance_transform")) # clear
+    for item in distance_transforms:
+        candidates.append((f"{item}_sqrt_distance_transform", "inverse_distance_transform")) #clear
+    for item in distance_transforms:
+        candidates.append((f"{item}_inverse_sqrt_distance_transform", "inverse_distance_transform")) #clear
     for item in bounding_boxes:
-        candidates.append((f"{item}_bbox", "bounding_box"))
-    for item in inner_points:
-        candidates.append((f"{item}_inner_point", "inner_points"))
+        candidates.append((f"{item}_bbox", "bounding_box")) # learn four layer output (ltrb) separately, learn associated centerness separately
+    for item in centerness:
+        candidates.append((f"{item}_centerness", "centerness")) # clear binary cross entropy, or focal loss, modified centerness d = (1 - centerness**2)**2
+    for item in inner_centers:
+        candidates.append((f"{item}_inner_center", "inner_center")) # centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance), 
+        # for point p
+        # xv, yv = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+        # d = np.sqrt((p[0]-yv)**2 + (p[1]-xv)**2)
+        # d = d / d.max()
+        # d = (1 - d)**2
+        # if p not present d = -1
     for item in extreme_points:
-        candidates.append((f"{item}_extreme_points", "extreme_points"))
+        candidates.append((f"{item}_extreme_points", "extreme_points")) 
+        # heatmap for every class of objects and every type of point 
+        # + offset to the center_of_mass (x, y, 2 layers)
+        # + size of the object (width and height, 2 layers)
+        # + major_axis, minor_axis (2 layers)
+        # + offset to the center of ellipse (x, y, 2 layers)
+        # + orientation (8 layers) according to Mousavian, or a single number?
+        # + area of the object (1 layer)
     for item in eigen_points:
-        candidates.append((f"{item}_eigen_points", "eigen_points"))
+        candidates.append((f"{item}_eigen_points", "eigen_points")) # heatmap for every class of objects and every type of point + offset to the center_of_mass (2 layers) + size of the object (width and height) + area of the object (1 layer)
     for item in encoded_shapes:
-        candidates.append((f"{item}_shape", "encoded_shape"))
+        candidates.append((f"{item}_shape", "encoded_shape")) # C (e.g. C=20) layer output
     for item in categorical:
-        candidates.append((item, "categorical_segmentation"))
+        candidates.append((item, "categorical_segmentation")) # clear
     for item in encoders:
-        candidates.append((item, "encoder"))
+        candidates.append((item, "encoder")) # clear
     for item in points:
         candidates.append((item, "point"))
 
     candidates = dict(candidates)
-    
+
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -490,9 +549,7 @@ def main():
         type=float,
         help="resize factor to use, original size ~1024x1360",
     )
-    parser.add_argument(
-        "-R", "--ratio", default=1.0, type=float, help="H/W ratio"
-    )
+    parser.add_argument("-R", "--ratio", default=1.0, type=float, help="H/W ratio")
     parser.add_argument(
         "-n", "--network", default="fcdn103", help="network architecture"
     )
@@ -525,9 +582,7 @@ def main():
     parser.add_argument(
         "-a", "--augment", default=1, type=int, help="augment during training"
     )
-    parser.add_argument(
-        "-e", "--epochs", default=1, type=int, help="numbers of epochs"
-    )
+    parser.add_argument("-e", "--epochs", default=1, type=int, help="numbers of epochs")
     parser.add_argument(
         "-l", "--learning_rate", default=0.001, type=float, help="initial learning rate"
     )
@@ -551,9 +606,7 @@ def main():
     parser.add_argument(
         "-A", "--name", default="test", type=str, help="name of the model"
     )
-    parser.add_argument(
-        "-f", "--finetune", default=0, type=int, help="finetune"
-    )
+    parser.add_argument("-f", "--finetune", default=0, type=int, help="finetune")
     parser.add_argument(
         "-P", "--patience", default=2, type=int, help="patience for lrreducer"
     )
@@ -592,9 +645,7 @@ def main():
     parser.add_argument(
         "-D", "--dropout_rate", default=0.2, type=float, help="dropout_rate"
     )
-    parser.add_argument(
-        "-L", "--limit_loss", default=1, type=int, help="limit loss"
-    )
+    parser.add_argument("-L", "--limit_loss", default=1, type=int, help="limit loss")
     parser.add_argument(
         "-w", "--weight_decay", default=1e-4, type=float, help="weight_decay"
     )
