@@ -104,14 +104,43 @@ total foreground 319001744 (0.319G, 0.1766 of all)
 """
 
 params = {
-    "binary_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
-    "regression": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "binary_segmentation": {
+        "loss": "binary_focal_crossentropy", 
+        "metrics": "BIoU",
+    },
+    "distance_transform": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "bounding_box": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "inner_points": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "extreme_points": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "eigen_points": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "encoded_shape": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
     "categorical_segmentation": {
         "loss": "categorical_focal_crossentropy",
         "metrics": "MeanIoU",
     },
-    "click_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoUm"},
-    "click_regression": {
+    "encoder": {
+        "loss": "mean_squared_error",
+        "metrics": "mean_absolute_error",
+    },
+    "point": {
         "loss": "mean_squared_error",
         "metrics": "mean_absolute_error",
     },
@@ -123,8 +152,16 @@ networks = {
         "layers_scheme": [4, 5, 7, 10, 12],
         "bottleneck": 15,
     },
-    "fcdn67": {"growth_rate": 16, "layers_scheme": [5] * 5, "bottleneck": 5},
-    "fcdn56": {"growth_rate": 12, "layers_scheme": [4] * 5, "bottleneck": 4},
+    "fcdn67": {
+        "growth_rate": 16,
+        "layers_scheme": [5] * 5, 
+        "bottleneck": 5,
+    },
+    "fcdn56": {
+        "growth_rate": 12,
+        "layers_scheme": [4] * 5,
+        "bottleneck": 4
+    },
 }
 
 loss_weights_from_stats = {
@@ -651,7 +688,7 @@ def get_uncompiled_tiramisu(
         if (
             head["type"] == "binary_segmentation"
             or head["type"] == "click_segmentation"
-            or head["name"] == "identity"
+            or head["name"] == "encoder"
         ):
             output = keras.layers.Conv2D(
                 1,
