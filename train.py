@@ -384,6 +384,27 @@ def train(
     plot_history(history_name, history.history)
 
 
+a = """How to represent and learn points ?
+    I see two options: 
+      a) lear offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
+            1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
+            2.) each category of points has one learing output i.e. "inner_centers"
+           each learning location than learns offset to the nearest inner point.
+        b) learn 2d representation of point locations, 
+            1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
+                What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
+                **) "extreme_points" has one output (four peak gaussian mixture)
+                    "start_likely" has one output (one gaussian)
+            2.) offset learners they learn x, y distance to the nearest keypoint
+    
+    What should offset learners do if there is no point of interest present?
+      a) do nothing ?
+      b) learn to report there is nothing by returning something specific e.g. -1 ?
+    
+    Learning bbox_centers? (centerness)
+             inner_centers?"""
+
+
 def main():
     default_active = [
         "crystal",
@@ -394,7 +415,7 @@ def main():
         "area_of_interest",
         "support",
         "drop",
-        #"precipitate"
+        # "precipitate"
         "hierarchy",
         "identity",
         "identity_bw",
@@ -415,7 +436,7 @@ def main():
         "support",
         "area_of_interest",
         "drop",
-        #"precipitate",
+        # "precipitate",
         "diffracting_area",  # from raster scans
     ]
 
@@ -424,38 +445,15 @@ def main():
         del distance_transforms[distance_transforms.index(notion)]
 
     bounding_boxes = copy.copy(binary_segmentations)
-    for notion in ["ice", "diffracting_area", "aether"]: # "support", "foreground"
+    for notion in ["ice", "diffracting_area", "aether"]:  # "support", "foreground"
         del bounding_boxes[bounding_boxes.index(notion)]
 
     centerness = copy.copy(binary_segmentations)
     for notion in ["ice", "diffracting_area", "aether"]:
-        del centerness[centerness.index(notion)
+        del centerness[centerness.index(notion)]
 
-    '''
-    How to represent and learn points ?
-    I see two options: 
-      a) lear offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
-            1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
-            2.) each category of points has one learing output i.e. "inner_centers"
-           each learning location than learns offset to the nearest inner point.
-        b) learn 2d representation of point locations, 
-            1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
-                What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
-                **) "extreme_points" has one output (four peak gaussian mixture)
-                    "start_likely" has one output (one gaussian)
-            2.) offset learners they learn x, y distance to the nearest keypoint
-    
-    What should offset learners do if there is no point of interest present?
-      a) do nothing ?
-      b) learn to report there is nothing by returning something specific e.g. -1 ?
-    
-    Learning bbox_centers? (centerness)
-             inner_centers?
-            
-    '''
-    
     inner_centers = copy.copy(binary_segmentations)
-    for notion in ["ice", "diffracting_area", "aether"]: # "support", "foreground"
+    for notion in ["ice", "diffracting_area", "aether"]:  # "support", "foreground"
         del inner_centers[inner_centers.index(notion)]
 
     extreme_points = copy.copy(binary_segmentations)
@@ -485,21 +483,37 @@ def main():
 
     candidates = []
     for item in binary_segmentations:
-        candidates.append((f"{item}_binary_segmentation", "binary_segmentation")) # clear
+        candidates.append(
+            (f"{item}_binary_segmentation", "binary_segmentation")
+        )  # clear
     for item in distance_transforms:
-        candidates.append((f"{item}_distance_transform", "distance_transform")) # clear, what about sqrt(dt), 1-dt, sqrt(1-dt) ?
+        candidates.append(
+            (f"{item}_distance_transform", "distance_transform")
+        )  # clear, what about sqrt(dt), 1-dt, sqrt(1-dt) ?
     for item in distance_transforms:
-        candidates.append((f"{item}_inverse_distance_transform", "inverse_distance_transform")) # clear
+        candidates.append(
+            (f"{item}_inverse_distance_transform", "inverse_distance_transform")
+        )  # clear
     for item in distance_transforms:
-        candidates.append((f"{item}_sqrt_distance_transform", "inverse_distance_transform")) #clear
+        candidates.append(
+            (f"{item}_sqrt_distance_transform", "inverse_distance_transform")
+        )  # clear
     for item in distance_transforms:
-        candidates.append((f"{item}_inverse_sqrt_distance_transform", "inverse_distance_transform")) #clear
+        candidates.append(
+            (f"{item}_inverse_sqrt_distance_transform", "inverse_distance_transform")
+        )  # clear
     for item in bounding_boxes:
-        candidates.append((f"{item}_bbox", "bounding_box")) # learn four layer output (ltrb) separately, learn associated centerness separately
+        candidates.append((f"{item}_bbox", "bounding_box"))  # clear
+        # learn four layer output (ltrb) separately,
+        # learn associated centerness separately or on the same branch ?
+        # centerness vs. inner center ?
     for item in centerness:
-        candidates.append((f"{item}_centerness", "centerness")) # clear binary cross entropy, or focal loss, modified centerness d = (1 - centerness**2)**2
+        candidates.append((f"{item}_centerness", "centerness"))  # clear
+        # binary cross entropy, or focal loss
+        # modified centerness d = (1 - centerness**2)**2
     for item in inner_centers:
-        candidates.append((f"{item}_inner_center", "inner_center")) # centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance), 
+        candidates.append((f"{item}_inner_center", "inner_center"))  # clear
+        # modified centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance),
         # for point p
         # xv, yv = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
         # d = np.sqrt((p[0]-yv)**2 + (p[1]-xv)**2)
@@ -507,24 +521,30 @@ def main():
         # d = (1 - d)**2
         # if p not present d = -1
     for item in extreme_points:
-        candidates.append((f"{item}_extreme_points", "extreme_points")) 
-        # heatmap for every class of objects and every type of point 
+        candidates.append((f"{item}_extreme_points", "extreme_points"))
+        # heatmap for every class of objects and every type of point
         # + offset to the center_of_mass (x, y, 2 layers)
         # + size of the object (width and height, 2 layers)
+        # + area of the object (1 layer)
+    for item in eigen_points:
+        candidates.append((f"{item}_eigen_points", "eigen_points"))
+        # heatmap for every class of objects and every type of point
         # + major_axis, minor_axis (2 layers)
         # + offset to the center of ellipse (x, y, 2 layers)
         # + orientation (8 layers) according to Mousavian, or a single number?
         # + area of the object (1 layer)
-    for item in eigen_points:
-        candidates.append((f"{item}_eigen_points", "eigen_points")) # heatmap for every class of objects and every type of point + offset to the center_of_mass (2 layers) + size of the object (width and height) + area of the object (1 layer)
+        # + euler number (1 layer)
+        # + solidity (1 layer)
     for item in encoded_shapes:
-        candidates.append((f"{item}_shape", "encoded_shape")) # C (e.g. C=20) layer output
+        candidates.append((f"{item}_shape", "encoded_shape"))
+        # C (e.g. C=20) layer output
     for item in categorical:
-        candidates.append((item, "categorical_segmentation")) # clear
+        candidates.append((item, "categorical_segmentation"))  # clear
     for item in encoders:
-        candidates.append((item, "encoder")) # clear
+        candidates.append((item, "encoder"))  # clear
     for item in points:
-        candidates.append((item, "point"))
+        candidates.append((item, "point"))  # clear
+        # heatmap for every type of point
 
     candidates = dict(candidates)
 
