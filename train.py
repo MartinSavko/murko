@@ -386,16 +386,16 @@ def train(
 
 a = """How to represent and learn points ?
     I see two options: 
-      a) lear offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
-            1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
-            2.) each category of points has one learing output i.e. "inner_centers"
+      a) learn offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
+          1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
+          2.) each category of points has one learing output i.e. "inner_centers"
            each learning location than learns offset to the nearest inner point.
-        b) learn 2d representation of point locations, 
-            1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
-                What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
-                **) "extreme_points" has one output (four peak gaussian mixture)
-                    "start_likely" has one output (one gaussian)
-            2.) offset learners they learn x, y distance to the nearest keypoint
+      b) learn 2d representation of point locations, 
+          1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
+              What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
+              **) "extreme_points" has one output (four peak gaussian mixture)
+                  "start_likely" has one output (one gaussian)
+          2.) offset learners they learn x, y distance to the nearest keypoint
     
     What should offset learners do if there is no point of interest present?
       a) do nothing ?
@@ -406,6 +406,7 @@ a = """How to represent and learn points ?
 
 
 def main():
+
     default_active = [
         "crystal",
         "loop_inside",
@@ -420,6 +421,8 @@ def main():
         "identity",
         "identity_bw",
         "foreground",
+        "aether",
+        "explorable",
     ]
 
     binary_segmentations = [
@@ -481,38 +484,50 @@ def main():
         "origin",
     ]
 
+    classifications = {
+        "anything": ["foreground"],
+        "plate_content": ["crystals", "precipitate", "other", "clear"],
+        "ice": ["ice"],
+        "loop_type": ["standard", "mitegen", "crystal_direct", "void"],
+    }
+
     candidates = []
+
     for item in binary_segmentations:
-        candidates.append(
-            (f"{item}_binary_segmentation", "binary_segmentation")
-        )  # clear
+        candidates.append((f"{item}_binary_segmentation", "binary_segmentation"))
+
     for item in distance_transforms:
-        candidates.append(
-            (f"{item}_distance_transform", "distance_transform")
-        )  # clear, what about sqrt(dt), 1-dt, sqrt(1-dt) ?
+        candidates.append((f"{item}_distance_transform", "distance_transform"))
+        # what about sqrt(dt), 1-dt, sqrt(1-dt) ?
+
     for item in distance_transforms:
         candidates.append(
             (f"{item}_inverse_distance_transform", "inverse_distance_transform")
-        )  # clear
+        )
+
     for item in distance_transforms:
         candidates.append(
             (f"{item}_sqrt_distance_transform", "inverse_distance_transform")
-        )  # clear
+        )
+
     for item in distance_transforms:
         candidates.append(
             (f"{item}_inverse_sqrt_distance_transform", "inverse_distance_transform")
-        )  # clear
+        )
+
     for item in bounding_boxes:
-        candidates.append((f"{item}_bbox", "bounding_box"))  # clear
+        candidates.append((f"{item}_bbox", "bounding_box"))
         # learn four layer output (ltrb) separately,
         # learn associated centerness separately or on the same branch ?
         # centerness vs. inner center ?
+
     for item in centerness:
-        candidates.append((f"{item}_centerness", "centerness"))  # clear
+        candidates.append((f"{item}_centerness", "centerness"))
         # binary cross entropy, or focal loss
         # modified centerness d = (1 - centerness**2)**2
+
     for item in inner_centers:
-        candidates.append((f"{item}_inner_center", "inner_center"))  # clear
+        candidates.append((f"{item}_inner_center", "inner_center"))
         # modified centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance),
         # for point p
         # xv, yv = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
@@ -520,12 +535,14 @@ def main():
         # d = d / d.max()
         # d = (1 - d)**2
         # if p not present d = -1
+
     for item in extreme_points:
         candidates.append((f"{item}_extreme_points", "extreme_points"))
         # heatmap for every class of objects and every type of point
         # + offset to the center_of_mass (x, y, 2 layers)
         # + size of the object (width and height, 2 layers)
         # + area of the object (1 layer)
+
     for item in eigen_points:
         candidates.append((f"{item}_eigen_points", "eigen_points"))
         # heatmap for every class of objects and every type of point
@@ -535,17 +552,24 @@ def main():
         # + area of the object (1 layer)
         # + euler number (1 layer)
         # + solidity (1 layer)
+
     for item in encoded_shapes:
         candidates.append((f"{item}_shape", "encoded_shape"))
         # C (e.g. C=20) layer output
+
     for item in categorical:
-        candidates.append((item, "categorical_segmentation"))  # clear
+        candidates.append((item, "categorical_segmentation"))
+
     for item in encoders:
-        candidates.append((item, "encoder"))  # clear
+        candidates.append((item, "encoder"))
+
     for item in points:
-        candidates.append((item, "point"))  # clear
+        candidates.append((item, "point"))
         # heatmap for every type of point
 
+    for item in classifications:
+        candidates.append((item, f"{classifications[item]} classification"))
+    
     candidates = dict(candidates)
 
     import argparse
@@ -559,7 +583,7 @@ def main():
             "--%s" % candidate,
             default=1 if candidate in default_active else 0,
             type=int,
-            help="learn %s" % candidate,
+            help=f"learn {candidate} ({candidates[candidate]})",
         )
 
     parser.add_argument(
