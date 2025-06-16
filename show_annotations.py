@@ -334,8 +334,8 @@ def get_hierarchy_from_masks(
         "crystal",
         "loop_inside",
         "loop",
-        "pin",
         "stem",
+        "pin",
         "foreground",
         "background",
     ],
@@ -1608,9 +1608,13 @@ def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
 def get_objects_of_interest(
     json_file, fractional=False, unit_square=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
 ):
+    if os.path.isfile(json_file):
+        json_file = load_json(json_file)
+        
     image = get_image(json_file)
     image_shape = np.array(image.shape[:2])
-
+    image_path = json_file["imagePath"]
+    
     points, indices, labels, properties = [], [], [], []
 
     for shape in get_shapes(json_file):
@@ -1644,6 +1648,7 @@ def get_objects_of_interest(
     objects_of_interest = {
         "image": image,
         "image_shape": image_shape,
+        "image_path": image_path,
         "fractional": fractional,
         "labels": labels,
         "indices": indices,
