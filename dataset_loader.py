@@ -15,12 +15,9 @@ from skimage.transform import resize
 from tensorflow.keras.preprocessing.image import apply_affine_transform
 import keras
 from keras.utils import to_categorical
-from keras.preprocessing.image import (
-    save_img,
-    load_img,
-    img_to_array,
-    array_to_img,
-)
+from keras.preprocessing.image import save_img, load_img, img_to_array, array_to_img
+
+from show_annotations import get_objects_of_interest
 
 
 def path_to_input_image(path):
@@ -241,15 +238,9 @@ def flip_axis(x, axis):
 
 
 def get_transposed_img_and_target(img, target):
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(img.shape)))
+    new_axes_order = (1, 0) + tuple(range(2, len(img.shape)))
     img = np.transpose(img, new_axes_order)
-    new_axes_order = (
-        1,
-        0,
-    ) + tuple(range(2, len(target.shape)))
+    new_axes_order = (1, 0) + tuple(range(2, len(target.shape)))
     target = np.transpose(target, new_axes_order)  # [:len(target.shape)])
     return img, target
 
@@ -570,11 +561,7 @@ class CrystalClickDataset(keras.utils.Sequence):
 
 def get_data_augmentation():
     data_augmentation = keras.Sequential(
-        [
-            layers.RandomRotation(0.5),
-            layers.RandomFlip(),
-            layers.RandomZoom(0.2),
-        ]
+        [layers.RandomRotation(0.5), layers.RandomFlip(), layers.RandomZoom(0.2)]
     )
     return data_augmentation
 
@@ -961,3 +948,484 @@ class MultiTargetDataset(keras.utils.Sequence):
             return x, y
         else:
             return x
+
+
+class JsonDataset(keras.utils.Sequence):
+    def __init__(
+        self,
+        annotations,
+        batch_size=1,
+        dynamic_batch_size=False,
+        number_batch_size_scales=32,
+        img_size=(256, 320),
+        possible_ratios=[0.75, 1.0],
+        augment=False,
+        transform=True,
+        transpose=True,
+        flip=True,
+        swap_backgrounds=True,
+        zoom_factor=0.25,
+        shift_factor=0.25,
+        shear_factor=45,
+        default_transform_gang=[0, 0, 0, 0, 1, 1],
+        black_and_white=True,
+        random_brightness=True,
+        random_channel_shift=False,
+        threshold=0.5,
+        min_scale=0.15,
+        max_scale=1.0,
+        pixel_budget=768 * 992,
+        artificial_size_increase=1,
+        
+        parameters={
+            "binary_segmentation": {
+                channels=1,
+                dtype="int8",
+            },
+            "distance_transform": {
+                channels=1,
+                dtype="float32",
+            },
+            "encoder": {
+                channels=None, # to be determined later
+                dtype="float32",
+            },
+            "categorical_segmentation": {
+                channels=None, # to be determined later
+                dtype="float32",
+            },
+            "encoded_shape": {
+                channels=21, # may make it a variable + centerness ?
+                dtype="float32",
+            },
+            "points": {
+                channels=1,
+                dtype="float32",
+            },
+            "point": {
+                channels=None,
+                dtype="float32",
+            },
+            "classification": {
+                channels=None,
+                dtype="int8",
+            },
+            "bounding_box": {
+                channels=5, # ltrb + centerness
+                dtype="float32",
+            },
+            
+            
+        },
+            
+        targets={
+            # binary segmentations
+            "crystal": {"type": "binary_segmentation"},
+            "loop_inside": {"type": "binary_segmentation"},
+            "loop": {"type": "binary_segmentation"},
+            "area_of_interest": {"type": "binary_segmentation"},
+            "stem": {"type": "binary_segmentation"},
+            "support": {"type": "binary_segmentation"},
+            "explorable": {"type": "binary_segmentation"},
+            "pin": {"type": "binary_segmentation"},
+            "foreground": {"type": "binary_segmentation"},
+            "aether": {"type": "binary_segmentation"},
+            
+            # distance transforms
+            "crystal_dt": {"type": "distance_transform"},
+            "loop_inside_dt": {"type": "distance_transform"},
+            "loop_dt": {"type": "distance_transform"},
+            "area_of_interest_dt": {"type": "distance_transform"},
+            "stem_dt": {"type": "distance_transform"},
+            "support_dt": {"type": "distance_transform"},
+            "explorable_dt": {"type": "distance_transform"},
+            "pin_dt": {"type": "distance_transform"},
+            "foreground_dt": {"type": "distance_transform"},
+            "aether_dt": {"type": "distance_transform"},
+            
+            # bounding boxes
+            "crystal_bbox": {"type": "bounding_box"},
+            "loop_inside_bbox": {"type": "bounding_box"},
+            "loop_bbox": {"type": "bounding_box"},
+            "area_of_interest_bbox": {"type": "bounding_box"},
+            "stem_bbox": {"type": "bounding_box"},
+            "support_bbox": {"type": "bounding_box"},
+            "explorable_bbox": {"type": "bounding_box"},
+            "pin_bbox": {"type": "bounding_box"},
+            "foreground_bbox": {"type": "bounding_box"},
+            "aether_bbox": {"type": "bounding_box"},
+            
+            # encoded shapes
+            "crystal_chebyshev": {"type": "encoded_shape"},
+            "loop_inside_chebyshev": {"type": "encoded_shape"},
+            "loop_chebyshev": {"type": "encoded_shape"},
+            "area_of_interest_chebyshev": {"type": "encoded_shape"},
+            "stem_chebyshev": {"type": "encoded_shape"},
+            "pin_chebyshev": {"type": "encoded_shape"},
+            
+            # encoders and categorical segmentation
+            "hierarchy": {"type": "categorical_segmentation"},
+            "identity": {"type": "encoder"},
+            "identity_bw": {"type": "encoder"},
+            
+            # unique points
+            "most_likely_click": {"type": "point"},
+            "extreme": {"type": "point"},
+            "end_likely": {"type": "point"},
+            "start_likely": {"type": "point"},
+            "start_possible": {"type": "point"},
+            "origin": {"type": "point"},
+            
+            # key points
+            "keypoints": {"type": "points"},
+            
+            # classifications
+            "anything": {"type": "classification"},
+            "plate_content": {"type": "classification"},
+            "ice": {"type": "classification"},
+            "loop_type": {"type": "classification"},
+            
+                        
+        },
+        
+        hierarchy_notions=[
+            "crystal",
+            #"ice",
+            #"dust",
+            #"loop_inside",
+            #"loop",
+            "area_of_interest",
+            "support",
+            "pin",
+            #"stem",
+            #"capillary",
+            "drop",
+            "foreground",
+            "background",
+        ],
+        notion_importance={
+            "crystal": 1,
+            "loop_inside": 2,
+            "loop": 3,
+            "area_of_interest": 3.5,
+            "stem": 4,
+            "support": 4.5,
+            "pin": 5,
+            "ice": 7,
+            "drop": 9,
+            "foreground": 10,
+            "not_background": 11,
+            "background": 100.0,
+        },
+        shuffle_at_0=False,
+        target=True,
+        verbose=False,
+        workers=10,
+        use_multiprocessing=True,
+        max_queue_size=10,
+    ):
+        super().__init__(
+            workers=workers,
+            use_multiprocessing=use_multiprocessing,
+            max_queue_size=max_queue_size,
+        )
+
+        self.annotations = annotations
+
+        self.batch_size = batch_size
+        self.dynamic_batch_size = dynamic_batch_size
+        if self.dynamic_batch_size:
+            self.batch_size = 1
+        self.possible_scales = np.linspace(
+            min_scale, max_scale, number_batch_size_scales
+        )
+        self.img_size = img_size
+        self.possible_ratios = possible_ratios
+
+        # augmentation parameters
+        self.augment = augment
+        self.transform = transform
+        self.transpose = transpose
+        self.flip = flip
+        self.swap_backgrounds = swap_backgrounds
+        self.zoom_factor = zoom_factor
+        self.shift_factor = shift_factor
+        self.shear_factor = shear_factor
+        self.default_transform_gang = np.array(default_transform_gang)
+        self.black_and_white = black_and_white
+        self.random_brightness = random_brightness
+        self.random_channel_shift = random_channel_shift
+        self.threshold = 0.5  # used in augmentation
+
+        self.pixel_budget = pixel_budget
+        self.artificial_size_increase = artificial_size_increase
+        # if artificial_size_increase > 1:
+        # self.annotations = annotations * int(artificial_size_increase)
+        # else:
+        self.hierarchy_notions = hierarchy_notions
+        self.notion_importance = notion_importance
+
+        self.oois = [get_objects_of_interest(annotation) for annotation in annotations]
+        self.nsamples = len(self.oois)
+        
+        if self.swap_backgrounds:
+            self.backgrounds = [
+                ooi for ooi in self.oois if "background" in ooi["image_path"]
+            ]
+
+        self.shuffle_at_0 = shuffle_at_0
+        self.target = target
+
+        self.verbose = verbose
+
+    def __len__(self):
+        return self.nsamples
+
+    def __getitem__(self, idx):
+        if idx == 0 and self.shuffle_at_0:
+            random.Random().shuffle(self.oois)
+
+        img_size, batch = self.get_img_size_and_batch()
+        final_img_size = img_size[:]
+        batch_size = len(batch)
+        
+        x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
+        y = self.get_empty_batch(batch_size, final_img_size)
+
+        for j, ooi in enumerate(batch):
+            x[j], y[j] = self.get_sample(ooi)
+            
+        if self.target and len(y) == 1:
+            y = y[0]
+
+        return x, y if self.target else x
+    
+    def get_empty_batch(self, batch_size, final_img_size):
+        y = []
+        for target in self.targets:
+            name = target["name"]
+            dtype = target["dtype"]
+            channels = target["channels"]
+            
+            output = np.zeros((batch_size,) + final_img_size + (channels,), dtype=dtype)
+            y.append(output)
+            
+            
+            #if "click" not in notion and notion not in ["identity", "hierarchy"]:
+                #y.append()
+            #elif notion == "identity":
+                #y.append(
+                    #np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
+                #)
+            #elif notion == "hierarchy":
+                #y.append(
+                    #np.zeros(
+                        #(batch_size,) + final_img_size + (self.hierarchy_num_classes,),
+                        #dtype="float32",
+                    #)
+                #)
+            #else:
+                #y.append(np.zeros((batch_size,) + (3,), dtype="float32"))
+        return y
+    
+    
+    def get_img_size_and_batch(self):
+        if self.dynamic_batch_size:
+            img_size = get_img_size_as_scale_of_pixel_budget(
+                random.choice(self.possible_scales),
+                pixel_budget=self.pixel_budget,
+                ratio=random.choice(self.possible_ratios),
+            )
+            batch_size = get_dynamic_batch_size(
+                img_size, pixel_budget=self.pixel_budget
+            )
+            i = idx
+            batch = get_batch(i, self.oois, batch_size)
+        else:
+            img_size = self.img_size[:]
+            batch_size = self.batch_size
+            i = idx * self.batch_size
+            start_index = i
+            end_index = i + batch_size
+            batch = self.oois[start_index: end_index]
+        
+        return img_size, batch
+    
+    def get_augment_control(self):
+        do_flip = False
+        do_transpose = False
+        do_transform = False
+        do_swap_backgrounds = False
+        do_black_and_white = False
+        do_random_brightness = False
+        do_random_channel_shift = False
+        if self.augment:
+            if self.transform and random.random() < self.threshold:
+                do_transform = True
+                if self.verbose:
+                    print("do_transform")
+            if self.transpose and random.random() < self.threshold:
+                final_img_size = img_size[::-1]
+                do_transpose = True
+                if self.verbose:
+                    print("do_transpose")
+                if self.flip and random.random() < self.threshold:
+                    do_flip = True
+                    if self.verbose:
+                        print("do_flip")
+            else:
+                if self.flip and random.random() < self.threshold:
+                    do_flip = True
+                    if self.verbose:
+                        print("do_flip")
+            if self.swap_backgrounds and random.random() < self.threshold / 2:
+                do_swap_backgrounds = True
+                if self.verbose:
+                    print("do_swap_backgrounds")
+            if self.black_and_white and random.random() < self.threshold / 2:
+                do_black_and_white = True
+                if self.verbose:
+                    print("do_black_and_white")
+            if self.random_brightness and random.random() < self.threshold / 2:
+                do_random_brightness = True
+                if self.verbose:
+                    print("do_random_brightness")
+            if (
+                not do_black_and_white
+                and self.random_channel_shift
+                and random.random() < self.threshold / 2
+            ):
+                do_random_channel_shift = True
+                if self.verbose:
+                    print("do_random_channel_shift")
+        return (
+            do_flip,
+            do_transpose,
+            do_transform,
+            do_swap_backgrounds,
+            do_black_and_white,
+            do_random_brightness,
+            do_random_channel_shift,
+        )
+
+    
+    
+    def get_sample(self, ooi):
+        resize_factor = 1.0
+        img = ooi["image"]
+        original_size = ooi["image_shape"]
+
+        do_flip, do_transpose, do_transform, do_swap_backgrounds, do_black_and_white, do_random_brightness, do_random_channel_shift = (
+            self.get_augment_control()
+        )
+        
+        if size_differs(original_size, final_img_size):
+            resize_factor = np.array(final_img_size) / np.array(original_size)
+
+        if self.target and np.all(
+            target[:, :, self.notions.index("foreground")] == 0
+        ):
+            do_swap_backgrounds = False
+
+        if do_transpose is True:
+            img, target = get_transposed_img_and_target(img, target)
+
+        if do_flip is True:
+            img, target = get_flipped_img_and_target(img, target)
+
+        if do_transform is True:
+            img, target = get_transformed_img_and_target(
+                img,
+                target,
+                zoom_factor=self.zoom_factor,
+                shift_factor=self.shift_factor,
+                shear_factor=self.shear_factor,
+            )
+
+        if do_swap_backgrounds is True and "background" not in img_path:
+            new_background = random.choice(self.backgrounds)
+            if size_differs(img.shape[:2], new_background.shape[:2]):
+                new_background = resize(
+                    new_background, img.shape[:2], anti_aliasing=True
+                )
+            img[
+                target[:, :, self.notions.index("foreground")] == 0
+            ] = new_background[target[:, :, self.notions.index("foreground")] == 0]
+
+        if do_random_brightness is True:
+            img = image.random_brightness(img, [0.75, 1.25]) / 255.0
+
+        if do_random_channel_shift is True:
+            img = image.random_channel_shift(img, 0.5, channel_axis=2)
+
+        if size_differs(img.shape[:2], final_img_size):
+            img = resize(img, final_img_size, anti_aliasing=True)
+            if self.target:
+                target = resize(
+                    target.astype("float32"),
+                    final_img_size,
+                    mode="constant",
+                    cval=0,
+                    anti_aliasing=False,
+                    preserve_range=True,
+                )
+
+        if do_black_and_white or self.identity:
+            img_bw = img.mean(axis=2)
+
+        if self.augment and self.consider_click() and click_present:
+            transformed_click = target[:, :, -1]
+            user_click = np.unravel_index(
+                np.argmax(transformed_click), transformed_click.shape
+            )[:2]
+            user_click_frac = np.array(user_click) / np.array(final_img_size)
+            if self.click == "click_segmentation":
+                cpi = get_cpi_from_user_click(
+                    user_click,
+                    final_img_size,
+                    resize_factor,
+                    img_path + "augment",
+                    click_radius=self.click_radius,
+                    zoom=zoom,
+                    scale_click=self.scale_click,
+                )
+                target[:, :, -1] = cpi[:, :, 0]
+
+        if self.consider_click() and self.click == "click_segmentation":
+            target[:, :, :-1] = (target[:, :, :-1] > 0.5).astype("uint8")
+        elif self.consider_click() and self.click == "click_regression":
+            click_present = int(click_present)
+            y_click, x_click = user_click_frac
+        elif self.target:
+            target = (target > 0.5).astype("uint8")
+
+        if do_black_and_white:
+            img = np.stack([img_bw] * 3, axis=2)
+
+        if self.hierarchy:
+            # print('target', target.shape, target.min(), target.max())
+            hierarchy = get_hierarchical_mask_from_target(
+                target,
+                notions=self.hierarchy_notions,
+                notion_indices=self.notion_indices,
+            )
+            # print('hierarchy', hierarchy.shape, hierarchy.min(), hierarchy.max())
+            hierarchy = to_categorical(
+                hierarchy, num_classes=self.hierarchy_num_classes
+            )
+            # print('categorical', hierarchy.shape, hierarchy.min(), hierarchy.max())
+        x[j] = img
+        if self.target:
+            for k, notion in enumerate(self.notions):
+                if notion in self.notion_indices:
+                    l = self.notion_indices[notion]
+                    if l != -1:
+                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
+                    elif l == -1 and self.click == "click_segmentation":
+                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
+                    elif l == -1 and self.click == "click_regression":
+                        y[k][j] = np.array([click_present, y_click, x_click])
+                elif notion == "identity":
+                    y[k][j] = np.expand_dims(img_bw, axis=2)
+                elif notion == "hierarchy":
+                    y[k][j] = hierarchy
