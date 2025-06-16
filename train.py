@@ -415,6 +415,7 @@ def main():
         "pin",
         "area_of_interest",
         "support",
+        "explorable",
         "drop",
         # "precipitate"
         "hierarchy",
@@ -422,7 +423,7 @@ def main():
         "identity_bw",
         "foreground",
         "aether",
-        "explorable",
+        
     ]
 
     binary_segmentations = [
@@ -468,7 +469,7 @@ def main():
         del eigen_points[eigen_points.index(notion)]
 
     encoded_shapes = copy.copy(binary_segmentations)
-    for notion in ["ice", "diffracting_area", "aether", "support", "foreground"]:
+    for notion in ["ice", "diffracting_area", "aether", "support", "explorable", "foreground"]:
         del encoded_shapes[encoded_shapes.index(notion)]
 
     categorical = ["hierarchy"]
