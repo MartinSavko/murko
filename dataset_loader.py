@@ -977,43 +977,7 @@ class JsonDataset(keras.utils.Sequence):
         pixel_budget=768 * 992,
         artificial_size_increase=1,
         
-        parameters={
-            "binary_segmentation": {
-                channels=1,
-                dtype="int8",
-            },
-            "distance_transform": {
-                channels=1,
-                dtype="float32",
-            },
-            "encoder": {
-                channels=None, # to be determined later
-                dtype="float32",
-            },
-            "categorical_segmentation": {
-                channels=None, # to be determined later
-                dtype="float32",
-            },
-            "encoded_shape": {
-                channels=21, # may make it a variable + centerness ?
-                dtype="float32",
-            },
-            "points": {
-                channels=1,
-                dtype="float32",
-            },
-            "point": {
-                channels=None,
-                dtype="float32",
-            },
-            "classification": {
-                channels=None,
-                dtype="int8",
-            },
-            "bounding_box": {
-                channels=5, # ltrb + centerness
-                dtype="float32",
-            },
+        
             
             
         },
