@@ -1396,19 +1396,19 @@ class JsonDataset(keras.utils.Sequence):
         if size_differs(original_size, final_img_size):
             resize_factor = np.array(final_img_size) / np.array(original_size)
 
-        if self.target and np.all(target[:, :, self.notions.index("foreground")] == 0):
+        if "foreground" not in ooi["labels"]:
             do_swap_backgrounds = False
 
         if do_transpose is True:
-            img, target = get_transposed_img_and_target(img, target)
+            img, ooi = get_transposed_img_and_target(img, ooi)
 
         if do_flip is True:
-            img, target = get_flipped_img_and_target(img, target)
+            img, ooi = get_flipped_img_and_target(img, ooi)
 
         if do_transform is True:
-            img, target = get_transformed_img_and_target(
+            img, ooi = get_transformed_img_and_target(
                 img,
-                target,
+                ooi,
                 zoom_factor=self.zoom_factor,
                 shift_factor=self.shift_factor,
                 shear_factor=self.shear_factor,
@@ -1420,8 +1420,8 @@ class JsonDataset(keras.utils.Sequence):
                 new_background = resize(
                     new_background, img.shape[:2], anti_aliasing=True
                 )
-            img[target[:, :, self.notions.index("foreground")] == 0] = new_background[
-                target[:, :, self.notions.index("foreground")] == 0
+            img[ooi["masks"]["foreground"]] == 0] = new_background[
+                ooi["masks"]["foreground"]] == 0
             ]
 
         if do_random_brightness is True:
