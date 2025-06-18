@@ -4,25 +4,49 @@
 import copy
 
 a = """How to represent and learn points ?
-    I see two options: 
-      a) learn offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
-          1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
-          2.) each category of points has one learing output i.e. "inner_centers"
-           each learning location than learns offset to the nearest inner point.
-      b) learn 2d representation of point locations, 
-          1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
-              What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
-              **) "extreme_points" has one output (four peak gaussian mixture)
-                  "start_likely" has one output (one gaussian)
-          2.) offset learners they learn x, y distance to the nearest keypoint
-    
-    What should offset learners do if there is no point of interest present?
-      a) do nothing ?
-      b) learn to report there is nothing by returning something specific e.g. -1 ?
-    
-    Learning bbox_centers? (centerness)
-             inner_centers?"""
+I see two options: 
 
+a) learn offset(s) from point for each learning location i.e. have two location maps, one for horizontal offset and one for vertical offset. 
+    1.) have separate head for each of the point categories. i.e. "loop_inner_point" would be learned separately from "crystal_inner_point". ( But what if we have more then one crystal in the image?)
+    2.) each category of points has one learing output i.e. "inner_centers"
+    each learning location than learns offset to the nearest inner point.
+
+b) learn 2d representation of point locations, 
+    1.) a supperposition of gaussians for "inner_centers", "centroids", "bbox_centers". 
+        What about "extreme_points", "eigen_points" and "global_keypoints"? *) Each subcategory e.g. "extreme_point_topmost" or "extreme" or "start_likely" has a separate output.
+        **) "extreme_points" has one output (four peak gaussian mixture)
+            "start_likely" has one output (one gaussian)
+    2.) offset learners they learn x, y distance to the nearest keypoint
+
+c) 3 layer output
+   1 layer per distance (distance transform or its inverse or a gaussian)
+   1 layer per horizontal offset
+   1 layer per vertical offset
+   
+What should offset learners do if there is no point of interest present?
+a) do nothing ?
+b) learn to report there is nothing by returning something specific e.g. -1 ?
+
+Learning bbox_centers? (centerness) inner_centers?
+"""
+
+b = """ How to represent and learn bounding box, ellipse and minimal rectangle?
+Treat it as something real?!
+a) 4 layers output (ltrb)
+   1 layer for centerness (centerness vs. inner center ?)
+   # pleasing aspect is that every pixel predict slightly different value
+b) segment
+c) 4 layers, each pixel predicts the same 4 numbers
+   1 layer for centerness
+d) distance transform
+e) inverse distance transform
+"""
+
+c = """ How to represent and learn scalar region properties?
+a) 2 layer output
+   1 layer per scalar, the same for all pixels in the designated area
+   1 layer per distance transform or its inverse
+"""
 
 def get_candidates(
     concepts=[
@@ -99,7 +123,7 @@ def get_candidates(
         "encoder": {"channels": None, "dtype": "float32"},
         "categorical_segmentation": {"channels": None, "dtype": "float32"},
         # may make it a variable + centerness ?
-        "encoded_shape": {"channels": 21, "dtype": "float32"},
+        "encoded_shape": {"channels": 1 + 21, "dtype": "float32"},
         "keypoint": {"channels": 1 + 2, "dtype": "float32"},
         "classification": {"channels": None, "dtype": "int8"},
     },
@@ -133,15 +157,43 @@ def get_candidates(
         "inverse_distance_transform": distance_transform_concepts,
         "sqrt_distance_transform": distance_transform_concepts,
         "sqrt_inverse_distance_transform": distance_transform_concepts,
+        
         # regressions
         "bounding_box": bounding_box_concepts,
-        # learn four layer output (ltrb) separately,
-        # learn associated centerness separately or on the same branch ?
+        # 4 layers output (ltrb),
+        # learn associated centerness on the same branch,
         # centerness vs. inner center ?
+        "bounding_box_boring": bouding_box_concepts,
+        # every pixel within designated area predicts the same 4 numbers
+        # 4 layers w, h, x, y
+        # 1 layer centerness
+        "bounding_box_segment": bounding_box_concepts,
+        # learn bounding_box mask in 1 layer
+        "bouding_box_distance_transform": bouding_box_concepts,
+        # 1 layer
+        "bouding_box_inverse_distance_transform": bouding_box_concepts,
+        # 1 layer
+        
         "min_rectangle": bounding_box_concepts,
-        "moments": bounding_box_concepts,
+        # 4 layers ltrb within coordinate system of the rectangle
+        # 1 layer for orientation
+        "min_rectangle_segment": bouding_box_concepts,
+        # 1 layer for min_rectangle mask
+        
         "ellipse": bounding_box_concepts,
+        # 4 layers ltrb within coordinate system of the ellipse
+        # 1 layer for orientation
+        
+        "moments": bounding_box_concepts,
+        # 9 layers, 1 layer per each moment
+        # single number per each pixel within the area
+        # 1 layer per distance transform
+        
         "regionprops": bounding_box_concepts,
+        # N layers, 1 layer per property, 
+        # single number per each pixel within the area
+        # 1 layer per distance transform
+        
         "inner_center": bounding_box_concepts,
         # modified centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance),
         # for point p
@@ -150,14 +202,20 @@ def get_candidates(
         # d = d / d.max()
         # d = (1 - d)**2
         # if p not present d = -1
+        
         "centerness": bounding_box_concepts,
         # binary cross entropy, or focal loss
         # modified centerness d = (1 - centerness**2)**2
+        
         "extreme_points": bounding_box_concepts,
         # heatmap for every class of objects and every type of point
         # + offset to the center_of_mass (x, y, 2 layers)
         # + size of the object (width and height, 2 layers)
         # + area of the object (1 layer)
+        # inverse distance transform
+        # point distance map
+        # 2 layers of offsets for each of the point categories
+        
         "eigen_points": bounding_box_concepts,
         # heatmap for every class of objects and every type of point
         # + major_axis, minor_axis (2 layers)
@@ -166,8 +224,15 @@ def get_candidates(
         # + area of the object (1 layer)
         # + euler number (1 layer)
         # + solidity (1 layer)
+        # inverse distance transform
+        # point distance map
+        # 2 layers of offsets for each of the point categories
+        
         "encoded_shape": encoded_shape_concepts,
-        # C (e.g. C=20) layer output
+        # C (e.g. C=21) layer output
+        # each pixel within designated area predicts the same value
+        # each pixel predicts its distance transform
+        # each pixel predicts its inverse distance transform
     }
 
     candidates = []
