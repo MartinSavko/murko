@@ -976,93 +976,279 @@ class JsonDataset(keras.utils.Sequence):
         max_scale=1.0,
         pixel_budget=768 * 992,
         artificial_size_increase=1,
-        
-        
-            
-            
-        },
-            
-        targets={
-            # binary segmentations
-            "crystal": {"type": "binary_segmentation"},
-            "loop_inside": {"type": "binary_segmentation"},
-            "loop": {"type": "binary_segmentation"},
-            "area_of_interest": {"type": "binary_segmentation"},
-            "stem": {"type": "binary_segmentation"},
-            "support": {"type": "binary_segmentation"},
-            "explorable": {"type": "binary_segmentation"},
-            "pin": {"type": "binary_segmentation"},
-            "foreground": {"type": "binary_segmentation"},
-            "aether": {"type": "binary_segmentation"},
-            
-            # distance transforms
-            "crystal_dt": {"type": "distance_transform"},
-            "loop_inside_dt": {"type": "distance_transform"},
-            "loop_dt": {"type": "distance_transform"},
-            "area_of_interest_dt": {"type": "distance_transform"},
-            "stem_dt": {"type": "distance_transform"},
-            "support_dt": {"type": "distance_transform"},
-            "explorable_dt": {"type": "distance_transform"},
-            "pin_dt": {"type": "distance_transform"},
-            "foreground_dt": {"type": "distance_transform"},
-            "aether_dt": {"type": "distance_transform"},
-            
-            # bounding boxes
-            "crystal_bbox": {"type": "bounding_box"},
-            "loop_inside_bbox": {"type": "bounding_box"},
-            "loop_bbox": {"type": "bounding_box"},
-            "area_of_interest_bbox": {"type": "bounding_box"},
-            "stem_bbox": {"type": "bounding_box"},
-            "support_bbox": {"type": "bounding_box"},
-            "explorable_bbox": {"type": "bounding_box"},
-            "pin_bbox": {"type": "bounding_box"},
-            "foreground_bbox": {"type": "bounding_box"},
-            "aether_bbox": {"type": "bounding_box"},
-            
-            # encoded shapes
-            "crystal_chebyshev": {"type": "encoded_shape"},
-            "loop_inside_chebyshev": {"type": "encoded_shape"},
-            "loop_chebyshev": {"type": "encoded_shape"},
-            "area_of_interest_chebyshev": {"type": "encoded_shape"},
-            "stem_chebyshev": {"type": "encoded_shape"},
-            "pin_chebyshev": {"type": "encoded_shape"},
-            
-            # encoders and categorical segmentation
-            "hierarchy": {"type": "categorical_segmentation"},
-            "identity": {"type": "encoder"},
-            "identity_bw": {"type": "encoder"},
-            
-            # unique points
-            "most_likely_click": {"type": "point"},
-            "extreme": {"type": "point"},
-            "end_likely": {"type": "point"},
-            "start_likely": {"type": "point"},
-            "start_possible": {"type": "point"},
-            "origin": {"type": "point"},
-            
-            # key points
-            "keypoints": {"type": "points"},
-            
-            # classifications
-            "anything": {"type": "classification"},
-            "plate_content": {"type": "classification"},
-            "ice": {"type": "classification"},
-            "loop_type": {"type": "classification"},
-            
-                        
-        },
-        
+        heads=[
+            {
+                "name": "crystal",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "area_of_interest",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "loop_inside",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "loop",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "stem",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "pin",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "ice",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "capillary",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "foreground",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "aether",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "explorable",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "support",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "drop",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "diffracting_area",
+                "task": "binary_segmentation",
+                "dtype": "int8",
+                "channels": 1,
+            },
+            {
+                "name": "crystal",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "area_of_interest",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "loop_inside",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "loop",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "stem",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "pin",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "capillary",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "foreground",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "aether",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "explorable",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "support",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "drop",
+                "task": "distance_transform",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "hierarchy_detailed",
+                "task": "categorical_segmentation",
+                "dtype": "float32",
+                "channels": 7,
+                "concepts": [
+                    "crystal",
+                    "loop_inside",
+                    "loop",
+                    "stem",
+                    "pin",
+                    "foreground",
+                    "background",
+                ],
+            },
+            {
+                "name": "hierarchy_crystal_aoi_support_pin",
+                "task": "categorical_segmentation",
+                "dtype": "float32",
+                "channels": 6,
+                "concepts": [
+                    "crystal",
+                    "area_of_interest",
+                    "support",
+                    "pin",
+                    "foreground",
+                    "background",
+                ],
+            },
+            {
+                "name": "hierarchy_aoi",
+                "task": "categorical_segmentation",
+                "dtype": "float32",
+                "channels": 3,
+                "concepts": ["area_of_interest", "foreground", "background"],
+            },
+            {
+                "name": "hierarchy_crystal",
+                "task": "categorical_segmentation",
+                "dtype": "float32",
+                "channels": 3,
+                "concepts": ["crystal", "foreground", "background"],
+            },
+            {"name": "identity", "task": "encoder", "dtype": "float32", "channels": 3},
+            {
+                "name": "identity_bw",
+                "task": "encoder",
+                "dtype": "float32",
+                "channels": 1,
+            },
+            {
+                "name": "most_likely_click",
+                "task": "keypoint",
+                "dtype": "float32",
+                "channels": 3,
+            },
+            {"name": "extreme", "task": "keypoint", "dtype": "float32", "channels": 3},
+            {
+                "name": "end_likely",
+                "task": "keypoint",
+                "dtype": "float32",
+                "channels": 3,
+            },
+            {
+                "name": "start_likely",
+                "task": "keypoint",
+                "dtype": "float32",
+                "channels": 3,
+            },
+            {
+                "name": "start_possible",
+                "task": "keypoint",
+                "dtype": "float32",
+                "channels": 3,
+            },
+            {"name": "origin", "task": "keypoint", "dtype": "float32", "channels": 3},
+            {
+                "name": "anything",
+                "task": "classification",
+                "dtype": "int8",
+                "channels": 1,
+                "concepts": ["foreground"],
+            },
+            {
+                "name": "plate_content",
+                "task": "classification",
+                "dtype": "int8",
+                "channels": 4,
+                "concepts": ["crystals", "precipitate", "other", "clear"],
+            },
+            {
+                "name": "ice",
+                "task": "classification",
+                "dtype": "int8",
+                "channels": 1,
+                "concepts": ["ice"],
+            },
+            {
+                "name": "loop_type",
+                "task": "classification",
+                "dtype": "int8",
+                "channels": 4,
+                "concepts": ["standard", "mitegen", "crystal_direct", "void"],
+            },
+        ],
         hierarchy_notions=[
             "crystal",
-            #"ice",
-            #"dust",
-            #"loop_inside",
-            #"loop",
+            # "ice",
+            # "dust",
+            # "loop_inside",
+            # "loop",
             "area_of_interest",
             "support",
             "pin",
-            #"stem",
-            #"capillary",
+            # "stem",
+            # "capillary",
             "drop",
             "foreground",
             "background",
@@ -1126,12 +1312,13 @@ class JsonDataset(keras.utils.Sequence):
         # if artificial_size_increase > 1:
         # self.annotations = annotations * int(artificial_size_increase)
         # else:
+        self.heads = heads
         self.hierarchy_notions = hierarchy_notions
         self.notion_importance = notion_importance
 
         self.oois = [get_objects_of_interest(annotation) for annotation in annotations]
         self.nsamples = len(self.oois)
-        
+
         if self.swap_backgrounds:
             self.backgrounds = [
                 ooi for ooi in self.oois if "background" in ooi["image_path"]
@@ -1145,54 +1332,17 @@ class JsonDataset(keras.utils.Sequence):
     def __len__(self):
         return self.nsamples
 
-    def __getitem__(self, idx):
-        if idx == 0 and self.shuffle_at_0:
-            random.Random().shuffle(self.oois)
 
-        img_size, batch = self.get_img_size_and_batch()
-        final_img_size = img_size[:]
-        batch_size = len(batch)
-        
-        x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
-        y = self.get_empty_batch(batch_size, final_img_size)
-
-        for j, ooi in enumerate(batch):
-            x[j], y[j] = self.get_sample(ooi)
-            
-        if self.target and len(y) == 1:
-            y = y[0]
-
-        return x, y if self.target else x
-    
     def get_empty_batch(self, batch_size, final_img_size):
         y = []
-        for target in self.targets:
-            name = target["name"]
-            dtype = target["dtype"]
-            channels = target["channels"]
-            
-            output = np.zeros((batch_size,) + final_img_size + (channels,), dtype=dtype)
+        for head in self.heads:
+            output = np.zeros(
+                (batch_size,) + final_img_size + (head["channels"],),
+                dtype=head["dtype"],
+            )
             y.append(output)
-            
-            
-            #if "click" not in notion and notion not in ["identity", "hierarchy"]:
-                #y.append()
-            #elif notion == "identity":
-                #y.append(
-                    #np.zeros((batch_size,) + final_img_size + (1,), dtype="float32")
-                #)
-            #elif notion == "hierarchy":
-                #y.append(
-                    #np.zeros(
-                        #(batch_size,) + final_img_size + (self.hierarchy_num_classes,),
-                        #dtype="float32",
-                    #)
-                #)
-            #else:
-                #y.append(np.zeros((batch_size,) + (3,), dtype="float32"))
         return y
-    
-    
+
     def get_img_size_and_batch(self):
         if self.dynamic_batch_size:
             img_size = get_img_size_as_scale_of_pixel_budget(
@@ -1211,10 +1361,93 @@ class JsonDataset(keras.utils.Sequence):
             i = idx * self.batch_size
             start_index = i
             end_index = i + batch_size
-            batch = self.oois[start_index: end_index]
-        
+            batch = self.oois[start_index:end_index]
+
         return img_size, batch
     
+    def __getitem__(self, idx):
+        if idx == 0 and self.shuffle_at_0:
+            random.Random().shuffle(self.oois)
+
+        img_size, batch = self.get_img_size_and_batch()
+        final_img_size = img_size[:]
+        batch_size = len(batch)
+
+        x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
+        y = self.get_empty_batch(batch_size, final_img_size)
+
+        for j, ooi in enumerate(batch):
+            x[j], y[j] = self.get_sample(ooi, final_img_size)
+
+        if self.target and len(y) == 1:
+            y = y[0]
+
+        return x, y if self.target else x
+
+    def get_sample(self, ooi, final_img_size):
+        resize_factor = 1.0
+        img = ooi["image"]
+        original_size = ooi["image_shape"]
+
+        do_flip, do_transpose, do_transform, do_swap_backgrounds, do_black_and_white, do_random_brightness, do_random_channel_shift = (
+            self.get_augment_control()
+        )
+
+        if size_differs(original_size, final_img_size):
+            resize_factor = np.array(final_img_size) / np.array(original_size)
+
+        if self.target and np.all(target[:, :, self.notions.index("foreground")] == 0):
+            do_swap_backgrounds = False
+
+        if do_transpose is True:
+            img, target = get_transposed_img_and_target(img, target)
+
+        if do_flip is True:
+            img, target = get_flipped_img_and_target(img, target)
+
+        if do_transform is True:
+            img, target = get_transformed_img_and_target(
+                img,
+                target,
+                zoom_factor=self.zoom_factor,
+                shift_factor=self.shift_factor,
+                shear_factor=self.shear_factor,
+            )
+
+        if do_swap_backgrounds is True and "background" not in img_path:
+            new_background = random.choice(self.backgrounds)
+            if size_differs(img.shape[:2], new_background.shape[:2]):
+                new_background = resize(
+                    new_background, img.shape[:2], anti_aliasing=True
+                )
+            img[target[:, :, self.notions.index("foreground")] == 0] = new_background[
+                target[:, :, self.notions.index("foreground")] == 0
+            ]
+
+        if do_random_brightness is True:
+            img = image.random_brightness(img, [0.75, 1.25]) / 255.0
+
+        if do_random_channel_shift is True:
+            img = image.random_channel_shift(img, 0.5, channel_axis=2)
+
+        if size_differs(img.shape[:2], final_img_size):
+            img = resize(img, final_img_size, anti_aliasing=True)
+            if self.target:
+                target = resize(
+                    target.astype("float32"),
+                    final_img_size,
+                    mode="constant",
+                    cval=-1,
+                    anti_aliasing=False,
+                    preserve_range=True,
+                )
+
+        if do_black_and_white:
+            img_bw = img.mean(axis=2)
+            img = np.stack([img_bw] * 3, axis=2)
+
+        return img, y
+
     def get_augment_control(self):
         do_flip = False
         do_transpose = False
@@ -1271,125 +1504,3 @@ class JsonDataset(keras.utils.Sequence):
             do_random_brightness,
             do_random_channel_shift,
         )
-
-    
-    
-    def get_sample(self, ooi):
-        resize_factor = 1.0
-        img = ooi["image"]
-        original_size = ooi["image_shape"]
-
-        do_flip, do_transpose, do_transform, do_swap_backgrounds, do_black_and_white, do_random_brightness, do_random_channel_shift = (
-            self.get_augment_control()
-        )
-        
-        if size_differs(original_size, final_img_size):
-            resize_factor = np.array(final_img_size) / np.array(original_size)
-
-        if self.target and np.all(
-            target[:, :, self.notions.index("foreground")] == 0
-        ):
-            do_swap_backgrounds = False
-
-        if do_transpose is True:
-            img, target = get_transposed_img_and_target(img, target)
-
-        if do_flip is True:
-            img, target = get_flipped_img_and_target(img, target)
-
-        if do_transform is True:
-            img, target = get_transformed_img_and_target(
-                img,
-                target,
-                zoom_factor=self.zoom_factor,
-                shift_factor=self.shift_factor,
-                shear_factor=self.shear_factor,
-            )
-
-        if do_swap_backgrounds is True and "background" not in img_path:
-            new_background = random.choice(self.backgrounds)
-            if size_differs(img.shape[:2], new_background.shape[:2]):
-                new_background = resize(
-                    new_background, img.shape[:2], anti_aliasing=True
-                )
-            img[
-                target[:, :, self.notions.index("foreground")] == 0
-            ] = new_background[target[:, :, self.notions.index("foreground")] == 0]
-
-        if do_random_brightness is True:
-            img = image.random_brightness(img, [0.75, 1.25]) / 255.0
-
-        if do_random_channel_shift is True:
-            img = image.random_channel_shift(img, 0.5, channel_axis=2)
-
-        if size_differs(img.shape[:2], final_img_size):
-            img = resize(img, final_img_size, anti_aliasing=True)
-            if self.target:
-                target = resize(
-                    target.astype("float32"),
-                    final_img_size,
-                    mode="constant",
-                    cval=0,
-                    anti_aliasing=False,
-                    preserve_range=True,
-                )
-
-        if do_black_and_white or self.identity:
-            img_bw = img.mean(axis=2)
-
-        if self.augment and self.consider_click() and click_present:
-            transformed_click = target[:, :, -1]
-            user_click = np.unravel_index(
-                np.argmax(transformed_click), transformed_click.shape
-            )[:2]
-            user_click_frac = np.array(user_click) / np.array(final_img_size)
-            if self.click == "click_segmentation":
-                cpi = get_cpi_from_user_click(
-                    user_click,
-                    final_img_size,
-                    resize_factor,
-                    img_path + "augment",
-                    click_radius=self.click_radius,
-                    zoom=zoom,
-                    scale_click=self.scale_click,
-                )
-                target[:, :, -1] = cpi[:, :, 0]
-
-        if self.consider_click() and self.click == "click_segmentation":
-            target[:, :, :-1] = (target[:, :, :-1] > 0.5).astype("uint8")
-        elif self.consider_click() and self.click == "click_regression":
-            click_present = int(click_present)
-            y_click, x_click = user_click_frac
-        elif self.target:
-            target = (target > 0.5).astype("uint8")
-
-        if do_black_and_white:
-            img = np.stack([img_bw] * 3, axis=2)
-
-        if self.hierarchy:
-            # print('target', target.shape, target.min(), target.max())
-            hierarchy = get_hierarchical_mask_from_target(
-                target,
-                notions=self.hierarchy_notions,
-                notion_indices=self.notion_indices,
-            )
-            # print('hierarchy', hierarchy.shape, hierarchy.min(), hierarchy.max())
-            hierarchy = to_categorical(
-                hierarchy, num_classes=self.hierarchy_num_classes
-            )
-            # print('categorical', hierarchy.shape, hierarchy.min(), hierarchy.max())
-        x[j] = img
-        if self.target:
-            for k, notion in enumerate(self.notions):
-                if notion in self.notion_indices:
-                    l = self.notion_indices[notion]
-                    if l != -1:
-                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
-                    elif l == -1 and self.click == "click_segmentation":
-                        y[k][j] = np.expand_dims(target[:, :, l], axis=2)
-                    elif l == -1 and self.click == "click_regression":
-                        y[k][j] = np.array([click_present, y_click, x_click])
-                elif notion == "identity":
-                    y[k][j] = np.expand_dims(img_bw, axis=2)
-                elif notion == "hierarchy":
-                    y[k][j] = hierarchy
