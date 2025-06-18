@@ -123,7 +123,7 @@ def get_candidates(
         "encoder": {"channels": None, "dtype": "float32"},
         "categorical_segmentation": {"channels": None, "dtype": "float32"},
         # may make it a variable + centerness ?
-        "encoded_shape": {"channels": 1 + 21, "dtype": "float32"},
+        "encoded_shape": {"channels": 1 + 20, "dtype": "float32"},
         "keypoint": {"channels": 1 + 2, "dtype": "float32"},
         "classification": {"channels": None, "dtype": "int8"},
     },
