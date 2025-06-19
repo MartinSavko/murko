@@ -48,6 +48,7 @@ a) 2 layer output
    1 layer per distance transform or its inverse
 """
 
+
 def get_candidates(
     concepts=[
         "crystal",
@@ -157,7 +158,6 @@ def get_candidates(
         "inverse_distance_transform": distance_transform_concepts,
         "sqrt_distance_transform": distance_transform_concepts,
         "sqrt_inverse_distance_transform": distance_transform_concepts,
-        
         # regressions
         "bounding_box": bounding_box_concepts,
         # 4 layers output (ltrb),
@@ -173,27 +173,22 @@ def get_candidates(
         # 1 layer
         "bouding_box_inverse_distance_transform": bouding_box_concepts,
         # 1 layer
-        
         "min_rectangle": bounding_box_concepts,
         # 4 layers ltrb within coordinate system of the rectangle
         # 1 layer for orientation
         "min_rectangle_segment": bouding_box_concepts,
         # 1 layer for min_rectangle mask
-        
         "ellipse": bounding_box_concepts,
         # 4 layers ltrb within coordinate system of the ellipse
         # 1 layer for orientation
-        
         "moments": bounding_box_concepts,
         # 9 layers, 1 layer per each moment
         # single number per each pixel within the area
         # 1 layer per distance transform
-        
         "regionprops": bounding_box_concepts,
-        # N layers, 1 layer per property, 
+        # N layers, 1 layer per property,
         # single number per each pixel within the area
         # 1 layer per distance transform
-        
         "inner_center": bounding_box_concepts,
         # modified centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance),
         # for point p
@@ -202,11 +197,9 @@ def get_candidates(
         # d = d / d.max()
         # d = (1 - d)**2
         # if p not present d = -1
-        
         "centerness": bounding_box_concepts,
         # binary cross entropy, or focal loss
         # modified centerness d = (1 - centerness**2)**2
-        
         "extreme_points": bounding_box_concepts,
         # heatmap for every class of objects and every type of point
         # + offset to the center_of_mass (x, y, 2 layers)
@@ -215,7 +208,6 @@ def get_candidates(
         # inverse distance transform
         # point distance map
         # 2 layers of offsets for each of the point categories
-        
         "eigen_points": bounding_box_concepts,
         # heatmap for every class of objects and every type of point
         # + major_axis, minor_axis (2 layers)
@@ -227,7 +219,6 @@ def get_candidates(
         # inverse distance transform
         # point distance map
         # 2 layers of offsets for each of the point categories
-        
         "encoded_shape": encoded_shape_concepts,
         # C (e.g. C=21) layer output
         # each pixel within designated area predicts the same value
@@ -244,6 +235,7 @@ def get_candidates(
                 "task": cot,
                 "dtype": parameters[cot]["dtype"],
                 "channels": parameters[cot]["channels"],
+                "activation": "sigmoid",
             }
             candidates.append(task)
 
@@ -255,6 +247,7 @@ def get_candidates(
             "dtype": parameters[cot]["dtype"],
             "channels": len(concepts),
             "concepts": concepts,
+            "activation": "softmax",
         }
         candidates.append(task)
 
@@ -265,6 +258,7 @@ def get_candidates(
             "task": cot,
             "dtype": parameters[cot]["dtype"],
             "channels": 1 if "bw" in concept else 3,
+            "activation": "sigmoid",
         }
         candidates.append(task)
 
@@ -275,6 +269,7 @@ def get_candidates(
             "task": cot,
             "dtype": parameters[cot]["dtype"],
             "channels": parameters[cot]["channels"],
+            "activation": "sigmoid",
         }
         candidates.append(task)
         # heatmap for every type of point
@@ -287,6 +282,7 @@ def get_candidates(
             "dtype": parameters[cot]["dtype"],
             "channels": len(concepts),
             "concepts": concepts,
+            "activation": "softmax",
         }
         candidates.append(task)
 
