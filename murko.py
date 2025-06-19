@@ -25,18 +25,9 @@ import tensorflow as tf
 from tensorflow import keras
 from keras import regularizers, initializers
 
-from keras.callbacks import (
-    EarlyStopping,
-    ModelCheckpoint,
-    ReduceLROnPlateau,
-)
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.models import Model, load_model
-from keras.preprocessing.image import (
-    save_img,
-    load_img,
-    img_to_array,
-    array_to_img,
-)
+from keras.preprocessing.image import save_img, load_img, img_to_array, array_to_img
 import os
 import sys
 import time
@@ -104,46 +95,22 @@ total foreground 319001744 (0.319G, 0.1766 of all)
 """
 
 params = {
-    "binary_segmentation": {
-        "loss": "binary_focal_crossentropy", 
-        "metrics": "BIoU",
-    },
+    "binary_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
     "distance_transform": {
         "loss": "mean_squared_error",
         "metrics": "mean_absolute_error",
     },
-    "bounding_box": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-    "inner_points": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-    "extreme_points": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-    "eigen_points": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-    "encoded_shape": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
+    "bounding_box": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "inner_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "extreme_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "eigen_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "encoded_shape": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "categorical_segmentation": {
         "loss": "categorical_focal_crossentropy",
         "metrics": "MeanIoU",
     },
-    "encoder": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
-    "point": {
-        "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
-    },
+    "encoder": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
+    "point": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
 }
 
 networks = {
@@ -152,16 +119,8 @@ networks = {
         "layers_scheme": [4, 5, 7, 10, 12],
         "bottleneck": 15,
     },
-    "fcdn67": {
-        "growth_rate": 16,
-        "layers_scheme": [5] * 5, 
-        "bottleneck": 5,
-    },
-    "fcdn56": {
-        "growth_rate": 12,
-        "layers_scheme": [4] * 5,
-        "bottleneck": 4
-    },
+    "fcdn67": {"growth_rate": 16, "layers_scheme": [5] * 5, "bottleneck": 5},
+    "fcdn56": {"growth_rate": 12, "layers_scheme": [4] * 5, "bottleneck": 4},
 }
 
 loss_weights_from_stats = {
@@ -348,27 +307,15 @@ def get_convolutional_layer(
     if weight_standardization:
         if convolution_type == "SeparableConv2D":
             x = WSSeparableConv2D(
-                filters,
-                filter_size,
-                padding=padding,
-                use_bias=use_bias,
-                **kwargs,
+                filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
             )(x)
         elif convolution_type == "Conv2D":
             x = WSConv2D(
-                filters,
-                filter_size,
-                padding=padding,
-                use_bias=use_bias,
-                **kwargs,
+                filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
             )(x)
     else:
         x = getattr(keras.layers, convolution_type)(
-            filters,
-            filter_size,
-            padding=padding,
-            use_bias=use_bias,
-            **kwargs,
+            filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
         )(x)
     return x
 
@@ -533,7 +480,7 @@ def get_transition_up(
     kernel_initializer="he_normal",
     kernel_regularizer="l2",
     weight_decay=1e-4,
-    **kwargs
+    **kwargs,
 ):
     x = keras.layers.Concatenate(axis=3)(block_to_upsample[1:])
     x = keras.layers.Conv2DTranspose(
@@ -647,6 +594,8 @@ def get_uncompiled_tiramisu(
     )
 
     _skips = []
+
+    # DOWN
     for l, number_of_layers in enumerate(layers_scheme):
         x, block_to_upsample = get_dense_block(
             x, growth_rate, number_of_layers, **boilerplate
@@ -656,12 +605,16 @@ def get_uncompiled_tiramisu(
         x = get_transition_down(x, nfilters, **boilerplate)
         if verbose:
             print("layer:", l, number_of_layers, "shape:", x.shape)
+
+    # BOTTLENECK
     x, block_to_upsample = get_dense_block(x, growth_rate, bottleneck, **boilerplate)
     if verbose:
         print("bottleneck:", l, number_of_layers, "shape:", x.shape)
     _skips = _skips[::-1]
     extended_layers_scheme = layers_scheme + [bottleneck]
     extended_layers_scheme.reverse()
+
+    # UP
     for l, number_of_layers in enumerate(layers_scheme[::-1]):
         n_filters_keep = growth_rate * extended_layers_scheme[l]
         if verbose:
@@ -681,6 +634,7 @@ def get_uncompiled_tiramisu(
                 x_up.shape,
             )
 
+    # OUTPUTS
     outputs = []
     regression_neck = None
     num_segmentation_classes = get_num_segmentation_classes(heads)
