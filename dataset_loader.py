@@ -237,19 +237,43 @@ def flip_axis(x, axis):
     return x
 
 
+def get_transposed_image(image):
+    new_axes_order = (1, 0) + tuple(range(2, len(image.shape)))
+    transposed_image = np.transpose(imag, new_axes_order)
+    return transposed_image
+
+
+def get_transposed_img_and_points(img, points):
+    timg = transpose_image(img)
+    tpoints = points[:, ::-1]
+    return timg, tpoints
+
+
 def get_transposed_img_and_target(img, target):
-    new_axes_order = (1, 0) + tuple(range(2, len(img.shape)))
-    img = np.transpose(img, new_axes_order)
+    img = transpose_image(img)
     new_axes_order = (1, 0) + tuple(range(2, len(target.shape)))
     target = np.transpose(target, new_axes_order)  # [:len(target.shape)])
     return img, target
 
 
+def get_flipped_image(image, axis):
+    flipped_image = flip_axis(img, axis)
+    return flipped_image
+
+
 def get_flipped_img_and_target(img, target):
     axis = random.choice([0, 1])
-    img = flip_axis(img, axis)
+    fimg = get_flipped_image(img, axis)
     target = flip_axis(target, axis)
-    return img, target
+    return fimg, target
+
+
+def get_flipped_img_and_points(img, points):
+    axis = random.choice([0, 1])
+    fimg = get_flipped_image(img, axis)
+    fpoints = points[:, :]
+    fpoints[:, axis] = img.shape[axis] - points[:, axis]
+    return fimg, fpoints
 
 
 def get_transformed_img_and_target(
@@ -307,6 +331,13 @@ def get_transformed_img_and_target(
         # target = apply_affine_transform(target.astype(np.float32), fill_mode='constant', cval=0, **transform_arguments)
         # target = np.astype(np.uint8)
     return img, target
+
+
+def get_transformed_img_and_points(img, points):
+    transformation = get_random_transformation()
+    timage = get_transformed_image(img, transformation)
+    tpoints = get_transformed_points(points, transformation._inv_matrix)
+    return timage, tpoints
 
 
 def load_ground_truth_image(path, target_size):
@@ -1238,21 +1269,6 @@ class JsonDataset(keras.utils.Sequence):
                 "concepts": ["standard", "mitegen", "crystal_direct", "void"],
             },
         ],
-        hierarchy_notions=[
-            "crystal",
-            # "ice",
-            # "dust",
-            # "loop_inside",
-            # "loop",
-            "area_of_interest",
-            "support",
-            "pin",
-            # "stem",
-            # "capillary",
-            "drop",
-            "foreground",
-            "background",
-        ],
         notion_importance={
             "crystal": 1,
             "loop_inside": 2,
@@ -1316,7 +1332,9 @@ class JsonDataset(keras.utils.Sequence):
         self.hierarchy_notions = hierarchy_notions
         self.notion_importance = notion_importance
 
-        self.oois = [get_objects_of_interest(annotation) for annotation in annotations]
+        self.oois = [
+            self.get_lean_object_of_interest(annotation) for annotation in annotations
+        ]
         self.nsamples = len(self.oois)
 
         if self.swap_backgrounds:
@@ -1329,10 +1347,28 @@ class JsonDataset(keras.utils.Sequence):
 
         self.verbose = verbose
 
+    def get_lean_object_of_interest(
+        self, annotation, not_to_keep=["masks", "properties"]
+    ):
+        ooi = get_objects_of_interest(annotation)
+        for key in not_to_keep:
+            del ooi[key]
+        return ooi
+
     def __len__(self):
         return self.nsamples
 
 
+    def get_empty_sample(self, final_img_size):
+        y = []
+        for head in self.heads:
+            output = np.zeros(
+                final_img_size + (head["channels"],),
+                dtype=head["dtype"],
+            )
+            y.append(output)
+        return y
+    
     def get_empty_batch(self, batch_size, final_img_size):
         y = []
         for head in self.heads:
@@ -1364,20 +1400,22 @@ class JsonDataset(keras.utils.Sequence):
             batch = self.oois[start_index:end_index]
 
         return img_size, batch
-    
+
     def __getitem__(self, idx):
         if idx == 0 and self.shuffle_at_0:
             random.Random().shuffle(self.oois)
 
         img_size, batch = self.get_img_size_and_batch()
-        final_img_size = img_size[:]
+        final_img_size = copy.copy(img_size)
         batch_size = len(batch)
 
         x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
         y = self.get_empty_batch(batch_size, final_img_size)
 
         for j, ooi in enumerate(batch):
-            x[j], y[j] = self.get_sample(ooi, final_img_size)
+            x[j], y_j = self.get_sample(ooi, final_img_size)
+            for k, output in enumerate(y_j):
+                y[k][j] = output[k]
 
         if self.target and len(y) == 1:
             y = y[0]
@@ -1385,44 +1423,68 @@ class JsonDataset(keras.utils.Sequence):
         return x, y if self.target else x
 
     def get_sample(self, ooi, final_img_size):
-        resize_factor = 1.0
         img = ooi["image"]
         original_size = ooi["image_shape"]
+        img_path = ooi["image_path"]
+        fractional = ooi["fractional"]
 
-        do_flip, do_transpose, do_transform, do_swap_backgrounds, do_black_and_white, do_random_brightness, do_random_channel_shift = (
-            self.get_augment_control()
-        )
-
+        resize_factor = 1.0
         if size_differs(original_size, final_img_size):
             resize_factor = np.array(final_img_size) / np.array(original_size)
 
-        if "foreground" not in ooi["labels"]:
-            do_swap_backgrounds = False
+        points, indices, labels = ooi["points"], ooi["indices"], ooi["labels"]
+
+        if self.augment:
+            img, points = self.transform(img, points, fractional)
+
+        masks = get_primary_masks(
+            points, indices, labels, img.shape[:2], fractional=fractional
+        )
+
+        
+        y = []
+        for head in self.heads:
+            if head["task"] == "binary_segmentation":
+                y.append(masks[head["name"]])
+            elif
+        return img, y
+    
+    def transform(self, img, points, fractional, final_img_size):
+        (
+            do_flip,
+            do_transpose,
+            do_transform,
+            do_swap_backgrounds,
+            do_black_and_white,
+            do_random_brightness,
+            do_random_channel_shift,
+        ) = self.get_augment_control()
 
         if do_transpose is True:
-            img, ooi = get_transposed_img_and_target(img, ooi)
+            img, points = get_transposed_img_and_points(img, points)
 
         if do_flip is True:
-            img, ooi = get_flipped_img_and_target(img, ooi)
+            img, points = get_flipped_img_and_points(img, points)
 
         if do_transform is True:
-            img, ooi = get_transformed_img_and_target(
-                img,
-                ooi,
-                zoom_factor=self.zoom_factor,
-                shift_factor=self.shift_factor,
-                shear_factor=self.shear_factor,
-            )
+            img, points = get_transformed_img_and_points(img, points)
 
-        if do_swap_backgrounds is True and "background" not in img_path:
-            new_background = random.choice(self.backgrounds)
-            if size_differs(img.shape[:2], new_background.shape[:2]):
-                new_background = resize(
-                    new_background, img.shape[:2], anti_aliasing=True
-                )
-            img[ooi["masks"]["foreground"]] == 0] = new_background[
-                ooi["masks"]["foreground"]] == 0
-            ]
+        masks = get_primary_masks(
+            points, indices, labels, img.shape[:2], fractional=fractional
+        )
+
+        if (
+            do_swap_backgrounds
+            and "background" not in img_path
+            and "foreground" in masks
+        ):
+            img = self.swap_backgrounds(img, masks["foreground"])
+
+        if size_differs(img.shape[:2], final_img_size):
+            resize_factor = np.array(final_img_size) / np.array(img.shape[:2])
+            img = resize(img, final_img_size, anti_aliasing=True)
+            if not fractional:
+                points = points * resize_factor
 
         if do_random_brightness is True:
             img = image.random_brightness(img, [0.75, 1.25]) / 255.0
@@ -1430,24 +1492,19 @@ class JsonDataset(keras.utils.Sequence):
         if do_random_channel_shift is True:
             img = image.random_channel_shift(img, 0.5, channel_axis=2)
 
-        if size_differs(img.shape[:2], final_img_size):
-            img = resize(img, final_img_size, anti_aliasing=True)
-            if self.target:
-                target = resize(
-                    target.astype("float32"),
-                    final_img_size,
-                    mode="constant",
-                    cval=-1,
-                    anti_aliasing=False,
-                    preserve_range=True,
-                )
-
         if do_black_and_white:
             img_bw = img.mean(axis=2)
             img = np.stack([img_bw] * 3, axis=2)
 
-        return img, y
+        return img, points
 
+    def swap_backgrounds(self, img, foreground_mask):
+        new_background = random.choice(self.backgrounds)["image"]
+        if size_differs(img.shape[:2], new_background.shape[:2]):
+            new_background = resize(new_background, img.shape[:2], anti_aliasing=True)
+        img[foreground_mask == 0] = new_background[foreground_mask == 0]
+        return img
+    
     def get_augment_control(self):
         do_flip = False
         do_transpose = False
@@ -1456,45 +1513,44 @@ class JsonDataset(keras.utils.Sequence):
         do_black_and_white = False
         do_random_brightness = False
         do_random_channel_shift = False
-        if self.augment:
-            if self.transform and random.random() < self.threshold:
-                do_transform = True
+        if self.transform and random.random() < self.threshold:
+            do_transform = True
+            if self.verbose:
+                print("do_transform")
+        if self.transpose and random.random() < self.threshold:
+            final_img_size = img_size[::-1]
+            do_transpose = True
+            if self.verbose:
+                print("do_transpose")
+            if self.flip and random.random() < self.threshold:
+                do_flip = True
                 if self.verbose:
-                    print("do_transform")
-            if self.transpose and random.random() < self.threshold:
-                final_img_size = img_size[::-1]
-                do_transpose = True
+                    print("do_flip")
+        else:
+            if self.flip and random.random() < self.threshold:
+                do_flip = True
                 if self.verbose:
-                    print("do_transpose")
-                if self.flip and random.random() < self.threshold:
-                    do_flip = True
-                    if self.verbose:
-                        print("do_flip")
-            else:
-                if self.flip and random.random() < self.threshold:
-                    do_flip = True
-                    if self.verbose:
-                        print("do_flip")
-            if self.swap_backgrounds and random.random() < self.threshold / 2:
-                do_swap_backgrounds = True
-                if self.verbose:
-                    print("do_swap_backgrounds")
-            if self.black_and_white and random.random() < self.threshold / 2:
-                do_black_and_white = True
-                if self.verbose:
-                    print("do_black_and_white")
-            if self.random_brightness and random.random() < self.threshold / 2:
-                do_random_brightness = True
-                if self.verbose:
-                    print("do_random_brightness")
-            if (
-                not do_black_and_white
-                and self.random_channel_shift
-                and random.random() < self.threshold / 2
-            ):
-                do_random_channel_shift = True
-                if self.verbose:
-                    print("do_random_channel_shift")
+                    print("do_flip")
+        if self.swap_backgrounds and random.random() < self.threshold / 2:
+            do_swap_backgrounds = True
+            if self.verbose:
+                print("do_swap_backgrounds")
+        if self.black_and_white and random.random() < self.threshold / 2:
+            do_black_and_white = True
+            if self.verbose:
+                print("do_black_and_white")
+        if self.random_brightness and random.random() < self.threshold / 2:
+            do_random_brightness = True
+            if self.verbose:
+                print("do_random_brightness")
+        if (
+            not do_black_and_white
+            and self.random_channel_shift
+            and random.random() < self.threshold / 2
+        ):
+            do_random_channel_shift = True
+            if self.verbose:
+                print("do_random_channel_shift")
         return (
             do_flip,
             do_transpose,
