@@ -101,6 +101,14 @@ def get_candidates(
         "plate_content": ["crystals", "precipitate", "other", "clear"],
         "ice": ["ice"],
         "loop_type": ["standard", "mitegen", "crystal_direct", "void"],
+        "keypoints": [
+            "most_likely_click",
+            "extreme",
+            "end_likely",
+            "start_likely",
+            "start_possible",
+            "origin",
+        ],
     },
     retionprops=["area", "perimeter", "aspect", "extent", "solidity"],
     parameters={
@@ -126,6 +134,8 @@ def get_candidates(
         # may make it a variable + centerness ?
         "encoded_shape": {"channels": 1 + 20, "dtype": "float32"},
         "keypoint": {"channels": 1 + 2, "dtype": "float32"},
+        "keypoints_regression": {"channels": 1 + 2, "dtype": "float32", "activation": "sigmoid"},
+        "keypoints_classification": {"channels": len(keypoints), "dtype": "int8", "activation": "softmax"},
         "classification": {"channels": None, "dtype": "int8"},
     },
 ):
@@ -158,6 +168,7 @@ def get_candidates(
         "inverse_distance_transform": distance_transform_concepts,
         "sqrt_distance_transform": distance_transform_concepts,
         "sqrt_inverse_distance_transform": distance_transform_concepts,
+
         # regressions
         "bounding_box": bounding_box_concepts,
         # 4 layers output (ltrb),
@@ -274,6 +285,17 @@ def get_candidates(
         candidates.append(task)
         # heatmap for every type of point
 
+    for cot in ["keypoints_regression", "keypoints_classification"]:
+        task = {
+            "name": cot,
+            "task": cot,
+            "dtype": parameters[cot]["dtype"],
+            "channels": parameters[cot]["channels"],
+            "concepts": keypoints,
+            "activation": parameters[cot]["activation"],
+        }
+        candidates.append(task)
+    
     cot = "classification"
     for classification, concepts in classifications.items():
         task = {
@@ -287,3 +309,4 @@ def get_candidates(
         candidates.append(task)
 
     return candidates
+
