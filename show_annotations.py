@@ -138,8 +138,24 @@ targets = {
     "start_possible_point": {"type": "point_regression"},
 }
 
+
+#notion_importance = {
+    #"crystal": 1,
+    #"loop_inside": 2,
+    #"loop": 3,
+    #"stem": 4,
+    #"pin": 5,
+    #"capillary": 6,
+    #"ice": 7,
+    #"dust": 8,
+    #"drop": 9,
+    #"foreground": 10,
+    #"not_background": 11,
+    #"background": 100.0,
+#},
+
 notion_importance = {
-    "user_click": 1,
+    "user_click": 0.5,
     "crystal": 1,
     "loop_inside": 2,
     "loop": 3,
@@ -291,20 +307,7 @@ def get_hierarchy_from_oois(
         "foreground",
         "background",
     ],
-    notion_importance={
-        "crystal": 1,
-        "loop_inside": 2,
-        "loop": 3,
-        "stem": 4,
-        "pin": 5,
-        "capillary": 6,
-        "ice": 7,
-        "dust": 8,
-        "drop": 9,
-        "foreground": 10,
-        "not_background": 11,
-        "background": 100.0,
-    },
+    notion_importance=notion_importance,
 ):
     notions.sort(key=lambda x: -notion_importance[x])
     notion_values = np.array([notion_importance[notion] for notion in notions])
@@ -339,20 +342,7 @@ def get_hierarchy_from_masks(
         "foreground",
         "background",
     ],
-    notion_importance={
-        "crystal": 1,
-        "loop_inside": 2,
-        "loop": 3,
-        "stem": 4,
-        "pin": 5,
-        "capillary": 6,
-        "ice": 7,
-        "dust": 8,
-        "drop": 9,
-        "foreground": 10,
-        "not_background": 11,
-        "background": 100.0,
-    },
+    notion_importance=notion_importance,
 ):
     notions.sort(key=lambda x: -notion_importance[x])
     notion_values = np.array([notion_importance[notion] for notion in notions])
@@ -1680,34 +1670,25 @@ def get_objects_of_interest(
     return objects_of_interest
 
 
-def get_distance_transform(
-    mask,
-    normalize=True,
-    distanceType=cv.DIST_L2,
-    maskSize=3,
-    invert=False,
-    exagerate=False,
-):
-    dt = cv.distanceTransform(mask, distanceType, maskSize)
-    if normalize:
-        cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
-    if invert:
-        dt = 1 - dt
-        dt[mask == 0] = 0
-    if exagerate:
-        dt = np.power(dt, 10)
-    return dt
+def get_primary_masks(points, indices, labels, image_shape, fractional=False):
+    masks = {}
 
+    for k, label in enumerate(labels):
+        i_start, i_end = indices[k]
+        ps = points[i_start:i_end]
+        if len(ps) < 3:
+            continue
+        if fractional:
+            ps *= image_shape
 
-def update_masks(masks, label, mask):
-    masks[label] = (
-        np.logical_or(masks[label], mask) if label in masks else mask
-    ).astype(np.uint8)
-    return masks
-
+        properties = cvRegionprops(ps)
+        mask = properties.get_mask(image_shape)
+        masks = update_masks(masks, label, mask)
+        
+    return masks 
 
 def get_masks(
-    points, indices, labels, properties, image_shape, fractional=False, image=None
+    points, indices, labels, properties, image_shape, fractional=False
 ):
     masks = {}
 
@@ -1721,7 +1702,6 @@ def get_masks(
 
         mask = properties[k].get_mask(image_shape)
         masks = update_masks(masks, label, mask)
-
         if label != "background":
             masks = update_masks(masks, "foreground", mask)
 
@@ -1743,7 +1723,6 @@ def get_masks(
             masks["aether"][masks["foreground"].astype(bool)] = 0
 
     return masks
-
 
 def get_secondary_notions(
     points,
@@ -1777,6 +1756,32 @@ def get_secondary_notions(
             )
 
     return points, indices, labels, properties, masks
+
+
+def get_distance_transform(
+    mask,
+    normalize=True,
+    distanceType=cv.DIST_L2,
+    maskSize=3,
+    invert=False,
+    exagerate=False,
+):
+    dt = cv.distanceTransform(mask, distanceType, maskSize)
+    if normalize:
+        cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+    if invert:
+        dt = 1 - dt
+        dt[mask == 0] = 0
+    if exagerate:
+        dt = np.power(dt, 10)
+    return dt
+
+
+def update_masks(masks, label, mask):
+    masks[label] = (
+        np.logical_or(masks[label], mask) if label in masks else mask
+    ).astype(np.uint8)
+    return masks
 
 
 def add_to_keypoint_labels_and_points(
