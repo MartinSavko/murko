@@ -1,10 +1,13 @@
-tensorflow>=2.11.0<2.15.1
+tensorflow
 keras
 numpy
 scipy
 matplotlib
+opencv-python
 scikit-image
 zmq
 simplejpeg
 seaborn
 psutil
+labelme
+
