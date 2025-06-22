@@ -6,6 +6,7 @@
 import os
 import json
 import numpy as np
+import cv2 as cv
 
 from show_annotations import (
     load_json,
@@ -46,6 +47,7 @@ class sample:
             json_file = load_json(json_file)
 
         self.oois = get_objects_of_interest(json_file)
+        self.image_path = self.oois["image_path"]
         self.indices = self.oois["indices"]
         self.labels = self.oois["labels"]
         self.fractional = self.oois["fractional"]
@@ -93,21 +95,19 @@ class sample:
             ps = points[i_start:i_end]
             if len(ps) < 3:
                 continue
-            if fractional:
+            if self.fractional:
                 ps *= image_shape
             props = cvRegionprops(ps, image_shape=image_shape)
             properties.append(props)
         return properties
 
-    def get_mask(
+    def get_masks(
         self,
         points=None,
         image_shape=None,
     ):
-        mask = self._get_maps(
-            points, image_shape, kind="mask", method="logical_or"
-        )
-        return mask
+        masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
+        return masks
 
     def get_distance_transform(
         self,
@@ -128,7 +128,7 @@ class sample:
             points, image_shape, kind="centerness", method="min"
         )
         return centerness
-    
+
     def get_bbox_mask(
         self,
         points=None,
@@ -169,8 +169,45 @@ class sample:
         )
         return min_rectangle_mask
 
-    
-      
+    def get_keypoints(self):
+        pass
+
+    def get_voronoi(
+        self,
+        keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
+        image_shape,
+        keypoint_labels={
+            "most_likely_click": 1,
+            "extreme": 2,
+            "end_likely": 3,
+            "start_likely": 4,
+            "start_possible":5,
+            "origin": 6,
+            "aoi_top": 7,
+            "aoi_bottom": 8,
+        }
+    ):
+        """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
+        
+        cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
+        for key, p in keypoints.items():
+            if p is not None:
+                subdiv.insert(p)
+        facets, centers = subdiv.getVoronoiFacetList([])
+        voronoi = np.zeros(image_shape, dtype=np.int8)
+        i = 0
+        for key, p in keypoints:
+            label = keypoint_labels[key]
+            if p is not None:
+                facet = facets[i]
+            else:
+                continue
+            polygon = []
+            for f in facet:
+                polygon.append(f)
+            cv.fillPoly(voronoi, np.array(polygon, dtype=np.int32), label)
+        return voronoi
+
     def transform(self, final_img_size):
         (
             do_flip,
@@ -182,10 +219,8 @@ class sample:
             do_random_channel_shift,
         ) = self.get_transform_control()
 
-        img = self.oois["image"]
-        img_path = self.oois["image_path"]
-        points = self.oois["points"]
-        fractional = self.oois["fractional"]
+        img = self.oois["image"].copy()
+        points = self.points.copy()
 
         if do_transpose is True:
             img, points = get_transposed_img_and_points(img, points)
@@ -196,13 +231,11 @@ class sample:
         if do_transform is True:
             img, points = get_transformed_img_and_points(img, points)
 
-        masks = get_primary_masks(
-            points, indices, labels, img.shape[:2], fractional=fractional
-        )
+        masks = self.get_masks(points, img.shape[:2])
 
         if (
             do_swap_backgrounds
-            and "background" not in img_path
+            and "background" not in self.image_path
             and "foreground" in masks
         ):
             img = self.swap_backgrounds(img, masks["foreground"])
@@ -210,7 +243,7 @@ class sample:
         if size_differs(img.shape[:2], final_img_size):
             resize_factor = np.array(final_img_size) / np.array(img.shape[:2])
             img = resize(img, final_img_size, anti_aliasing=True)
-            if not fractional:
+            if not self.fractional:
                 points = points * resize_factor
 
         if do_random_brightness is True:
@@ -232,7 +265,7 @@ class sample:
         img[foreground_mask == 0] = new_background[foreground_mask == 0]
         return img
 
-    def get_transform_control(self):
+    def get_transform_control(self, threshold=0.5):
         do_flip = False
         do_transpose = False
         do_transform = False
@@ -240,40 +273,40 @@ class sample:
         do_black_and_white = False
         do_random_brightness = False
         do_random_channel_shift = False
-        if self.transform and random.random() < self.threshold:
+        if self.transform and random.random() < threshold:
             do_transform = True
             if self.verbose:
                 print("do_transform")
-        if self.transpose and random.random() < self.threshold:
+        if self.transpose and random.random() < threshold:
             final_img_size = img_size[::-1]
             do_transpose = True
             if self.verbose:
                 print("do_transpose")
-            if self.flip and random.random() < self.threshold:
+            if self.flip and random.random() < threshold:
                 do_flip = True
                 if self.verbose:
                     print("do_flip")
         else:
-            if self.flip and random.random() < self.threshold:
+            if self.flip and random.random() < threshold:
                 do_flip = True
                 if self.verbose:
                     print("do_flip")
-        if self.swap_backgrounds and random.random() < self.threshold / 2:
+        if self.swap_backgrounds and random.random() < threshold / 2:
             do_swap_backgrounds = True
             if self.verbose:
                 print("do_swap_backgrounds")
-        if self.black_and_white and random.random() < self.threshold / 2:
+        if self.black_and_white and random.random() < threshold / 2:
             do_black_and_white = True
             if self.verbose:
                 print("do_black_and_white")
-        if self.random_brightness and random.random() < self.threshold / 2:
+        if self.random_brightness and random.random() < threshold / 2:
             do_random_brightness = True
             if self.verbose:
                 print("do_random_brightness")
         if (
             not do_black_and_white
             and self.random_channel_shift
-            and random.random() < self.threshold / 2
+            and random.random() < threshold / 2
         ):
             do_random_channel_shift = True
             if self.verbose:
