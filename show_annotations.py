@@ -326,7 +326,7 @@ def get_hierarchy_from_oois(
             hierarchical_target[:, :, i], label_mask
         )
 
-    hierarchical_target /= notion_values
+    hierarchical_target /= notion_importance
     hierarchical_mask = np.argmax(hierarchical_target, axis=2)
     return hierarchical_mask
 
@@ -898,7 +898,7 @@ class cvRegionprops(object):
         points = points if points is not None else self.points
         image_shape = image_shape if image_shape is not None else self.image_shape
         return points, image_shape
-    
+
     # @saver
     def get_mask(self, points=None, image_shape=None, pad=0):
         points, image_shape = self._check_points_and_shape(points, image_shape)
@@ -916,18 +916,20 @@ class cvRegionprops(object):
         _mask = self._get_mask(points, image_shape, pad=pad)
         distance_transform = get_distance_transform(_mask)
         return distance_transform
-        
+
     def get_centerness(self, points=None, image_shape=None, pad=1):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         try:
             inner_center = self.get_inner_center()
             xv, yv = np.meshgrid(np.arange(imgage_shape[1]), np.arange(image_shape[0]))
-            centerness = np.sqrt((inner_center[0]-yv)**2 + (inner_center[1]-xv)**2)
+            centerness = np.sqrt(
+                (inner_center[0] - yv) ** 2 + (inner_center[1] - xv) ** 2
+            )
             centerness = centerness / centerness.max()
-            centerness = (1 - centerness)**2
+            centerness = (1 - centerness) ** 2
         except:
             centerness = np.zeros(image_shape, dtype=np.float32)
-        return centerness    
+        return centerness
 
     # @saver
     def get_bbox(self):
@@ -1104,9 +1106,35 @@ class cvRegionprops(object):
 
         return self.bbox_ltrb
 
-    def get_universal_ltrb(self, kind="bbox"):
-        mask, boundary = 
+    def get_universal_ltrb(self, kind="mask"):
+        self.universal_ltrb = np.zeros(self.image_shape + (4,), np.float32)
 
+        mask = getattr(self, f"get_{kind}")()
+        boundary = get_mask_boundary(mask)
+        l, t, r, b = [], [], [], []
+        for point in boundary:
+            x, y = point
+            if np.all(x <= boundary[boundary == y]):
+                l.append(point)
+            else:
+                r.appdn(point)
+            if np.all(y >= boundary[boundary == x]):
+                t.append(point)
+            else:
+                b.append(point)
+
+        x = np.arange(0, self.image_shape[1], 1)
+        y = np.arange(0, self.image_shape[0], 1)
+        xv, yv = np.meshgrid(x, y)
+        for k, boundary in enumerate((l, t, r, b)):
+            bb = self.get_blank().astype(np.float32)
+            if k % 2 == 0:
+                bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
+            else:
+                bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
+            self.bbox_ltrb[:, :, k] = bb
+
+        return self.universal_ltrb
 
     # @saver
     def get_ellipse(self):
@@ -1693,16 +1721,11 @@ def get_objects_of_interest(
     return objects_of_interest
 
 
-
-
-
 def update_masks(masks, label, mask):
     masks[label] = (
         np.logical_or(masks[label], mask) if label in masks else mask
     ).astype(np.uint8)
     return masks
-
-
 
 
 def get_primary_masks(points, indices, labels, image_shape, fractional=False):
