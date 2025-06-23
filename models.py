@@ -34,6 +34,7 @@ def tiramisu_universal(
     bn_epsilon=1.1e-5,
     input_dropout=0.0,
     neck_layers=4,
+    filter_size=3,
     final_filter_size=3,
 ):
     print("get_uncompiled_tiramisu heads", heads)
@@ -62,7 +63,7 @@ def tiramisu_universal(
     x = get_tiramisu_layer(
         x,
         nfilters,
-        filter_size=3,
+        filter_size=filter_size,
         padding=padding,
         activation=activation,
         convolution_type="Conv2D",
