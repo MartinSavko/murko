@@ -2000,31 +2000,31 @@ def get_start_possible(labels, indices, points, properties):
     sp = (-1, -1)
     if "support" in labels:
         s = properties[labels.index("support")]
-        sdb = s.get_dense_boundary()
+        support = s.get_dense_boundary()
         if "pin" in labels:
             p = properties[labels.index("pin")]
-            pdb = p.get_dense_boundary()
+            pin = p.get_dense_boundary()
             
-            dm = distance_matrix(sdb, pdb)
-            frontier = sdb[dm <= 1]
+            dm = distance_matrix(support, pin)
+            frontier = support[dm <= 1][:, 0]
             sp = np.median(frontier)
         else:
             origin = _get_origin(labels, indices, points, properties)
-            distances = np.linalg.norm(sdb - origin)
-            sp = sdb[np.argmin(distances)]
+            distances = np.linalg.norm(support - origin)
+            sp = support[np.argmin(distances)]
 
     return sp
 
 def get_start_likely(labels, indices, points, properties):
     sl = (-1, -1)
     if "area_of_interest" in labels:
-        aoi = properties[labels.index("area_of_interest")]
-        a = aoi.get_dense_boundary()
+        a = properties[labels.index("area_of_interest")]
+        aoi = a.get_dense_boundary()
         if "stem" in labels:
-            stem = properties[labels.index("stem")]
-            s = stem.get_dense_boundary()
-            dm = distance_matrix(a, s)
-            frontier = a[dm <= 1]
+            s = properties[labels.index("stem")]
+            stem = s.get_dense_boundary()
+            dm = distance_matrix(aoi, stem)
+            frontier = aoi[dm <= 1][:, 0]
             sl = np.median(frontier)
         else:
             origin = _get_origin(labels, indices, points, properties)
@@ -2059,8 +2059,42 @@ def get_aoi_keypoints(labels, indices, points, properties):
             print(f"e1 {e1}, v1 {v1}, v2 {v2} should never get here, please check")
     return ab, at, al, ar
         
-            
-
+def get_pin_right_and_left(labels, indices, points, properties):
+    r = (-1, -1)
+    l = (-1, -1)
+    if "pin" in labels:
+        p = properties[labels.index("pin")]
+        pin = p.get_dense_boundary()
+        
+        epoints = aoi.get_eigen_points()
+        
+        origin = _get_origin(labels, indices, points, properties)
+        sp = _get_point("start_possible", labels, indices, points, properties)
+        
+        e1 = sp - origin
+        
+        distances = np.linalg.norm(pin - origin) + np.linalg.norm(pin - sp)
+        
+        grad = np.gradient(np.gradient(distances))
+        
+        indices = np.argwhere(grad == grad.max()).flatten()
+        
+        p1 = pin[indices[0]]
+        p2 = pin[indices[1]]
+        
+        v1 = p1 - e1
+        v2 = p2 - e1
+        
+        if np.cross(e1, v1) > 0 and np.cross(e2, v2) < 0:
+            l = e[0]
+            r = e[1]
+        elif np.cross(e1, v1) < 0 and np.cross(e2, v2) > 0:
+            l = e[1]
+            r = e[0]
+        else:
+            print(f"e1 {e1}, v1 {v1}, v2 {v2} should never get here, please check")
+    return r, l
+        
 # @timeit
 def get_most_likely_point(labels, indices, points):
     for label in [
