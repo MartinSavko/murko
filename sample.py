@@ -23,6 +23,21 @@ from dataset_loader import (
     resize,
 )
 
+keypoints=[
+    "most_likely_click",
+    "origin",
+    "extreme",
+    "start_possible",
+    "start_likely",
+    "aoi_base",
+    "aoi_top",
+    "aoi_left",
+    "aoi_right",
+    "base_left",
+    "base_right",
+]
+    
+keypoint_labels=dict([(item, i+1) for i, item in enumerate(keypoints)])
 
 def merge_maps(map1, map2, method):
     if "logical" in method:
@@ -48,6 +63,7 @@ class sample:
 
         self.oois = get_objects_of_interest(json_file)
         self.image_path = self.oois["image_path"]
+        self.points = self.oois["points"]
         self.indices = self.oois["indices"]
         self.labels = self.oois["labels"]
         self.fractional = self.oois["fractional"]
@@ -169,6 +185,8 @@ class sample:
         )
         return min_rectangle_mask
 
+    def get_most_likely_click(self):
+        
     def get_keypoints(self):
         pass
 
@@ -176,16 +194,6 @@ class sample:
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
         image_shape,
-        keypoint_labels={
-            "most_likely_click": 1,
-            "extreme": 2,
-            "end_likely": 3,
-            "start_likely": 4,
-            "start_possible":5,
-            "origin": 6,
-            "aoi_top": 7,
-            "aoi_bottom": 8,
-        }
     ):
         """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
         

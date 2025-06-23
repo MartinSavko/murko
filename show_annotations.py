@@ -1930,6 +1930,137 @@ def get_start_possible_point(labels, indices, points):
     return start_possible_point
 
 
+def _get_points(label, labels, indices, points):
+    k = labels.index(label)
+    idx = indices[k]
+    return points[idx[0]: idx[1]]
+
+def _get_origin(labels, indices, points, properties):
+    if "origin" in labels:
+        origin = _get_point("origin", labels, indices, points)
+    else:
+        origin = get_origin(labels, indices, points, properties)
+    return origin
+
+def _get_point(label, labels, indices, points, properties):
+    if label in labels:
+        point = _get_points(label, labels, indices, points)
+    else:
+        point = eval("get_{label}(labels, indices, points, properties)")
+    return point
+
+def get_origin(labels, indices, points, properties):
+    origin = (-1, -1)
+    if "foreground" in labels:
+        f = properties[labels.index("foreground")]
+        a = properties[labels.index("aether")]
+        fb = f.get_dense_boundary()
+        ac = a.get_inner_center()
+        distances = np.linalg.norm(f - b)
+        origin = f[np.argmax(distances)]
+
+    return origin
+
+def get_extreme(labels, indices, points, properties):
+    extreme = (-1, -1)
+    if "foreground" in labels:
+        origin = _get_origin(labels, indices, points, properties)
+        k = labels.index("foreground")
+        f = properties[k].get_dense_boundary()
+        distances = np.linalg.norm(f - origin)
+        extreme = f[np.argmax(distances)]
+
+    return extreme
+        
+def get_most_likely_click(labels, indices, points, properties):
+    mlc = (-1, -1)
+    largest_area = -np.inf
+    if "crystal" in labels:
+        for k, item in enumerate(labels):
+            if label == "crystal":
+                area = properties[k].get_area()
+                if area > largest_area:
+                    mlc = properties[k].get_inner_center()
+                    largest_area = area
+    elif "user_click" in labels:
+        mlc = _get_points("user_click", labels, indices, points)
+    elif "area_of_interest" in labels:
+        k = labels.index("area_of_interest")
+        mlc = properties[k].get_inner_center()
+    elif "foreground" in labels:
+        k = labels.index("foreground")
+        boundary = properties[k].get_dense_boundary()
+        origin = _get_origin(labels, indices, points, properties)
+        distances = np.linalg.norm(boundary - origin)
+        mlc = boundary[np.argmax(distances)]
+
+    return mlc
+    
+def get_start_possible(labels, indices, points, properties):
+    sp = (-1, -1)
+    if "support" in labels:
+        s = properties[labels.index("support")]
+        sdb = s.get_dense_boundary()
+        if "pin" in labels:
+            p = properties[labels.index("pin")]
+            pdb = p.get_dense_boundary()
+            
+            dm = distance_matrix(sdb, pdb)
+            frontier = sdb[dm <= 1]
+            sp = np.median(frontier)
+        else:
+            origin = _get_origin(labels, indices, points, properties)
+            distances = np.linalg.norm(sdb - origin)
+            sp = sdb[np.argmin(distances)]
+
+    return sp
+
+def get_start_likely(labels, indices, points, properties):
+    sl = (-1, -1)
+    if "area_of_interest" in labels:
+        aoi = properties[labels.index("area_of_interest")]
+        a = aoi.get_dense_boundary()
+        if "stem" in labels:
+            stem = properties[labels.index("stem")]
+            s = stem.get_dense_boundary()
+            dm = distance_matrix(a, s)
+            frontier = a[dm <= 1]
+            sl = np.median(frontier)
+        else:
+            origin = _get_origin(labels, indices, points, properties)
+            distances = np.linalg.norm(a - origin)
+            sl = a[np.argmin(distances)]
+    return sl
+
+def get_aoi_keypoints(labels, indices, points, properties):
+    ab = (-1, -1)
+    at = (-1, -1)
+    al = (-1, -1)
+    ar = (-1, -1)
+    if "area_of_interest" in labels:
+        aoi = properties[labels.index("area_of_interest")]
+        sl = _get_point("start_likely", labels, indices, points, properties)
+        sp = _get_point("start_possible", labels, indices, points, properties)
+        epoints = aoi.get_eigen_points()
+        distances = np.linalg.norm(epoints - sl)
+        ab = epoints.pop(np.argmin(distances))
+        distances = np.linalg.norm(epoints - ab)
+        at = epoints.pop(np.argmax(distances))
+        e1 = at - ab
+        v1 = epoints[0] - ab
+        v2 = epoints[1] - ab
+        if np.cross(e1, v1) > 0 and np.cross(e2, v2) < 0:
+            al = e[0]
+            ar = e[1]
+        elif np.cross(e1, v1) < 0 and np.cross(e2, v2) > 0:
+            al = e[1]
+            ar = e[0]
+        else:
+            print(f"e1 {e1}, v1 {v1}, v2 {v2} should never get here, please check")
+    return ab, at, al, ar
+        
+            
+
 # @timeit
 def get_most_likely_point(labels, indices, points):
     for label in [
