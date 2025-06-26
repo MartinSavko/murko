@@ -741,10 +741,97 @@ def get_support(oois, points=None):
 get_support_mask = get_support
 
 
+def get_orientation_and_direction(origin, extreme):
+    # assuming origin and extreme points are in [V, H] format
+    vector = global_extreme - global_origin
+    theta = np.degrees(np.arctan2(vector[0], vector[1]))
+    if (theta <= 45.0 and theta > -45.0) or (theta >= 135 and theta < -135):
+        orientation = 1
+    else:
+        orientation = 0
+    if vector[orientation] > 0:
+        extreme_direction = +1
+    else:
+        extreme_direction = -1
+    return orientation, extreme_direction
+
+
+def get_oriented_unit_cross(
+    orientation,
+    direction,
+    unit_cross=[[1.0, 0.0], [-1.0, 0.0], [0.0, -1.0], [0.0, 1.0]],
+):
+
+    ouc = np.array(unit_cross)
+    if orientation == 1:
+        ouc = ouc[:, ::-1]
+
+    if direction == -1:
+        ouc[ouc != 0] = ouc[ouc != 0] * direction
+
+    return ouc
+
+
+def get_named_pca_points(
+    projection,
+    orientation,
+    direction,
+    atol=5,
+    default=np.array((-1, -1)),
+    order=["top", "bottom", "left", "right"],
+):
+
+    xyz = np.argwhere(projection == 1)
+    pa = principal_axes(xyz)
+
+    S, center = pa[-2:]
+    S_inv = np.linalg.inv(S)
+    xyz_O = xyz - center
+    xyz_S = np.dot(xyz_O, S)
+
+    minmax = {}
+    minmax_onaxis = {}
+    for a, k in zip(("major", "minor"), (0, 1)):
+        soa = xyz_S[np.isclose(xyz_S[:, abs(k - 1)], 0.0, atol=atol)]
+
+        for l in ("min", "max"):
+            key = f"{l}_{a}"
+            minmax[key] = xyz_S[getattr(np, f"arg{l}")(xyz_S[:, k])]
+            try:
+                minmax_onaxis[key] = soa[getattr(np, f"arg{l}")(soa[:, k])]
+            except:
+                minmax_onaxis[key] = minmax[key]
+
+            for d in (minmax, minmax_onaxis):
+                d[key] = np.dot(d[key], S_inv) + center
+
+    ouc = get_oriented_unit_cross(orientation, direction)
+    points = [item[key] for key in minmax_on_axis]
+    scaled = [a / np.linalg.norm(a) for a in points]
+    dm = distance_matrix(ouc, scaled)
+    point_order = np.argmin(dm, axis=1)
+
+    npp = {}
+    for k, name in enumerate(order):
+        npp[name] = points[point_order[k]]
+    npp["center"] = center
+
+    return npp
+
+
 # @timeit
 def get_extreme_point(
-    projection, pa=None, orientation="horizontal", extreme_direction=1
+    projection,
+    pa=None,
+    global_origin=None,  # assuming origin and extreme points are in [V, H] format
+    global_extreme=None,
+    orientation=1,  # 0 or 1; 1 is for horizontal, 0 for vertical,
+    extreme_direction=+1,  # -1 or +1, direction along axis
 ):
+    if global_origin is not None and global_extreme is not None:
+        orientation, extreme_direction = get_orientation_and_direction(
+            global_origin, global_extreme
+        )
     try:
         xyz = np.argwhere(projection != 0)
         if pa is None:
@@ -753,9 +840,9 @@ def get_extreme_point(
         S = pa[-2]
         center = pa[-1]
 
-        xyz_0 = xyz - center
+        xyz_O = xyz - center
 
-        xyz_S = np.dot(xyz_0, S)
+        xyz_S = np.dot(xyz_O, S)
         xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
 
         mino = xyz_S[np.argmin(xyz_S[:, 0])]
@@ -764,6 +851,7 @@ def get_extreme_point(
         except BaseException:
             print(traceback.print_exc())
             mino_on_axis = copy.copy(mino)
+
         maxo = xyz_S[np.argmax(xyz_S[:, 0])]
         try:
             maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
@@ -777,7 +865,7 @@ def get_extreme_point(
         mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
         maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
 
-        if orientation == "horizontal":
+        if orientation == 1:
             if extreme_direction * mino_0_s[1] > extreme_direction * maxo_0_s[1]:
                 extreme_point_out = mino_0_s
                 extreme_point_out_on_axis = mino_0_s_on_axis
@@ -999,7 +1087,9 @@ class cvRegionprops(object):
         return self.centroid
 
     # #@saver
-    def get_inner_center(self, points=None, image_shape=None, method="medianmax", pad=1):
+    def get_inner_center(
+        self, points=None, image_shape=None, method="medianmax", pad=1
+    ):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         dt = self.get_distance_transform(points, image_shape, pad=pad)
         if method == "medianmax":
@@ -1175,7 +1265,7 @@ class cvRegionprops(object):
 
     # @saver
     def get_eigen_points(self):
-        #mask = self.get_mask()
+        # mask = self.get_mask()
         self.eigen_points = get_eigen_points(self.get_dense_boundary())
         return self.eigen_points
 
@@ -1485,7 +1575,7 @@ def get_point_line_distance(point, l1, l2, method="fast"):
         A, B = l1 - l2
         distance = -(
             A * point[1] - B * point[0] + l2[0] * l1[1] - l2[1] * l1[0]
-        ) / sqrt(A**2 + B**2)
+        ) / sqrt(A ** 2 + B ** 2)
 
     return distance
 
@@ -1930,7 +2020,7 @@ def get_start_possible_point(labels, indices, points):
 
     return start_possible_point
 
-        
+
 # @timeit
 def get_most_likely_point(labels, indices, points):
     for label in [
