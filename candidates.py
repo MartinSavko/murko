@@ -2,6 +2,19 @@
 # -*- coding: utf-8 -*-
 
 import copy
+from config import (
+    regionprops,
+    encoders,
+    keypoints,
+    keypoint_labels,
+    classifications,
+    concepts,
+    categorical,
+    class_tasks,
+    instance_tasks,
+    global_tasks,
+    keypoints_global_classification,
+)
 
 a = """How to represent and learn points ?
 I see two options: 
@@ -49,106 +62,31 @@ a) 2 layer output
 """
 
 
-def get_candidates(
-    concepts=[
-        "crystal",
-        "area_of_interest",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "ice",
-        "capillary",
-        "foreground",
-        "aether",
-        "explorable",
-        "support",
-        "drop",
-        "diffracting_area",  # from raster scans
-    ],
-    categorical={
-        "hierarchy_detailed": [
-            "crystal",
-            "loop_inside",
-            "loop",
-            "stem",
-            "pin",
-            "foreground",
-            "background",
-        ],
-        "hierarchy_crystal_aoi_support_pin": [
-            "crystal",
-            "area_of_interest",
-            "support",
-            "pin",
-            "foreground",
-            "background",
-        ],
-        "hierarchy_aoi": ["area_of_interest", "foreground", "background"],
-        "hierarchy_crystal": ["crystal", "foreground", "background"],
-    },
-    encoders=["identity", "identity_bw"],
-    keypoints=[
-        "most_likely_click",
-        "extreme",
-        "end_likely",
-        "start_likely",
-        "start_possible",
-        "origin",
-    ],
-    classifications={
-        "anything": ["foreground"],
-        "plate_content": ["crystals", "precipitate", "other", "clear"],
-        "ice": ["ice"],
-        "loop_type": ["standard", "mitegen", "crystal_direct", "void"],
-        "keypoints": [
-            "most_likely_click",
-            "extreme",
-            "end_likely",
-            "start_likely",
-            "start_possible",
-            "origin",
-        ],
-    },
-    retionprops=["area", "perimeter", "aspect", "extent", "solidity"],
-    parameters={
-        "binary_segmentation": {"channels": 1, "dtype": "int8"},
-        "distance_transform": {"channels": 1, "dtype": "float32"},
-        "inverse_distance_transform": {"channels": 1, "dtype": "float32"},
-        "sqrt_distance_transform": {"channels": 1, "dtype": "float32"},
-        "sqrt_inverse_distance_transform": {"channels": 1, "dtype": "float32"},
-        "centerness": {"channels": 1, "dtype": "float32"},
-        # ltrb + centerness
-        "bounding_box": {"channels": 1 + 4, "dtype": "float32"},
-        "min_rectangle": {"channels": 5, "dtype": "float32"},
-        "ellipse": {"channels": 5, "dtype": "float32"},
-        "moments": {"channels": 9, "dtype": "float32"},
-        "regionprops": {"channels": None, "dtype": "float32"},
-        "inner_center": {"channels": 1 + 2, "dtype": "float32"},
-        "centroid": {"channels": 1 + 2, "dtype": "float32"},
-        "bbox_center": {"channels": 1 + 2, "dtype": "float32"},
-        "extreme_points": {"channels": 1 + 8, "dtype": "float32"},
-        "eigen_points": {"channels": 1 + 8, "dtype": "float32"},
-        "encoder": {"channels": None, "dtype": "float32"},
-        "categorical_segmentation": {"channels": None, "dtype": "float32"},
-        # may make it a variable + centerness ?
-        "encoded_shape": {"channels": 1 + 20, "dtype": "float32"},
-        "keypoint": {"channels": 1 + 2, "dtype": "float32"},
-        "keypoints_regression": {"channels": 1 + 2, "dtype": "float32", "activation": "sigmoid"},
-        "keypoints_classification": {"channels": len(keypoints), "dtype": "int8", "activation": "softmax"},
-        "classification": {"channels": None, "dtype": "int8"},
-    },
-):
+def get_candidates(concepts=concepts):
 
-    binary_segmentation_concepts = copy.copy(concepts)
+    task_concepts = {}
+
+    # class_tasks
+    task_concepts["binary_segment"] = copy.copy(concepts)
 
     distance_transform_concepts = copy.copy(concepts)
     for concept in ["ice", "diffracting_area"]:
         del distance_transform_concepts[distance_transform_concepts.index(concept)]
+    for dt in [
+        "distance_transform",
+        "inverse_distance_transform",
+        "sqrt_distance_transform",
+        "sqrt_inverse_distance_transform",
+    ]:
+        task_concepts[dt] = distance_transform_concepts
 
+    # instance_tasks
     bounding_box_concepts = copy.copy(concepts)
     for concept in ["ice", "diffracting_area", "aether"]:
         del bounding_box_concepts[bounding_box_concepts.index(concept)]
+    for it in instance_tasks:
+        if it != "encoded_shape":
+            task_concepts[it] = bounding_box_concepts
 
     encoded_shape_concepts = copy.copy(concepts)
     for concept in [
@@ -160,153 +98,102 @@ def get_candidates(
         "foreground",
     ]:
         del encoded_shape_concepts[encoded_shape_concepts.index(concept)]
+    task_concepts["encoded_shape"] = encoded_shape_concepts
 
-    classes_of_tasks = {
-        # segmentation
-        "binary_segmentation": binary_segmentation_concepts,
-        "distance_transform": distance_transform_concepts,
-        "inverse_distance_transform": distance_transform_concepts,
-        "sqrt_distance_transform": distance_transform_concepts,
-        "sqrt_inverse_distance_transform": distance_transform_concepts,
+    # global_tasks nothing to do
 
-        # regressions
-        "bounding_box": bounding_box_concepts,
-        # 4 layers output (ltrb),
-        # learn associated centerness on the same branch,
-        # centerness vs. inner center ?
-        "bounding_box_boring": bouding_box_concepts,
-        # every pixel within designated area predicts the same 4 numbers
-        # 4 layers w, h, x, y
-        # 1 layer centerness
-        "bounding_box_segment": bounding_box_concepts,
-        # learn bounding_box mask in 1 layer
-        "bouding_box_distance_transform": bouding_box_concepts,
-        # 1 layer
-        "bouding_box_inverse_distance_transform": bouding_box_concepts,
-        # 1 layer
-        "min_rectangle": bounding_box_concepts,
-        # 4 layers ltrb within coordinate system of the rectangle
-        # 1 layer for orientation
-        "min_rectangle_segment": bouding_box_concepts,
-        # 1 layer for min_rectangle mask
-        "ellipse": bounding_box_concepts,
-        # 4 layers ltrb within coordinate system of the ellipse
-        # 1 layer for orientation
-        "moments": bounding_box_concepts,
-        # 9 layers, 1 layer per each moment
-        # single number per each pixel within the area
-        # 1 layer per distance transform
-        "regionprops": bounding_box_concepts,
-        # N layers, 1 layer per property,
-        # single number per each pixel within the area
-        # 1 layer per distance transform
-        "inner_center": bounding_box_concepts,
-        # modified centerness, offsets, heatmap, distance, (1 - distance), sqrt(1-distance),
-        # for point p
-        # xv, yv = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
-        # d = np.sqrt((p[0]-yv)**2 + (p[1]-xv)**2)
-        # d = d / d.max()
-        # d = (1 - d)**2
-        # if p not present d = -1
-        "centerness": bounding_box_concepts,
-        # binary cross entropy, or focal loss
-        # modified centerness d = (1 - centerness**2)**2
-        "extreme_points": bounding_box_concepts,
-        # heatmap for every class of objects and every type of point
-        # + offset to the center_of_mass (x, y, 2 layers)
-        # + size of the object (width and height, 2 layers)
-        # + area of the object (1 layer)
-        # inverse distance transform
-        # point distance map
-        # 2 layers of offsets for each of the point categories
-        "eigen_points": bounding_box_concepts,
-        # heatmap for every class of objects and every type of point
-        # + major_axis, minor_axis (2 layers)
-        # + offset to the center of ellipse (x, y, 2 layers)
-        # + orientation (8 layers) according to Mousavian, or a single number?
-        # + area of the object (1 layer)
-        # + euler number (1 layer)
-        # + solidity (1 layer)
-        # inverse distance transform
-        # point distance map
-        # 2 layers of offsets for each of the point categories
-        "encoded_shape": encoded_shape_concepts,
-        # C (e.g. C=21) layer output
-        # each pixel within designated area predicts the same value
-        # each pixel predicts its distance transform
-        # each pixel predicts its inverse distance transform
-    }
+    # all tasks
+    tasks = {}
+    for t in (class_tasks, instance_tasks, global_tasks):
+        tasks.update(t)
 
     candidates = []
 
-    for cot in classes_of_tasks:
-        for concept in classes_of_tasks[cot]:
-            task = {
-                "name": concept,
-                "task": cot,
-                "dtype": parameters[cot]["dtype"],
-                "channels": parameters[cot]["channels"],
-                "activation": "sigmoid",
+    for task in tasks:
+        if task in task_concepts:
+            for concept in task_concepts[task]:
+                head = {
+                    "name": f"{concept}_{task}",
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": tasks[task]["channels"],
+                    "activation": "sigmoid",
+                }
+                candidates.append(head)
+        elif task == "hierarchy":
+            for hierarchy, concepts in categorical.items():
+                head = {
+                    "name": hierarchy,
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": len(concepts),
+                    "concepts": concepts,
+                    "activation": "softmax",
+                }
+                candidates.append(head)
+
+        elif task == "encoder":
+            for concept in encoders:
+                head = {
+                    "name": concept,
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": 1 if "bw" in concept else 3,
+                    "activation": "sigmoid",
+                }
+                candidates.append(head)
+
+        elif task == "keypoint":
+            print(task)
+            for concept in keypoints:
+                # heatmap and offsets for every type of point
+                print(f"concept {concept}")
+                head = {
+                    "name": concept,
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": tasks[task]["channels"],
+                    "activation": "sigmoid",
+                }
+                candidates.append(head)
+
+        elif task in ["keypoints_regression", "keypoints_classification"]:
+            for k in keypoints_global_classification:
+                head = {
+                    "name": f"task_{k}",
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": len(keypoints),
+                    "concepts": keypoints,
+                    "activation": tasks[task]["activation"],
+                }
+                candidates.append(head)
+
+        elif task == "classification":
+            for classification, concepts in classifications.items():
+                head = {
+                    "name": classification,
+                    "task": task,
+                    "dtype": tasks[task]["dtype"],
+                    "channels": len(concepts),
+                    "concepts": concepts,
+                    "activation": "softmax",
+                }
+                candidates.append(head)
+
+        elif task == "crystal_ordinal":
+            head = {
+                "name": task,
+                "task": "classification",
+                "dtype": tasks[task]["dtype"],
+                "channels": tasks[task]["channels"],
+                "activation": "softmax",
             }
-            candidates.append(task)
+            candidates.append(head)
 
-    cot = "categorical_segmentation"
-    for hierarchy, concepts in categorical.items():
-        task = {
-            "name": hierarchy,
-            "task": cot,
-            "dtype": parameters[cot]["dtype"],
-            "channels": len(concepts),
-            "concepts": concepts,
-            "activation": "softmax",
-        }
-        candidates.append(task)
+    return candidates, task_concepts
 
-    cot = "encoder"
-    for concept in encoders:
-        task = {
-            "name": concept,
-            "task": cot,
-            "dtype": parameters[cot]["dtype"],
-            "channels": 1 if "bw" in concept else 3,
-            "activation": "sigmoid",
-        }
-        candidates.append(task)
 
-    cot = "keypoint"
-    for concept in keypoints:
-        task = {
-            "name": concept,
-            "task": cot,
-            "dtype": parameters[cot]["dtype"],
-            "channels": parameters[cot]["channels"],
-            "activation": "sigmoid",
-        }
-        candidates.append(task)
-        # heatmap for every type of point
-
-    for cot in ["keypoints_regression", "keypoints_classification"]:
-        task = {
-            "name": cot,
-            "task": cot,
-            "dtype": parameters[cot]["dtype"],
-            "channels": parameters[cot]["channels"],
-            "concepts": keypoints,
-            "activation": parameters[cot]["activation"],
-        }
-        candidates.append(task)
-    
-    cot = "classification"
-    for classification, concepts in classifications.items():
-        task = {
-            "name": classification,
-            "task": cot,
-            "dtype": parameters[cot]["dtype"],
-            "channels": len(concepts),
-            "concepts": concepts,
-            "activation": "softmax",
-        }
-        candidates.append(task)
-
-    return candidates
-
+if __name__ == "__main__":
+    c = get_candidates()
+    print(c)
