@@ -13,8 +13,7 @@ import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
 from math import sqrt
-from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
-import scipy.special
+
 
 import pylab
 import matplotlib.patches
@@ -25,78 +24,16 @@ import time
 import copy
 import traceback
 
-# from utils import get_extreme_point
+from keypoints import principal_axes
+from sample import get_label_mask_from_points
+from config import (
+    colors_for_labels,
+    xkcd_colors_that_i_like,
+    notion_importance,
+    additional_labels,
+    line_styles,
+)
 
-xkcd_colors_that_i_like = [
-    "pale purple",
-    "coral",
-    "moss green",
-    "windows blue",
-    "amber",
-    "greyish",
-    "faded green",
-    "dusty purple",
-    "crimson",
-    "custard",
-    "orangeish",
-    "dusk blue",
-    "ugly purple",
-    "carmine",
-    "faded blue",
-    "dark aquamarine",
-    "cool grey",
-    "royal blue",
-    "light blue",
-    "bright green",
-    "pale green",
-    "pale yellow",
-    "lilac",
-]
-
-colors_for_labels = {
-    "background": "dark green",
-    "aether": "light blue",
-    "degraded_protein": "chartreuse",
-    "crystal_cluster": "greenish yellow",
-    "air_bubble": "light aqua",
-    "precipitate": "pale yellow",
-    "crystalline_precipitate": "pale yellow",
-    "crystal_shower": "olive drab",
-    "feather-like": "greyish blue",
-    "urchin": "light olive",
-    "not_background": "greyish",
-    "pin": "dusk blue",
-    "stem": "crimson",
-    "loop": "faded green",
-    "loop_inside": "moss green",
-    "ice": "ice",
-    "dust": "cool grey",
-    "capillary": "faded blue",
-    "crystal": "banana yellow",
-    "drop": "orangeish",
-    "support": "dusk blue",
-    "support_filled": "orangeish",
-    "area_of_interest": "dark green",
-    "user_click": "banana yellow",
-    "extreme": "dark aquamarine",
-    "start_likely": "coral",
-    "start_possible": "crimson",
-    "most_likely_point": "orangeish",
-    "extreme_point": "carmine",
-    "start_likely_point": "dusk blue",
-    "start_possible_point": "cool grey",
-}
-
-additional_labels = {
-    "cd_loop": "loop",
-    "cd_stem": "stem",
-    "loop_cd": "loop",
-    "stem_cd": "stem",
-    "loop_mt": "loop",
-    "stem_mt": "stem",
-    "mt_loop": "loop",
-    "mt_stem": "stem",
-}
 
 # 8 + 1 + 2 + 8 + 8 + 4 = 31
 targets = {
@@ -156,39 +93,6 @@ targets = {
 # "background": 100.0,
 # },
 
-notion_importance = {
-    "user_click": 0.5,
-    "crystal": 1,
-    "loop_inside": 2,
-    "loop": 3,
-    "area_of_interest": 4,
-    "stem": 5,
-    "support": 6,
-    "support_filled": 7,
-    "explorable": 7.5,
-    "pin": 8,
-    "capillary": 9,
-    "ice": 10,
-    "dust": 11,
-    "drop": 12,
-    "foreground": 13,
-    "not_background": 14,
-    "aether": 99,
-    "background": 100.0,
-}
-
-line_styles = {
-    "loop_inside": "dotted",
-    "loop": "dotted",
-    "area_of_interest": "dashdot",
-    "stem": "dotted",
-    "support": "dashed",
-    "support_filled": "dashdot",
-    "ice": "dotted",
-    "crystal": "dotted",
-    "pin": "dashed",
-    "aether": "dotted",
-}
 
 # {
 # "crystal": 1,
@@ -231,25 +135,6 @@ def saver(func, force=False):
     return introspect
 
 
-def get_image(json_file):
-    imageData = json_file.get("imageData")
-    if imageData is not None:
-        image = utils.img_b64_to_arr(imageData) / 255.0
-    else:
-        image = imageio.imread(json_file.get("imagePath"))
-    return image
-
-
-def get_shapes(json_file):
-    shapes = json_file.get("shapes")
-    return shapes
-
-
-def get_image_shape(json_file):
-    image_shape = np.array((json_file.get("imageHeight"), json_file.get("imageWidth")))
-    return image_shape
-
-
 # @timeit
 def get_hierarchical_mask(
     json_file,
@@ -288,46 +173,6 @@ def get_hierarchical_mask(
         )
 
     hierarchical_target /= notion_values
-    hierarchical_mask = np.argmax(hierarchical_target, axis=2)
-    return hierarchical_mask
-
-
-# @timeit
-def get_hierarchy_from_oois(
-    oois,
-    points=None,
-    notions=[
-        "crystal",
-        # "ice",
-        # "dust"
-        "loop_inside",
-        "loop",
-        "pin",
-        "stem",
-        # "capillary",
-        # "drop",
-        "foreground",
-        "background",
-    ],
-    notion_importance=notion_importance,
-):
-    notions.sort(key=lambda x: -notion_importance[x])
-    notion_values = np.array([notion_importance[notion] for notion in notions])
-
-    image_shape = oois["image_shape"]
-    hierarchical_target = np.zeros(tuple(image_shape) + (len(notions),))
-
-    for label in oois["labels"]:
-        label_mask = get_label_mask_from_points(oois, [label], points=points)
-        if label in notions:
-            i = notions.index(label)
-        elif label != "background":
-            i = notions.index("foreground")
-        hierarchical_target[:, :, i] = np.logical_or(
-            hierarchical_target[:, :, i], label_mask
-        )
-
-    hierarchical_target /= notion_importance
     hierarchical_mask = np.argmax(hierarchical_target, axis=2)
     return hierarchical_mask
 
@@ -378,38 +223,6 @@ def get_label_mask(oois, labels):
                 continue
             print(f"points {points}")
             polygon = points * image_shape
-            mask = get_mask_from_polygon(polygon, image_shape)
-            label_mask = np.logical_or(label_mask == 1, mask == 1)
-    return label_mask
-
-
-# @timeit
-def get_label_mask_from_points(oois, labels, points=None):
-    image_shape = oois["image_shape"]
-    label_mask = np.zeros(image_shape, dtype=np.uint8)
-
-    if "any" in labels:
-        labels = list(set(oois["labels"]))
-
-    label_list = oois["labels"]
-    label_indices = oois["indices"]
-
-    if points is None:
-        points = oois["points"]
-    else:
-        assert len(oois["points"]) == len(points)
-
-    for label in labels:
-        if label not in label_list:
-            continue
-
-        for i_start, i_end in [
-            label_indices[k] for k, item in enumerate(label_list) if item == label
-        ]:
-            ps = points[i_start:i_end]
-            if len(ps) < 3:
-                continue
-            polygon = ps * image_shape
             mask = get_mask_from_polygon(polygon, image_shape)
             label_mask = np.logical_or(label_mask == 1, mask == 1)
     return label_mask
@@ -741,169 +554,6 @@ def get_support(oois, points=None):
 get_support_mask = get_support
 
 
-def get_orientation_and_direction(origin, extreme):
-    # assuming origin and extreme points are in [V, H] format
-    vector = global_extreme - global_origin
-    theta = np.degrees(np.arctan2(vector[0], vector[1]))
-    if (theta <= 45.0 and theta > -45.0) or (theta >= 135 and theta < -135):
-        orientation = 1
-    else:
-        orientation = 0
-    if vector[orientation] > 0:
-        extreme_direction = +1
-    else:
-        extreme_direction = -1
-    return orientation, extreme_direction
-
-
-def get_oriented_unit_cross(
-    orientation,
-    direction,
-    unit_cross=[[1.0, 0.0], [-1.0, 0.0], [0.0, -1.0], [0.0, 1.0]],
-):
-
-    ouc = np.array(unit_cross)
-    if orientation == 1:
-        ouc = ouc[:, ::-1]
-
-    if direction == -1:
-        ouc[ouc != 0] = ouc[ouc != 0] * direction
-
-    return ouc
-
-
-def get_named_pca_points(
-    projection,
-    orientation,
-    direction,
-    atol=5,
-    default=np.array((-1, -1)),
-    order=["top", "bottom", "left", "right"],
-):
-
-    xyz = np.argwhere(projection == 1)
-    pa = principal_axes(xyz)
-
-    S, center = pa[-2:]
-    S_inv = np.linalg.inv(S)
-    xyz_O = xyz - center
-    xyz_S = np.dot(xyz_O, S)
-
-    minmax = {}
-    minmax_onaxis = {}
-    for a, k in zip(("major", "minor"), (0, 1)):
-        soa = xyz_S[np.isclose(xyz_S[:, abs(k - 1)], 0.0, atol=atol)]
-
-        for l in ("min", "max"):
-            key = f"{l}_{a}"
-            minmax[key] = xyz_S[getattr(np, f"arg{l}")(xyz_S[:, k])]
-            try:
-                minmax_onaxis[key] = soa[getattr(np, f"arg{l}")(soa[:, k])]
-            except:
-                minmax_onaxis[key] = minmax[key]
-
-            for d in (minmax, minmax_onaxis):
-                d[key] = np.dot(d[key], S_inv) + center
-
-    ouc = get_oriented_unit_cross(orientation, direction)
-    points = [item[key] for key in minmax_on_axis]
-    scaled = [a / np.linalg.norm(a) for a in points]
-    dm = distance_matrix(ouc, scaled)
-    point_order = np.argmin(dm, axis=1)
-
-    npp = {}
-    for k, name in enumerate(order):
-        npp[name] = points[point_order[k]]
-    npp["center"] = center
-
-    return npp
-
-
-# @timeit
-def get_extreme_point(
-    projection,
-    pa=None,
-    global_origin=None,  # assuming origin and extreme points are in [V, H] format
-    global_extreme=None,
-    orientation=1,  # 0 or 1; 1 is for horizontal, 0 for vertical,
-    extreme_direction=+1,  # -1 or +1, direction along axis
-):
-    if global_origin is not None and global_extreme is not None:
-        orientation, extreme_direction = get_orientation_and_direction(
-            global_origin, global_extreme
-        )
-    try:
-        xyz = np.argwhere(projection != 0)
-        if pa is None:
-            pa = principal_axes(projection)
-
-        S = pa[-2]
-        center = pa[-1]
-
-        xyz_O = xyz - center
-
-        xyz_S = np.dot(xyz_O, S)
-        xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
-
-        mino = xyz_S[np.argmin(xyz_S[:, 0])]
-        try:
-            mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
-        except BaseException:
-            print(traceback.print_exc())
-            mino_on_axis = copy.copy(mino)
-
-        maxo = xyz_S[np.argmax(xyz_S[:, 0])]
-        try:
-            maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
-        except BaseException:
-            print(traceback.print_exc())
-            maxo_on_axis = copy.copy(maxo)
-
-        mino_0_s = np.dot(mino, np.linalg.inv(S)) + center
-        maxo_0_s = np.dot(maxo, np.linalg.inv(S)) + center
-
-        mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
-        maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
-
-        if orientation == 1:
-            if extreme_direction * mino_0_s[1] > extreme_direction * maxo_0_s[1]:
-                extreme_point_out = mino_0_s
-                extreme_point_out_on_axis = mino_0_s_on_axis
-                extreme_point_ini = maxo_0_s
-                extreme_point_ini_on_axis = maxo_0_s_on_axis
-            else:
-                extreme_point_out = maxo_0_s
-                extreme_point_out_on_axis = maxo_0_s_on_axis
-                extreme_point_ini = mino_0_s
-                extreme_point_ini_on_axis = mino_0_s_on_axis
-        else:
-            if extreme_direction * mino_0_s[0] > extreme_direction * maxo_0_s[0]:
-                extreme_point_out = mino_0_s
-                extreme_point_out_on_axis = mino_0_s_on_axis
-                extreme_point_ini = maxo_0_s
-                extreme_point_ini_on_axis = maxo_0_s_on_axis
-            else:
-                extreme_point_out = maxo_0_s
-                extreme_point_out_on_axis = maxo_0_s_on_axis
-                extreme_point_ini = mino_0_s
-                extreme_point_ini_on_axis = mino_0_s_on_axis
-    except BaseException:
-        print(traceback.print_exc())
-        (
-            extreme_point_out,
-            extreme_point_ini,
-            extreme_point_out_on_axis,
-            extreme_point_ini_on_axis,
-        ) = [[-1, -1]] * 4
-    return (
-        extreme_point_out,
-        extreme_point_ini,
-        extreme_point_out_on_axis,
-        extreme_point_ini_on_axis,
-        pa,
-    )
-
-
 # @timeit
 def get_ellipse_from_polygon(polygon):
     ## https://stackoverflow.com/questions/47873759/how-to-fit-a-2d-ellipse-to-given-points
@@ -926,742 +576,6 @@ def get_ellipse_from_polygon(polygon):
 def get_rps(mask):
     rps = ski.measure.regionprops(ski.measure.label(mask))[0]
     return rps
-
-
-def ltrb(x, l, t, r, b):
-    return x[0] - l, x[1] - t, r - x[0], b - x[1]
-
-
-# https://docs.opencv.org/4.x/d1/d32/tutorial_py_contour_properties.html
-class cvRegionprops(object):
-    def __init__(self, points, image_shape=None):
-        self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
-        self.image_shape = tuple(image_shape)
-        self.bbox = None
-        self.bbox_mask = None
-        self.bbox_points = None
-        self.bbox_extent = None
-        self.bbox_center = None
-        self.centroid = None
-        self.min_rectangle = None
-        self.min_enclosing_circle = None
-        self.ellipse = None
-        self.area = None
-        self.perimeter = None
-        self.moments = None
-        self.mask = None
-        self.mask_points = None
-        self.distance_transform = None
-        self.centerness = None
-        self.inner_center = None
-        self.blank = None
-        self.bbox_ltrb = None
-        self.ltrb_boundary = None
-        self.get_bbox_as_minbox = None
-        self.dense_boundary = None
-        self.aspect = None
-        self.eigen_points = None
-        self.extreme_points = None
-        self.extent = None
-        self.solidity = None
-        self.chebyshev = None
-        self.boundary_interpolator = None
-        self.chebyshev_basis = None
-        self.thetas = None
-        self.sph_coeff = None
-
-    def get_blank(self, image_shape=None):
-        if image_shape is not None:
-            image_shape = image_shape
-        else:
-            image_shape = self.image_shape
-        blank = np.zeros(image_shape, np.uint8)
-        return blank
-
-    def _get_mask(self, points, image_shape, pad=0):
-        ims = (image_shape[0] + 2 * pad, image_shape[1] + 2 * pad)
-        mask = cv.fillPoly(self.get_blank(ims), [points.astype(np.int32) + pad], 1)
-        return mask
-
-    def _check_points_and_shape(self, points, image_shape):
-        points = points if points is not None else self.points
-        image_shape = image_shape if image_shape is not None else self.image_shape
-        return points, image_shape
-
-    # @saver
-    def get_mask(self, points=None, image_shape=None, pad=0):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        self.mask = self._get_mask(self.points, image_shape, pad=pad)
-        return self.mask
-
-    # @saver
-    def get_mask_points(self):
-        self.mask_points = np.argwhere(self.get_mask().astype(bool))
-        return self.mask_points
-
-    # @saver
-    def get_distance_transform(self, points=None, image_shape=None, pad=1):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        _mask = self._get_mask(points, image_shape, pad=pad)
-        distance_transform = get_distance_transform(_mask)
-        return distance_transform
-
-    def get_centerness(self, points=None, image_shape=None, pad=1):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        try:
-            inner_center = self.get_inner_center()
-            xv, yv = np.meshgrid(np.arange(imgage_shape[1]), np.arange(image_shape[0]))
-            centerness = np.sqrt(
-                (inner_center[0] - yv) ** 2 + (inner_center[1] - xv) ** 2
-            )
-            centerness = centerness / centerness.max()
-            centerness = (1 - centerness) ** 2
-        except:
-            centerness = np.zeros(image_shape, dtype=np.float32)
-        return centerness
-
-    # @saver
-    def get_bbox(self):
-        # self.bbox = get_rectangle_from_polygon(self.points) #
-        # x, y , w, h (top-left coordinate, width, height)
-        self.bbox = cv.boundingRect(self.points)
-        return self.bbox
-
-    # @saver
-    def get_bbox_as_minbox(self):
-        center = self.get_bbox_center()
-        extent = self.get_bbox_extent()
-        self.get_bbox_as_minbox = (center, extent, 0)
-        return self.get_bbox_as_minbox
-
-    # @saver
-    def get_bbox_points(self):
-        center, extent, orientation = self.get_bbox_as_minbox()
-        self.bbox_points = cv.boxPoints((center, extent, orientation))
-        return self.bbox_points
-
-    # @saver
-    def get_bbox_mask(self, image_shape=None):
-        if image_shape is None:
-            image_shape = self.image_shape
-        self.bbox_mask = self._get_mask(self.get_bbox_points(), image_shape)
-        return self.bbox_mask
-
-    def get_min_rectangle_mask(self, image_shape=None):
-        if image_shape is None:
-            image_shape = self.image_shape
-        min_rectangle_points = cv.boxPoints(self.get_min_rectangle)
-        self.bbox_mask = self._get_mask(min_rectangle_points, image_shape)
-        return self.bbox_mask
-
-    def get_ellipse_contour(self, ellipse=None):
-        if ellipse is None:
-            ellipse = self.get_ellipse
-        ellipse_contour = cv.ellipse2Poly(ellipse)
-        return ellipse_contour
-
-    def get_ellipse_mask(self, ellipse=None, ellipse_contour=None, image_shape=None):
-        if ellipse_contour is None:
-            ellipse_contour = self.get_ellipse_contour(ellipse=ellipse)
-        self.ellipse_mask = self._get_mask(ellipse_contour)
-        return self.ellipse_mask
-
-    # @saver
-    def get_bbox_extent(self):
-        x, y, w, h = self.get_bbox()
-        self.bbox_extent = (w, h)
-        return self.bbox_extent
-
-    # @saver
-    def get_bbox_center(self):
-        # x, y, w, h (top-left coordinate (x, y), width, height)
-        x, y, w, h = self.get_bbox()
-        cx = x + w / 2
-        cy = y + h / 2
-        self.bbox_center = (cx, cy)
-        return self.bbox_center
-
-    # @saver
-    def get_centroid(self):
-        self.centroid = np.mean(self.get_mask_points(), axis=0)[::-1]
-        return self.centroid
-
-    # #@saver
-    def get_inner_center(
-        self, points=None, image_shape=None, method="medianmax", pad=1
-    ):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        dt = self.get_distance_transform(points, image_shape, pad=pad)
-        if method == "medianmax":
-            # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
-            indices = np.vstack(
-                np.unravel_index(np.flatnonzero(dt == dt.max()), dt.shape)
-            ).T
-            imean = indices.mean(axis=0)
-            idist = np.linalg.norm(indices - imean, axis=1)
-            winner = indices[np.argmin(idist)]
-        elif method == "firstmax":
-            winner = np.unravel_index(np.argmax(dt), dt.shape)
-        elif method == "maximum_position":
-            winner = scipy.ndimage.maximum_position(dt)
-        ic = tuple(winner[::-1])
-        print("inner_center", ic)
-        self.inner_center = ic
-        return self.inner_center
-
-    # #@saver
-    def get_dense_boundary(self, points=None, image_shape=None, pad=1):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        _mask = self._get_mask(points, image_shape, pad=pad)
-        contours, _ = cv.findContours(
-            _mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
-        )
-        shape = contours[0].shape
-        db = np.reshape(contours[0], (shape[0], shape[-1]))
-        self.dense_boundary = db - pad
-        return self.dense_boundary
-
-    def get_mask_boundary(self, mask):
-        contours, _ = cv.findContours(
-            mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
-        )
-        shape = contours[0].shape
-        db = np.reshape(contours[0], (shape[0], shape[-1]))
-        mask_boundary = db - pad
-        return mask_boundary
-
-    # @saver
-    def get_ltrb_boundary(self):
-        self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
-
-        print(f"self.ltrb_boundary shape {self.ltrb_boundary.shape}")
-        dense_boundary = self.get_dense_boundary()
-
-        L, T, R, B = [], [], [], []
-        for x in sorted(list(set(dense_boundary[:, 0])))[1:-1]:
-            ys = dense_boundary[dense_boundary[:, 0] == x]
-            t = ys.min()
-            b = ys.max()
-            T.append(t)
-            B.append(b)
-        for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
-            xs = dense_boundary[dense_boundary[:, 1] == y]
-            l = xs.min()
-            r = xs.max()
-            L.append(l)
-            R.append(r)
-
-        mask = self.get_mask().astype(bool)
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
-        print(f"xv {xv}")
-        print(f"yv {yv}")
-        for k, boundary in enumerate((L, T, R, B)):
-            boundary = np.array(boundary)
-            print(f"{k}, boundary.shape: {boundary.shape}")
-            bb = self.get_blank().astype(np.float32)
-            print(f"bb.shape {bb.shape}")
-            if k % 2 == 0:
-                print(f"xv[mask].shape {xv[mask].shape}")
-                # bb[mask] = xv[mask][:, 1] - boundary
-
-                # np.abs(
-                # np.apply_along_axis(lambda x: x - boundary, 1, xv[mask])
-                # )
-            else:
-                print(f"yv[mask].shape {yv[mask].shape}")
-                # bb[mask] = yv[mask][:, 0] - boundary
-                # np.abs(
-                # np.apply_along_axis(lambda y: y - boundary, 0, yv[mask])
-                # )
-            self.ltrb_boundary[:, :, k] = bb
-        return self.ltrb_boundary
-
-    # @saver
-    def get_bbox_ltrb(self):
-        self.bbox_ltrb = np.zeros(self.image_shape + (4,), np.float32)
-        l, t, w, h = self.get_bbox()
-        r, b = l + w, t + h
-        bbox_mask = self.get_bbox_mask().astype(bool)
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
-        for k, boundary in enumerate((l, t, r, b)):
-            bb = self.get_blank().astype(np.float32)
-            if k % 2 == 0:
-                bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
-            else:
-                bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
-            self.bbox_ltrb[:, :, k] = bb
-
-        return self.bbox_ltrb
-
-    def get_universal_ltrb(self, kind="mask"):
-        self.universal_ltrb = np.zeros(self.image_shape + (4,), np.float32)
-
-        mask = getattr(self, f"get_{kind}")()
-        boundary = get_mask_boundary(mask)
-        l, t, r, b = [], [], [], []
-        for point in boundary:
-            x, y = point
-            if np.all(x <= boundary[boundary == y]):
-                l.append(point)
-            else:
-                r.appdn(point)
-            if np.all(y >= boundary[boundary == x]):
-                t.append(point)
-            else:
-                b.append(point)
-
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
-        for k, boundary in enumerate((l, t, r, b)):
-            bb = self.get_blank().astype(np.float32)
-            if k % 2 == 0:
-                bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
-            else:
-                bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
-            self.bbox_ltrb[:, :, k] = bb
-
-        return self.universal_ltrb
-
-    # @saver
-    def get_ellipse(self):
-        # (cx, cy), (MA, ma), angle
-        self.ellipse = cv.fitEllipse(self.get_mask_points())
-        return self.ellipse
-
-    # @saver
-    def get_min_rectangle(self):
-        # (cx, cy), (w, h), angle
-        self.min_rectangle = cv.minAreaRect(self.points)
-        return self.min_rectangle
-
-    # @saver
-    def get_min_enclosing_circle(self):
-        self.min_enclosing_circle = cv.minEnclosingCircle(self.points)
-        return self.min_enclosing_circle
-
-    # @saver
-    def get_area(self):
-        self.area = cv.contourArea(self.points)
-        return self.area
-
-    def get_perimeter(self):
-        self.perimeter = cv.arcLength(self.points, True)
-        return self.perimeter
-
-    # @saver
-    def get_moments(self):
-        self.moments = cv.moments(self.get_mask_points())
-        return self.moments
-
-    # @saver
-    def get_extreme_points(self):
-        self.extreme_points = get_extreme_points(self.get_dense_boundary())
-        return self.extreme_points
-
-    # @saver
-    def get_eigen_points(self):
-        # mask = self.get_mask()
-        self.eigen_points = get_eigen_points(self.get_dense_boundary())
-        return self.eigen_points
-
-    # @saver
-    def get_aspect(self):
-        x, y, w, h = self.get_bbox()
-        self.aspect = float(w) / h
-        return self.aspcet
-
-    # @saver
-    def get_extent(self):
-        area = self.get_area()
-        x, y, w, h = self.get_bbox()
-        rect_area = w * h
-        self.extent = float(area) / rect_area
-        return self.extent
-
-    # @saver
-    def get_solidity(self):
-        area = self.get_area()
-        hull = cv.convexHull(cnt)
-        hull_area = cv.contourArea(hull)
-        self.solidity = float(area) / hull_area
-        return self.solidity
-
-    # @saver
-    def get_chebyshev_basis(self, n=20):
-        self.chebyshev_basis = get_chebyshev_basis(n)
-        return self.chebyshev_basis
-
-    # @saver
-    def get_boundary_interpolator(self, method="rbf"):
-
-        tap = self.get_thetas_and_points()
-
-        if method == "cs":
-            self.boundary_interpolator = CubicSpline(
-                tap[:, 0],
-                tap[:, -1],
-                # bc_type="periodic",
-            )
-        else:
-            self.boundary_interpolator = RBFInterpolator(tap[:, 1, 2], tap[:, -1])
-        return self.boundary_interpolator
-
-    def get_thetas_and_points(
-        self, center=None, ensure_monotonic=True, epsilon=1.0e-5, dense=True
-    ):
-
-        if center is None:
-            center = np.array(self.get_inner_center())
-
-        if dense or self.points.shape[0] < 21:
-            points = self.get_dense_boundary()
-        else:
-            points = self.points
-
-        points = points - center
-
-        rs = np.linalg.norm(points, axis=1)
-
-        xs = points[:, 0]
-        ys = points[:, 1]
-
-        thetas = np.arctan2(ys, xs)
-
-        tap = list(zip(thetas, xs, ys, rs))
-        tap.sort(key=lambda x: (x[0], -x[-1]))
-
-        tap = np.array(tap)
-
-        if ensure_monotonic:
-            # we will identify thetas where there is more than just a single value and take the sample corresponding to the largest r value
-            tap = make_tap_monotonic(tap, epsilon=epsilon)
-
-        return tap
-
-    def get_chebyshev_basis(
-        self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
-    ):
-        tap = self.get_thetas_and_points()
-        t = tap[:, 0]
-        r = tap[:, -1]
-        if extend:
-            # hack to account for periodicity
-            # start = tap[:extend]
-            # end = tap[-extend:]
-            # tap = np.vstack((end, tap))
-            # tap = np.vstack((tap, start))
-            tp = np.hstack([t, t + 2 * np.pi])
-            rp = np.hstack([r, r])
-            tp = np.hstack([t - 2 * np.pi, tp])
-            rp = np.hstack([r, rp])
-            t = tp[:]
-            r = rp[:]
-
-        interp = interp1d(t, r)
-        tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
-        rinterp = interp(tinterp)
-
-        basis = get_chebyshev_basis(degree, points=tinterp)
-        return basis
-
-    # @saver
-    def get_chebyshev(
-        self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
-    ):
-        tap = self.get_thetas_and_points()
-        t = tap[:, 0]
-        r = tap[:, -1]
-        if extend:
-            tp = np.hstack([t, t + 2 * np.pi])
-            rp = np.hstack([r, r])
-            tp = np.hstack([t - 2 * np.pi, tp])
-            rp = np.hstack([r, rp])
-            t = tp[:]
-            r = rp[:]
-
-        interp = interp1d(t, r)
-        tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
-        rinterp = interp(tinterp)
-
-        if method == "numpy":
-            # https://www.oislas.com/blog/chebyshev-polynomials-fitting/
-            x = np.polynomial.chebyshev.chebfit(tinterp, rinterp, degree)
-        else:
-            basis = get_chebyshev_basis(degree, points=tinterp)
-            x, residuals, rank, s = np.linalg.lstsq(basis, rinterp, rcond=None)
-
-        self.chebyshev = x
-
-        return self.chebyshev
-
-    # @saver
-    def get_sph_coeff(self, degree=5, basis=None, tap=None):
-        if tap is None:
-            tap = self.get_thetas_and_points()
-        thetas = tap[:, 0]
-        rs = tap[:, -1]
-        if basis is None:
-            basis = get_spherical_basis(degree, points=thetas)
-        x, residuals, rank, s = np.linalg.lstsq(basis, rs, rcond=None)
-        self.sph_coeff = np.matrix(x).T
-        return self.sph_coeff
-
-    # @saver
-    def get_thetas(self, domain=(-1, 1), npoints=401):
-        self.thetas = np.pi * np.linspace(domain[0], domain[1], npoints)
-        return self.thetas
-
-    def get_boundary_from_chebyshev(
-        self,
-        coeff=None,
-        center=None,
-        thetas=None,
-        method="numpy",
-        domain=(-1.05, 1.05),
-        npoints=401,
-        degree=19,
-    ):
-        if thetas is None:
-            thetas = self.get_thetas(domain=domain, npoints=npoints)
-        if coeff is None:
-            coeff = self.get_chebyshev(degree=degree, domain=domain, npoints=npoints)
-        if center is None:
-            center = np.array(self.get_inner_center())
-
-        if method == "numpy":
-            rs = np.polynomial.chebyshev.chebval(thetas, coeff)
-        else:
-            order = len(coeff) - 1
-            basis = get_chebyshev_basis(order, points=thetas)
-            rs = np.dot(basis, coeff)
-
-        boundary = get_boundary_from_thetas_rs_and_center(thetas, rs, center)
-
-        return boundary
-
-    def get_boundary_from_spherical(self, coeff=None, center=None, thetas=None):
-        if thetas is None:
-            thetas = self.get_thetas()
-        if coeff is None:
-            coeff = self.get_sph_coeff()
-        if center is None:
-            center = np.array(self.get_inner_center())
-
-        basis = get_spherical_basis(degree, points=thetas)
-
-        rs = np.dot(basis, coeff)
-
-        boundary = get_boundary_from_thetas_rs_and_center(thetas, rs, center)
-
-        return boundary
-
-
-def get_boundary_from_thetas_rs_and_center(thetas, rs, center):
-    xs = np.cos(thetas) * rs
-    ys = np.sin(thetas) * rs
-    boundary = center + np.vstack([xs, ys]).T
-    return boundary
-
-
-def make_tap_monotonic(tap, epsilon=1.0e-5):
-
-    thetas = tap[:, 0]
-    t0 = thetas[:-1]
-    t1 = thetas[1:]
-
-    left_differences = t1 - t0
-
-    monotonic = np.argwhere(left_differences > epsilon)
-
-    tap = tap[monotonic.flatten()]
-
-    # thetas = thetas[monotonic].flatten()
-    # rs = rs[monotonic].flatten()
-
-    # thetas = np.hstack([thetas, [thetas[0] + 2*np.pi]])
-    # rs = np.hstack([rs, [rs[0]]])
-    return tap
-
-
-def get_spherical_basis(
-    degree_max,
-    order_max=5,
-    degree_step=1,
-    order_step=2,
-    fname="sph_harm_y",
-    domain=[0, 1],
-    points=None,
-    npoints=361,
-    normalize=False,
-    theta=0.5 * np.pi,
-):
-    if points is None:
-        points = np.pi * np.linspace(domain[0], domain[1], npoints)
-
-    phis = points
-    basis = np.matrix(
-        [
-            getattr(scipy.special, fname)(degree, order, theta, phis)
-            for degree in range(0, degree_max + 1, degree_step)
-            for order in range(
-                -min(order_max + degree % 2, degree),
-                min(order_max + degree % 2, degree) + 1,
-                order_step,
-            )
-        ]
-    ).T
-    # a = [(n, m) for n in range(0, 20+1, 2) for m in  range(-min(2, n), min(2, n) + 1, 2)]
-    if normalize:
-        basis = basis / np.linalg.norm(basis, axis=0)
-    return basis
-
-
-def get_spherical_basis2(
-    degree_max,
-    fname="sph_harm",
-    domain=[0, 1],
-    points=None,
-    npoints=361,
-    normalize=False,
-    phi=0.5 * np.pi,
-):
-    if points is None:
-        points = 2 * np.pi * np.linspace(domain[0], domain[1], npoints)
-
-    thetas = points
-    basis = np.matrix(
-        [
-            getattr(scipy.special, fname)(order, degree, thetas, phi)
-            for degree in range(0, degree_max + 1)
-            for order in range(-n, n + 1)
-        ]
-    ).T
-
-    if normalize:
-        basis = basis / np.linalg.norm(basis, axis=0)
-    return basis
-
-
-def get_chebyshev_basis(
-    degree, domain=[-1, 1], points=None, npoints=361, typ="t", normalize=False
-):
-    if points is None:
-        points = np.linspace(domain[0], domain[1], npoints)
-
-    basis = np.matrix(
-        [
-            getattr(scipy.special, f"eval_cheby{typ}")(n, points)
-            for n in range(0, degree + 1)
-        ]
-    ).T
-    if normalize:
-        basis = basis / np.linalg.norm(basis, axis=0)
-    return basis
-
-
-def get_point_line_distance(point, l1, l2, method="fast"):
-    if method == "slow":
-        # https://stackoverflow.com/questions/39840030/distance-between-point-and-a-line-from-two-points
-        # 19.9 µs ± 112 ns per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
-        distance = np.cross(l1 - l2, l1 - point) / np.linalg.norm(l1 - l2)
-    else:
-        # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
-        # 3.5 µs ± 29.9 ns per loop (mean ± std. dev. of 7 runs, 100,000 loops each)
-        A, B = l1 - l2
-        distance = -(
-            A * point[1] - B * point[0] + l2[0] * l1[1] - l2[1] * l1[0]
-        ) / sqrt(A ** 2 + B ** 2)
-
-    return distance
-
-
-def get_extreme_points(cnt):
-    leftmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmin()][0]].mean(axis=0)
-    rightmost = cnt[cnt[:, 0] == cnt[cnt[:, 0].argmax()][0]].mean(axis=0)
-    topmost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmin()][1]].mean(axis=0)
-    bottommost = cnt[cnt[:, 1] == cnt[cnt[:, 1].argmax()][1]].mean(axis=0)
-    # order l,t,r,b as in FCOS
-    return leftmost, topmost, rightmost, bottommost
-
-
-def get_eigen_points(points):
-    center = np.mean(points, axis=0)
-    coord = points - center
-    inertia = np.dot(coord.transpose(), coord)
-    e_values, e_vectors = np.linalg.eig(inertia)
-    order = np.argsort(e_values)[::-1]
-    S = np.array(e_vectors[:, order])
-    coord_S = np.dot(coord, S)
-    extreme_points_S = get_extreme_points(coord_S)
-    extreme_points_O = np.dot(extreme_points_S, np.linalg.inv(S)) + center
-    extreme_points_eigen = get_extreme_points(extreme_points_O)
-    return extreme_points_eigen
-
-
-# @timeit
-def principal_axes(array, verbose=False):
-    # https://github.com/pierrepo/principal_axes/blob/master/principal_axes.py
-    _start = time.time()
-    if array.shape[1] != 3:
-        xyz = np.argwhere(array == 1)
-    else:
-        xyz = array[:, :]
-
-    coord = np.array(xyz, float)
-    center = np.mean(coord, 0)
-    coord = coord - center
-    inertia = np.dot(coord.transpose(), coord)
-    e_values, e_vectors = np.linalg.eig(inertia)
-    order = np.argsort(e_values)[::-1]
-    eigenvalues = np.array(e_values[order])
-    eigenvectors = np.array(e_vectors[:, order])
-    _end = time.time()
-    if verbose:
-        print("principal axes")
-        print("intertia tensor")
-        print(inertia)
-        print("eigenvalues")
-        print(eigenvalues)
-        print("eigenvectors")
-        print(eigenvectors)
-        print("principal_axes calculated in %.4f seconds" % (_end - _start))
-        print()
-    return inertia, eigenvalues, eigenvectors, center
-
-
-# @timeit
-def get_ellipse_from_mask(mask):
-    rps = get_rps(mask)
-    r, c = rps.centroid
-    major = rps.axis_major_length
-    minor = rps.axis_minor_length
-    orientation = rps.orientation
-    return r, c, major, minor, orientation
-
-
-# @timeit
-def get_ellipse_from_rps(rps):
-    r, c = rps.centroid
-    major = rps.axis_major_length
-    minor = rps.axis_minor_length
-    orientation = rps.orientation
-    return r, c, major, minor, orientation
-
-
-# @timeit
-def get_mask_from_polygon(polygon, image_shape=(1200, 1600), doer="cv"):
-    if doer == "ski":
-        mask = polygon2mask(image_shape, polygon)
-    else:
-        mask = cv.fillPoly(
-            np.zeros(image_shape, np.uint8), [polygon[:, ::-1].astype(np.int32)], 1
-        )
-    return mask
 
 
 def get_labelme_shape_from_mask(mask, label):
@@ -1742,76 +656,6 @@ def create_labelme_file_from_chimp_record(imagepath):
     fp.close()
 
 
-def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
-    if indices:
-        i_start = indices[-1][-1]
-    else:
-        i_start = 0
-    i_end = i_start + ooi.shape[0]
-    points = np.vstack([points, ooi]) if len(points) else ooi
-    indices.append((i_start, i_end))
-    labels.append(label)
-    properties.append(cvRegionprops(ooi, image_shape))
-
-    return points, indices, labels, properties
-
-
-# @timeit
-def get_objects_of_interest(
-    json_file, fractional=False, unit_square=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
-):
-    if type(json_file) is str and os.path.isfile(json_file):
-        json_file = load_json(json_file)
-
-    image = get_image(json_file)
-    image_shape = np.array(image.shape[:2])
-    image_path = json_file["imagePath"]
-
-    points, indices, labels, properties = [], [], [], []
-
-    for shape in get_shapes(json_file):
-        label = shape["label"]
-        if label in additional_labels:
-            label = additional_labels[label]
-        ooi = np.array(shape["points"])
-        ooi = ooi[
-            :, ::-1  # swap x and y (labelme uses [h, v] convention, we use [v, h]
-        ]
-        if shape["shape_type"] == "rectangle" and ooi.shape[0] == 2:
-            ooi = unit_square * np.abs(ooi[0] - ooi[1])
-
-        if fractional:
-            ooi /= image_shape
-        points, indices, labels, properties = add_ooi(
-            ooi, label, points, indices, labels, properties, image_shape
-        )
-
-    if "background" not in labels:
-        if not fractional:
-            ooi = unit_square[:] * image_shape
-        points, indices, labels, properties = add_ooi(
-            ooi, "background", points, indices, labels, properties, image_shape
-        )
-
-    points, indices, labels, properties, masks = get_secondary_notions(
-        points, indices, labels, properties, image_shape, fractional=fractional
-    )
-
-    objects_of_interest = {
-        "image": image,
-        "image_shape": image_shape,
-        "image_path": image_path,
-        "fractional": fractional,
-        "labels": labels,
-        "indices": indices,
-        "points": points,
-        "properties": properties,
-        "masks": masks,
-    }
-
-    return objects_of_interest
-
-
 def update_masks(masks, label, mask):
     masks[label] = (
         np.logical_or(masks[label], mask) if label in masks else mask
@@ -1835,95 +679,6 @@ def get_primary_masks(points, indices, labels, image_shape, fractional=False):
         masks = update_masks(masks, label, mask)
 
     return masks
-
-
-def get_masks(points, indices, labels, properties, image_shape, fractional=False):
-    masks = {}
-
-    for k, label in enumerate(labels):
-        i_start, i_end = indices[k]
-        ps = points[i_start:i_end]
-        if len(ps) < 3:
-            continue
-        if fractional:
-            ps *= image_shape
-
-        mask = properties[k].get_mask(image_shape)
-        masks = update_masks(masks, label, mask)
-        if label != "background":
-            masks = update_masks(masks, "foreground", mask)
-
-        if label in ["crystal", "loop"]:
-            masks = update_masks(masks, "area_of_interest", mask)
-
-        if label in ["loop", "stem"]:
-            masks = update_masks(masks, "support", mask)
-
-        if label in ["crystal", "loop", "stem"]:
-            mask = update_masks(masks, "explorable", mask)
-
-    if "support" in masks and "pin" in masks:
-        masks["support"][masks["pin"].astype(bool)] = 0
-
-    if "background" in masks:
-        masks["aether"] = copy.copy(masks["background"])
-        if "foreground" in masks:
-            masks["aether"][masks["foreground"].astype(bool)] = 0
-
-    return masks
-
-
-def get_secondary_notions(
-    points,
-    indices,
-    labels,
-    properties,
-    image_shape,
-    fractional=False,
-    secondary_notions=[
-        "area_of_interest",
-        "support",
-        "foreground",
-        "explorable",
-        "aether",
-    ],
-):
-    masks = get_masks(points, indices, labels, properties, image_shape)
-
-    for notion in secondary_notions:
-        if notion in masks:
-            contours, h = cv.findContours(
-                masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
-            )
-            shape = contours[0].shape
-            new_shape = (shape[0], shape[2])
-            ooi = contours[0].reshape(new_shape)[:, ::-1]
-            if fractional:
-                ooi /= image_shape
-            points, indices, labels, properties = add_ooi(
-                ooi, notion, points, indices, labels, properties, image_shape
-            )
-
-    return points, indices, labels, properties, masks
-
-
-def get_distance_transform(
-    mask,
-    normalize=True,
-    distanceType=cv.DIST_L2,
-    maskSize=3,
-    invert=False,
-    exagerate=False,
-):
-    dt = cv.distanceTransform(mask, distanceType, maskSize)
-    if normalize:
-        cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
-    if invert:
-        dt = 1 - dt
-        dt[mask == 0] = 0
-    if exagerate:
-        dt = np.power(dt, 10)
-    return dt
 
 
 def add_to_keypoint_labels_and_points(
@@ -2192,52 +947,6 @@ def get_output_shape(input_shape, transformation_matrix):
     return output_shape.astype(int)
 
 
-# @timeit
-def get_random_transformation(
-    rotation_range=np.pi,
-    scale_range=0.5,
-    translation_range=0.25,
-    shear_range=0.5 * np.pi,
-    img_shape=np.array((1200, 1600)),
-    rotation_center="random",
-):
-    if rotation_center == "random":
-        r_center = np.random.random(size=2) * img_shape
-    else:
-        r_center = img_shape / 2
-
-    shift_c = ski.transform.AffineTransform(translation=-r_center)
-    shift_invc = ski.transform.AffineTransform(translation=+r_center)
-
-    rotation = (np.random.rand() - 0.5) * rotation_range
-    scale = 1 + (np.random.random(size=2) - 0.5) * scale_range
-    shear = (np.random.random(size=2) - 0.5) * shear_range
-    translation = [
-        0,
-        0,
-    ]  # (np.random.random(size=2) - 0.5) * translation_range * img_shape
-
-    print(f"rotation {rotation}, rotation_center {r_center}")
-    print(f"scale {scale}")
-    print(f"shear {shear}")
-    print(f"translation {translation}")
-
-    t_rotation = ski.transform.AffineTransform(rotation=rotation)
-    t_scale = ski.transform.AffineTransform(scale=scale)
-    t_shear = ski.transform.AffineTransform(shear=shear)
-    t_translation = ski.transform.AffineTransform(translation=translation)
-
-    # random_transformation = ski.transform.AffineTransform(
-    # scale=scale, rotation=rotation, shear=shear, translation=translation
-    # )
-
-    random_transformation = (
-        shift_c + t_rotation + t_scale + t_shear + shift_invc + t_translation
-    )
-
-    return random_transformation
-
-
 # def plot_keypoints(ax, keypoints):
 # colors = colors_for_labels.keys()
 # for k, point in enumerate(keypoints):
@@ -2251,39 +960,6 @@ def plot_keypoints(keypoints, radius=1, colors=xkcd_colors_that_i_like, ax=None)
     for k, p in enumerate(keypoints):
         c = pylab.Circle(p[:2][::-1], radius=radius, color=sns.xkcd_rgb[colors[k]])
         ax.add_patch(c)
-
-
-# @timeit
-def get_transformed_points(points, transformation_matrix):
-    points = points[:, [1, 0, 2]]
-    transformed_points = np.dot(transformation_matrix, points.T).T
-    transformed_points = transformed_points[:, [1, 0, 2]]
-    return transformed_points
-
-
-# @timeit
-def get_transformed_image(
-    img, transformation, output_shape=None, doer="ski", cval=-1, mode="constant"
-):
-    if output_shape is None:
-        output_shape = img.shape
-    if doer == "ski":
-        transformed_image = ski.transform.warp(
-            img, transformation, output_shape=output_shape, cval=cval, mode=mode
-        )
-    elif doer == "cv":
-        if mode == "constant":
-            borderMode = cv.BORDER_CONSTANT
-        elif mode == "edge":
-            borderMode = cv.BORDER_REPLICATE
-        transformed_image = cv.warpAffine(
-            img,
-            transformation._inv_matrix[:2, :],
-            output_shape[::-1],
-            borderValue=[cval] * 3,
-            borderMode=borderMode,
-        )
-    return transformed_image
 
 
 def plot_oois(points, labels, radius=7, ax=None):
@@ -2618,13 +1294,6 @@ def show_annotations(json_file):
     pylab.show()
 
 
-def load_json(
-    fname="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/dls_i04/6116020_fullscreen-30086648_201.40800000000002.json",
-):
-    f = json.load(open(fname, "rb"))
-    return f
-
-
 def load_test_json_file():
     json_file = json.load(
         open(
@@ -2639,6 +1308,89 @@ def load_test_image():
     json_file = load_test_json_file()
     img = get_image(json_file)
     return img
+
+
+# @timeit
+def get_extreme_point(
+    projection,
+    pa=None,
+    global_origin=None,  # assuming origin and extreme points are in [V, H] format
+    global_extreme=None,
+    orientation=1,  # 0 or 1; 1 is for horizontal, 0 for vertical,
+    extreme_direction=+1,  # -1 or +1, direction along axis
+):
+    if global_origin is not None and global_extreme is not None:
+        orientation, extreme_direction = get_orientation_and_direction(
+            global_origin, global_extreme
+        )
+    try:
+        if pa is None:
+            xyz, inertia, e, S, center = principal_axes(projection)
+        else:
+            xyz, inertia, e, S, center = pa
+
+        xyz_O = xyz - center
+
+        xyz_S = np.dot(xyz_O, S)
+        xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
+
+        mino = xyz_S[np.argmin(xyz_S[:, 0])]
+        try:
+            mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
+        except BaseException:
+            print(traceback.print_exc())
+            mino_on_axis = copy.copy(mino)
+
+        maxo = xyz_S[np.argmax(xyz_S[:, 0])]
+        try:
+            maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
+        except BaseException:
+            print(traceback.print_exc())
+            maxo_on_axis = copy.copy(maxo)
+
+        mino_0_s = np.dot(mino, np.linalg.inv(S)) + center
+        maxo_0_s = np.dot(maxo, np.linalg.inv(S)) + center
+
+        mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
+        maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
+
+        if orientation == 1:
+            if extreme_direction * mino_0_s[1] > extreme_direction * maxo_0_s[1]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+        else:
+            if extreme_direction * mino_0_s[0] > extreme_direction * maxo_0_s[0]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+    except BaseException:
+        print(traceback.print_exc())
+        (
+            extreme_point_out,
+            extreme_point_ini,
+            extreme_point_out_on_axis,
+            extreme_point_ini_on_axis,
+        ) = [[-1, -1]] * 4
+    return (
+        extreme_point_out,
+        extreme_point_ini,
+        extreme_point_out_on_axis,
+        extreme_point_ini_on_axis,
+        pa,
+    )
 
 
 def main():
