@@ -22,6 +22,8 @@ from dataset_loader import (
     get_transformed_img_and_target,
     get_flipped_img_and_target,
 )
+from keypoints import principal_axes
+
 
 def generate_click_loss_and_metric_figures(
     click_radius=360e-3, image_shape=(1024, 1360), nclicks=10, ntries=1000, display=True
@@ -478,23 +480,23 @@ def plot_history(
         "foreground",
     ],
 ):
-    
+
     template = history.replace(".history", "")
 
     if h is None:
         h = pickle.load(open(history, "rb"), encoding="bytes")
-        
+
     epochs = range(1, len(h["loss"]) + 1)
     loss = h["loss"]
     val_loss = h["val_loss"]
-    
+
     plt.figure(figsize=(16, 9))
     plt.plot(epochs, loss, "bo-", label="Training loss")
     plt.plot(epochs, val_loss, "ro-", label="Validation loss")
     plt.title("Training and validation loss")
     plt.legend()
     plt.savefig(f"{template}_losses.png")
-    
+
     plt.figure(figsize=(16, 9))
     plt.title(template)
     for notion in notions:
@@ -879,110 +881,6 @@ def massage_mask(mask, min_size=32, massager="convex"):
     elif massager == "filled":
         mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
     return mask
-
-
-def principal_axes(array, verbose=False):
-    # https://github.com/pierrepo/principal_axes/blob/master/principal_axes.py
-    _start = time.time()
-    if array.shape[1] != 3:
-        xyz = np.argwhere(array == 1)
-    else:
-        xyz = array[:, :]
-
-    coord = np.array(xyz, float)
-    center = np.mean(coord, 0)
-    coord = coord - center
-    inertia = np.dot(coord.transpose(), coord)
-    e_values, e_vectors = np.linalg.eig(inertia)
-    order = np.argsort(e_values)[::-1]
-    eigenvalues = np.array(e_values[order])
-    eigenvectors = np.array(e_vectors[:, order])
-    _end = time.time()
-    if verbose:
-        print("principal axes")
-        print("intertia tensor")
-        print(inertia)
-        print("eigenvalues")
-        print(eigenvalues)
-        print("eigenvectors")
-        print(eigenvectors)
-        print("principal_axes calculated in %.4f seconds" % (_end - _start))
-        print()
-    return inertia, eigenvalues, eigenvectors, center
-
-
-def get_extreme_point(
-    projection, pa=None, orientation="horizontal", extreme_direction=-1
-):
-    try:
-        xyz = np.argwhere(projection != 0)
-        if pa is None:
-            pa = principal_axes(projection)
-
-        S = pa[-2]
-        center = pa[-1]
-
-        xyz_0 = xyz - center
-
-        xyz_S = np.dot(xyz_0, S)
-        xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
-
-        mino = xyz_S[np.argmin(xyz_S[:, 0])]
-        try:
-            mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
-        except BaseException:
-            print(traceback.print_exc())
-            mino_on_axis = copy.copy(mino)
-        maxo = xyz_S[np.argmax(xyz_S[:, 0])]
-        try:
-            maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
-        except BaseException:
-            print(traceback.print_exc())
-            maxo_on_axis = copy.copy(maxo)
-
-        mino_0_s = np.dot(mino, np.linalg.inv(S)) + center
-        maxo_0_s = np.dot(maxo, np.linalg.inv(S)) + center
-
-        mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
-        maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
-
-        if orientation == "horizontal":
-            if extreme_direction * mino_0_s[1] > extreme_direction * maxo_0_s[1]:
-                extreme_point_out = mino_0_s
-                extreme_point_out_on_axis = mino_0_s_on_axis
-                extreme_point_ini = maxo_0_s
-                extreme_point_ini_on_axis = maxo_0_s_on_axis
-            else:
-                extreme_point_out = maxo_0_s
-                extreme_point_out_on_axis = maxo_0_s_on_axis
-                extreme_point_ini = mino_0_s
-                extreme_point_ini_on_axis = mino_0_s_on_axis
-        else:
-            if extreme_direction * mino_0_s[0] > extreme_direction * maxo_0_s[0]:
-                extreme_point_out = mino_0_s
-                extreme_point_out_on_axis = mino_0_s_on_axis
-                extreme_point_ini = maxo_0_s
-                extreme_point_ini_on_axis = maxo_0_s_on_axis
-            else:
-                extreme_point_out = maxo_0_s
-                extreme_point_out_on_axis = maxo_0_s_on_axis
-                extreme_point_ini = mino_0_s
-                extreme_point_ini_on_axis = mino_0_s_on_axis
-    except BaseException:
-        print(traceback.print_exc())
-        (
-            extreme_point_out,
-            extreme_point_ini,
-            extreme_point_out_on_axis,
-            extreme_point_ini_on_axis,
-        ) = [[-1, -1]] * 4
-    return (
-        extreme_point_out,
-        extreme_point_ini,
-        extreme_point_out_on_axis,
-        extreme_point_ini_on_axis,
-        pa,
-    )
 
 
 def get_descriptions(
