@@ -31,6 +31,96 @@ from dataset_loader import (
 )
 
 
+def get_paths(directory="images_and_labels", seed=1337):
+    input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
+    target_img_paths = [
+        item.replace("img.jpg", "foreground.png") for item in input_img_paths
+    ]
+    random.Random(seed).shuffle(input_img_paths)
+    random.Random(seed).shuffle(target_img_paths)
+    return input_img_paths, target_img_paths
+
+
+def get_training_dataset(seed=1337, num_val_samples=150):
+    input_img_paths, target_img_paths = get_paths(seed=seed)
+    train_paths = input_img_paths[:-num_val_samples]
+    train_target_img_paths = target_img_paths[:-num_val_samples]
+    return train_paths, train_target_img_paths
+
+
+def get_validation_dataset(seed=1337, num_val_samples=150):
+    input_img_paths, target_img_paths = get_paths(seed=seed)
+    val_paths = input_img_paths[-num_val_samples:]
+    val_target_img_paths = target_img_paths[-num_val_samples:]
+    return val_paths, val_target_img_paths
+
+
+def get_family(name):
+    fname = os.path.realpath(name)
+    search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_zoom.*|.*/(.*)_auto_omega.*"
+    match = re.findall(search_string, fname)
+    print("match", match)
+    if match:
+        for item in match[0]:
+            if item != "":
+                return item
+    else:
+        return os.path.basename(os.path.dirname(fname))
+
+
+def get_sample_families(directory="images_and_labels", subset_designation="*"):
+    search_string = "{directory:s}/double_clicks_(.*)_double_click.*|{directory:s}/(.*)_manual_omega.*|{directory:s}/(.*)_color_zoom.*|{directory:s}/(.*)_auto_omega.*".format(
+        directory=directory
+    )
+    individuals = glob.glob("%s/%s" % (directory, subset_designation))
+    sample_families = {}
+    for individual in individuals:
+        matches = re.findall(search_string, individual)
+        individual = individual.replace("%s/" % directory, "")
+        if matches:
+            for match in matches[0]:
+                if match != "":
+                    if match in sample_families:
+                        sample_families[match].append(individual)
+                    else:
+                        sample_families[match] = [individual]
+        else:
+            sample_families[individual] = [individual]
+    return sample_families
+
+
+def get_paths_for_families(families_subset_list, sample_families, directory):
+    paths = []
+    for family in families_subset_list:
+        for individual in sample_families[family]:
+            paths.append(os.path.join(directory, individual, "img.jpg"))
+    return paths
+
+
+def get_training_and_validation_datasets(
+    directory="images_and_labels", seed=12345, split=0.2
+):
+    sample_families = get_sample_families(directory=directory)
+    sample_families_names = sorted(sample_families.keys())
+    random.Random(seed).shuffle(sample_families_names)
+    total = len(sample_families_names)
+
+    train = int((1 - split) * total)
+    train_families = sample_families_names[:train]
+    valid_families = sample_families_names[train:]
+    print("total %d" % total)
+    print("train", train)
+    print("train_families: %d" % len(train_families))
+    print("valid_families: %d" % len(valid_families))
+
+    train_paths = get_paths_for_families(train_families, sample_families, directory)
+    random.Random(seed).shuffle(train_paths)
+    val_paths = get_paths_for_families(valid_families, sample_families, directory)
+    random.Random(seed).shuffle(val_paths)
+
+    return train_paths, val_paths
+
+
 def get_model(
     nfilters=48,
     growth_rate=16,
@@ -382,7 +472,6 @@ def train(
     f.close()
 
     plot_history(history_name, history.history)
-
 
 
 def main():
