@@ -26,7 +26,12 @@ pylab.imshow(aoip.get_distance_transform())
 ax1 = pylab.gca()
 db = pylab.Polygon(aoip.get_dense_boundary(), color="red", fill=False, ls="solid")
 ax1.add_patch(db)
-cb = pylab.Polygon(aoip.get_boundary_from_chebyshev(domain=(-1, 1)), color="green", fill=False, ls="dotted")
+cb = pylab.Polygon(
+    aoip.get_boundary_from_chebyshev(domain=(-1, 1)),
+    color="green",
+    fill=False,
+    ls="dotted",
+)
 ax1.add_patch(cb)
 
 
@@ -34,14 +39,14 @@ ltrb_bbox = aoip.get_ltrb_bbox()
 
 fig, axes = pylab.subplots(2, 2)
 for k, ax in enumerate(axes.flatten()):
-    ax.imshow(ltrb_bbox[:,:,k])
+    ax.imshow(ltrb_bbox[:, :, k])
     ax.set_title(f"{k}")
 
 
 ltrb_boundary = aoip.get_ltrb_boundary()
 fig, axes = pylab.subplots(2, 2)
 for k, ax in enumerate(axes.flatten()):
-    ax.imshow(ltrb_boundary[:,:,k])
+    ax.imshow(ltrb_boundary[:, :, k])
     ax.set_title(f"{k}")
 
 pylab.show()

@@ -18,21 +18,16 @@ import gc
 
 import simplejpeg
 from imageio import imread
-from murko import (
-    get_uncompiled_tiramisu,
-)
+from murko import get_uncompiled_tiramisu
 
-from utils import (
-    get_notion_string,
-    get_descriptions,
-    plot_analysis,
-)
+from utils import get_notion_string, get_descriptions, plot_analysis
+
 
 def print_memory_use():
     # https://stackoverflow.com/questions/44327803/memory-leak-with-tensorflow
     pid = os.getpid()
     py = psutil.Process(pid)
-    memoryUse = py.memory_info()[0] / 2.0**30  # memory use in GB...I think
+    memoryUse = py.memory_info()[0] / 2.0 ** 30  # memory use in GB...I think
     print("memory use: %.3f GB" % memoryUse)
 
 
@@ -76,11 +71,7 @@ def get_model(model_name="model.h5", model_img_size=(256, 320), gpu="0"):
 
 
 def serve(
-    port=8901,
-    model_name="model.h5",
-    gpu="0",
-    batch_size=16,
-    model_img_size=(256, 320),
+    port=8901, model_name="model.h5", gpu="0", batch_size=16, model_img_size=(256, 320)
 ):
     _start = time.time()
     if "CUDA_VISIBLE_DEVICES" not in os.environ:
@@ -96,9 +87,7 @@ def serve(
         for gpu in tf.config.list_physical_devices("GPU"):
             print("setting memory_growth on", gpu)
             tf.config.experimental.set_memory_growth(gpu, True)
-    model = get_model(
-        model_name=model_name, gpu=gpu, model_img_size=model_img_size
-    )
+    model = get_model(model_name=model_name, gpu=gpu, model_img_size=model_img_size)
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:%s" % port)
@@ -217,9 +206,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d", "--directory", default=None, type=str, help="optional model directory"
     )
-    parser.add_argument(
-        "-g", "--gpu", default="0", type=str, help="gpu to use"
-    )
+    parser.add_argument("-g", "--gpu", default="0", type=str, help="gpu to use")
     args = parser.parse_args()
     model_img_size = eval(args.model_img_size)
     if not os.path.isfile(args.model_name) and args.directory is not None:
