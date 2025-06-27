@@ -1,7 +1,13 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# author: Martin Savko (martin.savko@synchrotron-soleil.fr)
+# part of the MURKO project
+
+
 from murko import get_tiramisu_layer, get_dense_block, get_num_segmentation_classes
 
 
-def tiramisu_universal(
+def tiramisu(
     nfilters=48,
     growth_rate=16,
     layers_scheme=[4, 5, 7, 10, 12],
@@ -27,7 +33,7 @@ def tiramisu_universal(
         {"name": "foreground", "type": "binary_segmentation"},
     ],
     verbose=False,
-    name="model",
+    model_name="tiramisu",
     normalization_type="GroupNormalization",
     gn_groups=16,
     bn_momentum=0.9,
@@ -37,7 +43,7 @@ def tiramisu_universal(
     filter_size=3,
     final_filter_size=3,
 ):
-    print("get_uncompiled_tiramisu heads", heads)
+    print("tiramisu heads", heads)
     boilerplate = {
         "activation": activation,
         "convolution_type": convolution_type,
@@ -134,5 +140,5 @@ def tiramisu_universal(
 
         outputs.append(output)
 
-    model = keras.Model(inputs=inputs, outputs=outputs, name=name)
+    model = keras.Model(inputs=inputs, outputs=outputs, name=model_name)
     return model
