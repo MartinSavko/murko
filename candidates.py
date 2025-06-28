@@ -181,7 +181,7 @@ def get_candidates(concepts=concepts):
                 }
                 candidates.append(head)
 
-        elif task == "crystal_ordinal":
+        elif task in ["crystal_area", "crystal_position"]:
             head = {
                 "name": task,
                 "task": "classification",
