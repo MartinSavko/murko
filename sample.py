@@ -13,8 +13,6 @@ from objects_of_interest import get_objects_of_interest, update_maps
 from regionprops import Regionprops
 from config import notion_importance, keypoints, keypoint_labels
 
-
-# @timeit
 def get_label_mask_from_points(oois, labels, points=None):
     image_shape = oois["image_shape"]
     label_mask = np.zeros(image_shape, dtype=np.uint8)
