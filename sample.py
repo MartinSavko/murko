@@ -7,14 +7,14 @@ import os
 import json
 import numpy as np
 import cv2 as cv
-from skimage.transform import resize
+import skimage as ski
 
-from objects_of_interest import get_objects_of_interest, update_maps
+from objects_of_interest import get_objects_of_interest, load_json, update_maps
 from regionprops import Regionprops
+
 from config import notion_importance, keypoints, keypoint_labels
 
 
-# @timeit
 def get_label_mask_from_points(oois, labels, points=None):
     image_shape = oois["image_shape"]
     label_mask = np.zeros(image_shape, dtype=np.uint8)
@@ -113,6 +113,20 @@ def get_transposed_img_and_points(img, points):
     return timg, tpoints
 
 
+
+def get_transformed_points(points, transformation_matrix):
+    points = points[:, [1, 0, 2]]
+    transformed_points = np.dot(transformation_matrix, points.T).T
+    transformed_points = transformed_points[:, [1, 0, 2]]
+    return transformed_points
+
+
+def get_transformed_img_and_points(img, points):
+    transformation = get_random_transformation()
+    timage = get_transformed_image(img, transformation)
+    tpoints = get_transformed_points(points, transformation._inv_matrix)
+    return timage, tpoints
+
 def get_transformed_image(
     img, transformation, output_shape=None, doer="ski", cval=-1, mode="constant"
 ):
@@ -136,27 +150,44 @@ def get_transformed_image(
         )
     return transformed_image
 
-
-def get_transformed_points(points, transformation_matrix):
-    points = points[:, [1, 0, 2]]
-    transformed_points = np.dot(transformation_matrix, points.T).T
-    transformed_points = transformed_points[:, [1, 0, 2]]
-    return transformed_points
-
-
-def get_transformed_img_and_points(img, points):
-    transformation = get_random_transformation()
-    timage = get_transformed_image(img, transformation)
-    tpoints = get_transformed_points(points, transformation._inv_matrix)
-    return timage, tpoints
-
+def get_resized_image(
+    img,
+    final_img_size,
+    anti_aliasing=True,
+    interpolation="INTER_LINEAR",
+    doer="cv",
+):
+    if doer == "ski":
+        resized_image = ski.transform.resize(
+            img, final_img_size, anti_aliasing=anti_aliasing
+        )
+    elif doer == "cv":
+        # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
+        #Method	        Description	Best               Used For
+        #INTER_NEAREST	Nearest-neighbor interpolation (fastest, but low quality)	                                   
+        #                                               Simple, fast resizing (e.g.,           
+        #                                               pixel art, binary images)
+        #INTER_LINEAR	Bilinear interpolation        	General-purpose 
+        #                                               resizing (good balance of speed 
+        #                                               & quality)
+        #INTER_CUBIC	Bicubic interpolation           High-quality upscaling, 
+        #               (uses 4×4 pixel neighborhood)   smoother results
+        #INTER_AREA	    Resampling                      Best for shrinking images 
+        #               using pixel area relation       (avoids aliasing)
+        #INTER_LANCZOS4	Lanczos interpolation           High-quality upscaling & 
+        #               using 8×8 pixel neighborhood    downscaling (preserves fine 
+        #                                               details)
+        resized_image = cv.resize(
+            img, final_img_size[::-1], interpolation=getattr(cv, interpolation),
+        )
+    return resized_image
 
 # zoom_factor=0.25,
 # shift_factor=0.25,
 # shear_factor=45,
 # default_transform_gang=[0, 0, 0, 0, 1, 1],
 def get_random_transformation(
-    rotation_range=np.pi,
+    rotation_range=np.pi/2,
     scale_range=0.5,
     translation_range=0.25,
     shear_range=0.5 * np.pi,
@@ -375,7 +406,7 @@ class Sample:
 
         if size_differs(img.shape[:2], final_img_size):
             resize_factor = np.array(final_img_size) / np.array(img.shape[:2])
-            img = resize(img, final_img_size, anti_aliasing=True)
+            img = get_resized_image(img, final_img_size, anti_aliasing=True)
             if not self.fractional:
                 points = points * resize_factor
 
@@ -393,7 +424,7 @@ class Sample:
 
     def swap_backgrounds(self, img, foreground_mask, new_background):
         if size_differs(img.shape[:2], new_background.shape[:2]):
-            new_background = resize(new_background, img.shape[:2], anti_aliasing=True)
+            new_background = get_resized_image(new_background, img.shape[:2], anti_aliasing=True)
         img[foreground_mask == 0] = new_background[foreground_mask == 0]
         return img
 
