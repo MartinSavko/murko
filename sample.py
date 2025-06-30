@@ -187,7 +187,7 @@ def get_resized_image(
 # shear_factor=45,
 # default_transform_gang=[0, 0, 0, 0, 1, 1],
 def get_random_transformation(
-    rotation_range=np.pi/2,
+    rotation_range=np.pi,
     scale_range=0.5,
     translation_range=0.25,
     shear_range=0.5 * np.pi,

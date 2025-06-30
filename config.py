@@ -276,8 +276,9 @@ instance_tasks = {
     "encoded_shape": {"channels": 1 + 20, "dtype": "float32"},
 }
 global_tasks = {
-    # voronoi diagram around crystal inner centers
-    "crystal_ordinal": {"channels": 100, "dtype": "int8", "activation": "softmax"},
+    # voronoi diagram around crystal inner centers, order according to crystal area or position (V*H) 
+    "crystal_area": {"channels": 100, "dtype": "int8", "activation": "softmax"},
+    "crystal_position": {"channels": 100, "dtype": "int8", "activation": "softmax"},
     # centerness + offsets
     "keypoint": {"channels": 1 + 2, "dtype": "float32"},
     # all keypoints together
