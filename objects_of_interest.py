@@ -5,13 +5,15 @@
 
 # https://docs.opencv.org/4.x/d1/d32/tutorial_py_contour_properties.html
 
+import os
 import json
+import traceback
 import numpy as np
 import cv2 as cv
 from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
 import scipy.special
 from labelme import utils
-from config import additional_labels
+from config import additional_labels, notion_importance, keypoints, keypoint_labels
 from regionprops import Regionprops
 
 def load_json(
@@ -96,15 +98,25 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
 
 
 def merge_maps(map1, map2, method):
-    if "logical" in method:
-        mmap = getattr(np, method)(map1, map2)
+    s1 = map1.shape
+    s2 = map2.shape
+    if len(s1) == 2 and len(s2) == 2 and (s1[0] != s2[0] or s1[1] != s2[1]):
+        mmap = map1.copy()
     else:
-        mmap = getattr(np, method)(np.stack([map1, map2], axis=0))
+        if "logical" in method:
+            mmap = getattr(np, method)(map1, map2)
+        else:
+            # this may be useful if we are interested in minimum or maximum
+            # e.g. when merging distance transforms, point regions etc.
+            mmap = getattr(np, method)(np.stack([map1, map2], axis=0), axis=0)
     return mmap
 
 
-def update_maps(maps, label, map, method="logical_or"):
-    maps[label] = merge_maps(maps[label], map, method) if label in maps else map
+def update_maps(maps, label, _map, method="logical_or"):
+    try:
+        maps[label] = merge_maps(maps[label], _map, method) if label in maps else _map
+    except:
+        traceback.print_exc()
     return maps
 
 
