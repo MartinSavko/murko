@@ -3,82 +3,14 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
-import os
-import json
 import numpy as np
 import cv2 as cv
 import skimage as ski
 
-from objects_of_interest import get_objects_of_interest, load_json, update_maps
+from objects_of_interest import get_objects_of_interest, update_maps
 from regionprops import Regionprops
 
 from config import notion_importance, keypoints, keypoint_labels
-
-
-def get_label_mask_from_points(oois, labels, points=None):
-    image_shape = oois["image_shape"]
-    label_mask = np.zeros(image_shape, dtype=np.uint8)
-
-    if "any" in labels:
-        labels = list(set(oois["labels"]))
-
-    label_list = oois["labels"]
-    label_indices = oois["indices"]
-
-    if points is None:
-        points = oois["points"]
-    else:
-        assert len(oois["points"]) == len(points)
-
-    for label in labels:
-        if label not in label_list:
-            continue
-
-        for i_start, i_end in [
-            label_indices[k] for k, item in enumerate(label_list) if item == label
-        ]:
-            ps = points[i_start:i_end]
-            if len(ps) < 3:
-                continue
-            polygon = ps * image_shape
-            mask = get_mask_from_polygon(polygon, image_shape)
-            label_mask = np.logical_or(label_mask == 1, mask == 1)
-    return label_mask
-
-
-def get_hierarchy_from_oois(
-    oois,
-    points=None,
-    notions=[
-        "crystal",
-        "loop_inside",
-        "loop",
-        "pin",
-        "stem",
-        "foreground",
-        "background",
-    ],
-    notion_importance=notion_importance,
-):
-    notions.sort(key=lambda x: -notion_importance[x])
-    notion_values = np.array([notion_importance[notion] for notion in notions])
-
-    image_shape = oois["image_shape"]
-    hierarchical_target = np.zeros(tuple(image_shape) + (len(notions),))
-
-    for label in oois["labels"]:
-        label_mask = get_label_mask_from_points(oois, [label], points=points)
-        if label in notions:
-            i = notions.index(label)
-        elif label != "background":
-            i = notions.index("foreground")
-        hierarchical_target[:, :, i] = np.logical_or(
-            hierarchical_target[:, :, i], label_mask
-        )
-
-    hierarchical_target /= notion_importance
-    hierarchical_mask = np.argmax(hierarchical_target, axis=2)
-    return hierarchical_mask
 
 
 def flip_axis(x, axis):
@@ -113,7 +45,6 @@ def get_transposed_img_and_points(img, points):
     return timg, tpoints
 
 
-
 def get_transformed_points(points, transformation_matrix):
     points = points[:, [1, 0, 2]]
     transformed_points = np.dot(transformation_matrix, points.T).T
@@ -126,6 +57,7 @@ def get_transformed_img_and_points(img, points):
     timage = get_transformed_image(img, transformation)
     tpoints = get_transformed_points(points, transformation._inv_matrix)
     return timage, tpoints
+
 
 def get_transformed_image(
     img, transformation, output_shape=None, doer="ski", cval=-1, mode="constant"
@@ -150,12 +82,9 @@ def get_transformed_image(
         )
     return transformed_image
 
+
 def get_resized_image(
-    img,
-    final_img_size,
-    anti_aliasing=True,
-    interpolation="INTER_LINEAR",
-    doer="cv",
+    img, final_img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
         resized_image = ski.transform.resize(
@@ -163,24 +92,25 @@ def get_resized_image(
         )
     elif doer == "cv":
         # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
-        #Method	        Description	Best               Used For
-        #INTER_NEAREST	Nearest-neighbor interpolation (fastest, but low quality)	                                   
-        #                                               Simple, fast resizing (e.g.,           
+        # Method	        Description	Best               Used For
+        # INTER_NEAREST	Nearest-neighbor interpolation (fastest, but low quality)
+        #                                               Simple, fast resizing (e.g.,
         #                                               pixel art, binary images)
-        #INTER_LINEAR	Bilinear interpolation        	General-purpose 
-        #                                               resizing (good balance of speed 
+        # INTER_LINEAR	Bilinear interpolation        	General-purpose
+        #                                               resizing (good balance of speed
         #                                               & quality)
-        #INTER_CUBIC	Bicubic interpolation           High-quality upscaling, 
+        # INTER_CUBIC	Bicubic interpolation           High-quality upscaling,
         #               (uses 4×4 pixel neighborhood)   smoother results
-        #INTER_AREA	    Resampling                      Best for shrinking images 
+        # INTER_AREA	    Resampling                      Best for shrinking images
         #               using pixel area relation       (avoids aliasing)
-        #INTER_LANCZOS4	Lanczos interpolation           High-quality upscaling & 
-        #               using 8×8 pixel neighborhood    downscaling (preserves fine 
+        # INTER_LANCZOS4	Lanczos interpolation           High-quality upscaling &
+        #               using 8×8 pixel neighborhood    downscaling (preserves fine
         #                                               details)
         resized_image = cv.resize(
-            img, final_img_size[::-1], interpolation=getattr(cv, interpolation),
+            img, final_img_size[::-1], interpolation=getattr(cv, interpolation)
         )
     return resized_image
+
 
 # zoom_factor=0.25,
 # shift_factor=0.25,
@@ -231,28 +161,172 @@ def get_random_transformation(
     return random_transformation
 
 
+def get_hierarchy_from_oois(
+    oois,
+    points=None,
+    notions=[
+        "crystal",
+        "loop_inside",
+        "loop",
+        "pin",
+        "stem",
+        "foreground",
+        "background",
+    ],
+    notion_importance=notion_importance,
+):
+    notions.sort(key=lambda x: -notion_importance[x])
+    notion_values = np.array([notion_importance[notion] for notion in notions])
+
+    image_shape = oois["image_shape"]
+    hierarchical_target = np.zeros(tuple(image_shape) + (len(notions),))
+
+    for label in oois["labels"]:
+        label_mask = get_label_mask_from_points(oois, [label], points=points)
+        if label in notions:
+            i = notions.index(label)
+        elif label != "background":
+            i = notions.index("foreground")
+        hierarchical_target[:, :, i] = np.logical_or(
+            hierarchical_target[:, :, i], label_mask
+        )
+
+    hierarchical_target /= notion_importance
+    hierarchical_mask = np.argmax(hierarchical_target, axis=2)
+    return hierarchical_mask
+
+
+def get_label_mask_from_points(oois, labels, points=None):
+    image_shape = oois["image_shape"]
+    label_mask = np.zeros(image_shape, dtype=np.uint8)
+
+    if "any" in labels:
+        labels = list(set(oois["labels"]))
+
+    label_list = oois["labels"]
+    label_indices = oois["indices"]
+
+    if points is None:
+        points = oois["points"]
+    else:
+        assert len(oois["points"]) == len(points)
+
+    for label in labels:
+        if label not in label_list:
+            continue
+
+        for i_start, i_end in [
+            label_indices[k] for k, item in enumerate(label_list) if item == label
+        ]:
+            ps = points[i_start:i_end]
+            if len(ps) < 3:
+                continue
+            polygon = ps * image_shape
+            mask = get_mask_from_polygon(polygon, image_shape)
+            label_mask = np.logical_or(label_mask == 1, mask == 1)
+    return label_mask
+
+
 class Sample:
-    def __init__(self, json_file, not_to_keep=["masks", "properties"]):
-        if os.path.isfile(json_file):
-            json_file = load_json(json_file)
+    def __init__(
+        self, 
+        json_file, 
+        notion_importance=notion_importance, 
+        not_to_keep=["masks"], 
+        dynamic_notions={
+            "aether": {
+                1: "background", 
+                0: "foreground",
+            },
+            "plastic": {
+                1: "support", 
+                0: "loop_inside",
+            },
+        }
+    ):
 
         self.oois = get_objects_of_interest(json_file)
         self.image_path = self.oois["image_path"]
+        self.image_shape = self.oois["image_shape"]
         self.points = self.oois["points"]
         self.indices = self.oois["indices"]
         self.labels = self.oois["labels"]
         self.fractional = self.oois["fractional"]
-        for key in not_to_keep:
-            del self.oois[key]
+        self.dynamic_notions = dynamic_notions
+        self.notion_importance = notion_importance
+        #for key in not_to_keep:
+            #del self.oois[key]
 
     def get_target(self, head, img, points):
         pass
 
+    def get_blank_hierarchy(self, notions):
+        blank_hierarchy = np.zeros(
+            self.get_image_shape() + (len(notions),), dtype=np.int8
+        )
+        return blank_hierarchy
+
     def get_image(self):
         return self.oois["image"].copy()
 
+    def get_image_path(self):
+        return self.image_path
+
+    def get_image_shape(self):
+        return tuple(map(int, self.image_shape))
+
     def get_points(self):
-        return self.oois.copy()
+        return self.points.copy()
+
+    def get_indices(self):
+        return self.indices
+    
+    def get_labels(self):
+        return self.labels
+    
+    def _get_maps(
+        self, points=None, image_shape=None, properties=None, kind="mask", method="logical_or", **kwargs
+    ):
+        if properties is None:
+            properties = self._get_properties(points, image_shape)
+        
+        _maps = {}
+        for k, label in enumerate(self.labels):
+            print(f"label {label} kind {kind} method {method}")
+            _map = getattr(properties[k], f"get_{kind}")(**kwargs)
+            if len(_map.shape) == 2:
+                print(f"_map.shape {_map.shape}")
+                update_maps(_maps, label, _map, method=method)
+            else:
+                print(f"possible problem {_map.shape} shape is wrong, please check")
+        return _maps
+
+    def _get_properties(self, points=None, image_shape=None):
+        if points is None:
+            points = self.get_points()
+        if image_shape is None:
+            image_shape = self.get_image_shape()
+        properties = []
+        for k, label in enumerate(self.labels):
+            i_start, i_end = self.indices[k]
+            ps = points[i_start:i_end]
+            # if len(ps) < 3:
+            # continue
+            if self.fractional:
+                ps *= image_shape
+            props = Regionprops(ps, image_shape=image_shape)
+            properties.append(props)
+        return properties
+    
+    def get_masks(self, points=None, image_shape=None):
+        masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
+        for notion in self.dynamic_notions:
+            p, n = self.dynamic_notions[notion][1], self.dynamic_notions[notion][0]
+            if p in masks:
+                masks[notion] = masks[p].copy()
+            if n in masks:
+                masks[notion][masks[n].astype(bool)] = 0
+        return masks
 
     def get_hierarchy(
         self,
@@ -267,41 +341,34 @@ class Sample:
             "background",
         ],
     ):
-        hierarchy = get_hierarchy_from_oois(self.oois, points=points, notions=notions)
+        notions.sort(key=lambda x: -self.notion_importance[x])
+        values = dict((notion, k) for k, notion in enumerate(notions))
+        hierarchy = self.get_blank_hierarchy(notions)
+        masks = self.get_masks(points)
+        for notion in notions:
+            if notion in masks:
+                hierarchy[:, :, values[notion]] = (
+                    masks[notion].astype(np.int8) * values[notion]
+                )
+
         return hierarchy
 
-    def _get_maps(
-        self, points=None, image_shape=None, kind="mask", method="logical_or", **kwargs
+    def get_flat_hierarchy(
+        self,
+        points=None,
+        notions=[
+            "crystal",
+            "loop_inside",
+            "loop",
+            "stem",
+            "pin",
+            "foreground",
+            "background",
+        ],
     ):
-
-        _maps = {}
-        properties = self._get_properties(points, image_shape)
-        for k, label in enumerate(self.labels):
-            _map = getattr(properties[k], f"get_{kind}")(**kwargs)
-            update_maps(_maps, label, _map, method=method, type=type)
-        return _maps
-
-    def _get_properties(self, points=None, image_shape=None):
-        if points is None:
-            points = self.oois["points"]
-        if image_shape is None:
-            image_shape = self.oois["image_shape"]
-
-        properties = []
-        for k, label in enumerate(self.labels):
-            i_start, i_end = self.indices[k]
-            ps = points[i_start:i_end]
-            if len(ps) < 3:
-                continue
-            if self.fractional:
-                ps *= image_shape
-            props = Regionprops(ps, image_shape=image_shape)
-            properties.append(props)
-        return properties
-
-    def get_masks(self, points=None, image_shape=None):
-        masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
-        return masks
+        hierarchy = self.get_hierarchy(points, notions)
+        flat_hierarchy = np.argmax(hierarchy, axis=2)
+        return flat_hierarchy
 
     def get_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
@@ -424,7 +491,9 @@ class Sample:
 
     def swap_backgrounds(self, img, foreground_mask, new_background):
         if size_differs(img.shape[:2], new_background.shape[:2]):
-            new_background = get_resized_image(new_background, img.shape[:2], anti_aliasing=True)
+            new_background = get_resized_image(
+                new_background, img.shape[:2], anti_aliasing=True
+            )
         img[foreground_mask == 0] = new_background[foreground_mask == 0]
         return img
 
@@ -493,3 +562,24 @@ class Sample:
             do_random_brightness,
             do_random_channel_shift,
         )
+
+
+def test():
+    s = Sample(
+        "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
+    )
+    import pylab
+    
+    fh = s.get_flat_hierarchy()
+    
+    pylab.figure(figsize=(16, 9))
+    pylab.imshow(s.get_flat_hierarchy())
+    pylab.show()
+    
+    #dt = s.get_distance_transform()
+    #print('distance_transform')
+    #print(dt)
+
+
+if __name__ == "__main__":
+    test()
