@@ -233,16 +233,6 @@ class Sample:
         json_file, 
         notion_importance=notion_importance, 
         not_to_keep=["masks"], 
-        dynamic_notions={
-            "aether": {
-                1: "background", 
-                0: "foreground",
-            },
-            "plastic": {
-                1: "support", 
-                0: "loop_inside",
-            },
-        }
     ):
 
         self.oois = get_objects_of_interest(json_file)
@@ -252,10 +242,9 @@ class Sample:
         self.indices = self.oois["indices"]
         self.labels = self.oois["labels"]
         self.fractional = self.oois["fractional"]
-        self.dynamic_notions = dynamic_notions
         self.notion_importance = notion_importance
-        #for key in not_to_keep:
-            #del self.oois[key]
+        for key in not_to_keep:
+            del self.oois[key]
 
     def get_target(self, head, img, points):
         pass
@@ -285,7 +274,7 @@ class Sample:
         return self.labels
     
     def _get_maps(
-        self, points=None, image_shape=None, properties=None, kind="mask", method="logical_or", **kwargs
+        self, points=None, image_shape=None, properties=None, kind="mask", method="logical_or", normalize=True, **kwargs
     ):
         if properties is None:
             properties = self._get_properties(points, image_shape)
@@ -299,6 +288,14 @@ class Sample:
                 update_maps(_maps, label, _map, method=method)
             else:
                 print(f"possible problem {_map.shape} shape is wrong, please check")
+        
+        if kind != "mask" and normalize:
+            for _n, _m in _maps.items():
+                _min = _m.min()
+                _max = _m.max()
+                if np.any(_min != _max):
+                    _maps[_n] = (_m-_min)/(_max-_min)
+                    
         return _maps
 
     def _get_properties(self, points=None, image_shape=None):
@@ -306,26 +303,20 @@ class Sample:
             points = self.get_points()
         if image_shape is None:
             image_shape = self.get_image_shape()
+        
         properties = []
         for k, label in enumerate(self.labels):
             i_start, i_end = self.indices[k]
             ps = points[i_start:i_end]
-            # if len(ps) < 3:
-            # continue
             if self.fractional:
                 ps *= image_shape
-            props = Regionprops(ps, image_shape=image_shape)
+            props = Regionprops(ps, image_shape=image_shape, distance_transform_pad=0 if label == "aether" else 2)
             properties.append(props)
+
         return properties
     
     def get_masks(self, points=None, image_shape=None):
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
-        for notion in self.dynamic_notions:
-            p, n = self.dynamic_notions[notion][1], self.dynamic_notions[notion][0]
-            if p in masks:
-                masks[notion] = masks[p].copy()
-            if n in masks:
-                masks[notion][masks[n].astype(bool)] = 0
         return masks
 
     def get_hierarchy(
@@ -372,13 +363,43 @@ class Sample:
 
     def get_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
-            points, image_shape, kind="distance_transform", method="max"
+            points, image_shape, kind="distance_transform", method="min"
         )
         return distance_transform
-
+    
+    def get_inverse_distance_transform(self, points=None, image_shape=None):
+        distance_transform = self._get_maps(
+            points, image_shape, kind="inverse_distance_transform", method="max"
+        )
+        return distance_transform
+    
+    def get_sqrt_distance_transform(self, points=None, image_shape=None):
+        distance_transform = self._get_maps(
+            points, image_shape, kind="sqrt_distance_transform", method="min"
+        )
+        return distance_transform
+    
+    def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None):
+        distance_transform = self._get_maps(
+            points, image_shape, kind="sqrt_inverse_distance_transform", method="max"
+        )
+        return distance_transform
+    
+    def get_power_distance_transform(self, points=None, image_shape=None):
+        distance_transform = self._get_maps(
+            points, image_shape, kind="power_distance_transform", method="min"
+        )
+        return distance_transform
+    
+    def get_power_inverse_distance_transform(self, points=None, image_shape=None):
+        distance_transform = self._get_maps(
+            points, image_shape, kind="power_inverse_distance_transform", method="max"
+        )
+        return distance_transform
+    
     def get_centerness(self, points=None, image_shape=None):
         centerness = self._get_maps(
-            points, image_shape, kind="centerness", method="min"
+            points, image_shape, kind="centerness", method="max"
         )
         return centerness
 
@@ -570,15 +591,15 @@ def test():
     )
     import pylab
     
-    fh = s.get_flat_hierarchy()
+    #fh = s.get_flat_hierarchy()
     
-    pylab.figure(figsize=(16, 9))
-    pylab.imshow(s.get_flat_hierarchy())
-    pylab.show()
+    #pylab.figure(figsize=(16, 9))
+    #pylab.imshow(s.get_flat_hierarchy())
+    #pylab.show()
     
-    #dt = s.get_distance_transform()
-    #print('distance_transform')
-    #print(dt)
+    dt = s.get_distance_transform()
+    print('distance_transform')
+    print(dt)
 
 
 if __name__ == "__main__":

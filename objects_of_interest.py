@@ -88,6 +88,11 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
 
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
+        
+    if "support" in masks:
+        masks["plastic"] = masks["support"].copy()
+        if "loop_inside" in masks:
+            masks["plastic"][masks["loop_inside"].astype(bool)] = 0
 
     if "background" in masks:
         masks["aether"] = masks["background"].copy()
@@ -98,17 +103,16 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
 
 
 def merge_maps(map1, map2, method):
-    s1 = map1.shape
-    s2 = map2.shape
-    if len(s1) == 2 and len(s2) == 2 and (s1[0] != s2[0] or s1[1] != s2[1]):
-        mmap = map1.copy()
+    
+    if "logical" in method:
+        mmap = getattr(np, method)(map1, map2)
     else:
-        if "logical" in method:
-            mmap = getattr(np, method)(map1, map2)
-        else:
-            # this may be useful if we are interested in minimum or maximum
-            # e.g. when merging distance transforms, point regions etc.
-            mmap = getattr(np, method)(np.stack([map1, map2], axis=0), axis=0)
+        # this may be useful if we are interested in minimum or maximum
+        # e.g. when merging distance transforms, point regions etc.
+        #mask = np.logical_and(map1>0, map2>0)
+        #stack = np.stack([map1, map2], axis=0)
+        mmap = map1 + map2
+        #mmap = getattr(np, method)(stack, axis=0, where=mask)
     return mmap
 
 
@@ -132,6 +136,7 @@ def get_secondary_notions(
         "support",
         "foreground",
         "explorable",
+        "plastic",
         "aether",
     ],
 ):
@@ -142,14 +147,15 @@ def get_secondary_notions(
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
             )
-            shape = contours[0].shape
-            new_shape = (shape[0], shape[2])
-            ooi = contours[0].reshape(new_shape)[:, ::-1]
-            if fractional:
-                ooi /= image_shape
-            points, indices, labels, properties = add_ooi(
-                ooi, notion, points, indices, labels, properties, image_shape
-            )
+            for contour in contours:
+                shape = contour.shape
+                new_shape = (shape[0], shape[2])
+                ooi = contour.reshape(new_shape)[:, ::-1]
+                if fractional:
+                    ooi /= image_shape
+                points, indices, labels, properties = add_ooi(
+                    ooi, notion, points, indices, labels, properties, image_shape
+                )
 
     return points, indices, labels, properties, masks
 

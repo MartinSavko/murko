@@ -7,7 +7,7 @@ import cv2 as cv
 import numpy as np
 
 class Regionprops(object):
-    def __init__(self, points, image_shape=None):
+    def __init__(self, points, image_shape=None, distance_transform_pad=2):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
         self.image_shape = tuple(image_shape)
         self.bbox = None
@@ -42,6 +42,7 @@ class Regionprops(object):
         self.chebyshev_basis = None
         self.thetas = None
         self.sph_coeff = None
+        self.distance_transform_pad = distance_transform_pad
 
     def get_blank(self, image_shape=None):
         if image_shape is not None:
@@ -72,14 +73,42 @@ class Regionprops(object):
         self.mask_points = np.argwhere(self.get_mask().astype(bool))
         return self.mask_points
 
-    # @saver
-    def get_distance_transform(self, points=None, image_shape=None, pad=1):
+    def _get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1, pad=0):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         _mask = self._get_mask(points, image_shape, pad=pad)
-        distance_transform = get_distance_transform(_mask)
+        distance_transform = get_distance_transform(_mask.astype('uint8'), exagerate=exagerate, invert=invert, power=power)
+        if pad > 0:
+            distance_transform = distance_transform[pad: -pad, pad: -pad]
         return distance_transform
-
-    def get_centerness(self, points=None, image_shape=None, pad=1):
+    
+    # @saver
+    def get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    def get_inverse_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=True, power=1):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    
+    def get_sqrt_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    def get_power_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=4):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    def get_power_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=4):
+        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+        return distance_transform
+    
+    
+    def get_centerness(self, points=None, image_shape=None):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         try:
             inner_center = self.get_inner_center()
@@ -161,10 +190,10 @@ class Regionprops(object):
 
     # #@saver
     def get_inner_center(
-        self, points=None, image_shape=None, method="medianmax", pad=1
+        self, points=None, image_shape=None, method="medianmax",
     ):
         points, image_shape = self._check_points_and_shape(points, image_shape)
-        dt = self.get_distance_transform(points, image_shape, pad=pad)
+        dt = self.get_distance_transform(points, image_shape, pad=self.distance_transform_pad)
         if method == "medianmax":
             # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
             indices = np.vstack(
@@ -183,9 +212,9 @@ class Regionprops(object):
         return self.inner_center
 
     # #@saver
-    def get_dense_boundary(self, points=None, image_shape=None, pad=1):
+    def get_dense_boundary(self, points=None, image_shape=None, pad=2):
         points, image_shape = self._check_points_and_shape(points, image_shape)
-        _mask = self._get_mask(points, image_shape, pad=pad)
+        _mask = self._get_mask(points, image_shape, pad=self.distance_transform_pad)
         contours, _ = cv.findContours(
             _mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
         )
@@ -539,17 +568,19 @@ def get_distance_transform(
     normalize=True,
     distanceType=cv.DIST_L2,
     maskSize=3,
+    power=1,
     invert=False,
     exagerate=False,
 ):
     dt = cv.distanceTransform(mask, distanceType, maskSize)
-    if normalize:
-        cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+    cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
     if invert:
         dt = 1 - dt
-        dt[mask == 0] = 0
+        #dt[mask == 0] = 0
     if exagerate:
-        dt = np.power(dt, 10)
+        dt = dt**power
+    #if normalize:
+        #cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
     return dt
 
 
