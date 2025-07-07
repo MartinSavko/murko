@@ -5,6 +5,7 @@
 
 import cv2 as cv
 import numpy as np
+import traceback
 
 class Regionprops(object):
     def __init__(self, points, image_shape=None, distance_transform_pad=2):
@@ -82,28 +83,28 @@ class Regionprops(object):
         return distance_transform
     
     # @saver
-    def get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1):
+    def get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
-    def get_inverse_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=True, power=1):
+    def get_inverse_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=True, power=1,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
     
-    def get_sqrt_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5):
+    def get_sqrt_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
-    def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5):
+    def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
-    def get_power_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=4):
+    def get_power_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=4,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
-    def get_power_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=4):
+    def get_power_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=4,):
         distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
         return distance_transform
     
@@ -112,13 +113,14 @@ class Regionprops(object):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         try:
             inner_center = self.get_inner_center()
-            xv, yv = np.meshgrid(np.arange(imgage_shape[1]), np.arange(image_shape[0]))
+            xv, yv = np.meshgrid(np.arange(image_shape[1]), np.arange(image_shape[0]))
             centerness = np.sqrt(
-                (inner_center[0] - yv) ** 2 + (inner_center[1] - xv) ** 2
+                (inner_center[0] - xv) ** 2 + (inner_center[1] - yv) ** 2
             )
             centerness = centerness / centerness.max()
             centerness = (1 - centerness) ** 2
         except:
+            traceback.print_exc()
             centerness = np.zeros(image_shape, dtype=np.float32)
         return centerness
 
@@ -193,7 +195,7 @@ class Regionprops(object):
         self, points=None, image_shape=None, method="medianmax",
     ):
         points, image_shape = self._check_points_and_shape(points, image_shape)
-        dt = self.get_distance_transform(points, image_shape, pad=self.distance_transform_pad)
+        dt = self.get_distance_transform(points, image_shape)
         if method == "medianmax":
             # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
             indices = np.vstack(
@@ -207,7 +209,7 @@ class Regionprops(object):
         elif method == "maximum_position":
             winner = scipy.ndimage.maximum_position(dt)
         ic = tuple(winner[::-1])
-        print("inner_center", ic)
+        #print("inner_center", ic)
         self.inner_center = ic
         return self.inner_center
 

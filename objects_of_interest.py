@@ -62,6 +62,7 @@ def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
 
 
 def get_masks(points, indices, labels, properties, image_shape, fractional=False):
+    
     masks = {}
 
     for k, label in enumerate(labels):
@@ -110,9 +111,12 @@ def merge_maps(map1, map2, method):
         # this may be useful if we are interested in minimum or maximum
         # e.g. when merging distance transforms, point regions etc.
         #mask = np.logical_and(map1>0, map2>0)
-        #stack = np.stack([map1, map2], axis=0)
-        mmap = map1 + map2
-        #mmap = getattr(np, method)(stack, axis=0, where=mask)
+        stack = np.stack([map1, map2], axis=0)
+        mmap = getattr(np, method)(stack, axis=0) #, where=mask)
+        #mmap = map1 + map2
+        #m = mmap.max()
+        #if m > 0:
+            #mmap /= m
     return mmap
 
 
@@ -140,6 +144,7 @@ def get_secondary_notions(
         "aether",
     ],
 ):
+    
     masks = get_masks(points, indices, labels, properties, image_shape)
 
     for notion in secondary_notions:
