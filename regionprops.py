@@ -7,6 +7,7 @@ import cv2 as cv
 import numpy as np
 import traceback
 
+
 class Regionprops(object):
     def __init__(self, points, image_shape=None, distance_transform_pad=2):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
@@ -74,46 +75,109 @@ class Regionprops(object):
         self.mask_points = np.argwhere(self.get_mask().astype(bool))
         return self.mask_points
 
-    def _get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1, pad=0):
+    def _get_distance_transform(
+        self,
+        points=None,
+        image_shape=None,
+        exagerate=False,
+        invert=False,
+        power=1,
+        pad=0,
+    ):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         _mask = self._get_mask(points, image_shape, pad=pad)
-        distance_transform = get_distance_transform(_mask.astype('uint8'), exagerate=exagerate, invert=invert, power=power)
+        distance_transform = get_distance_transform(
+            _mask.astype("uint8"), exagerate=exagerate, invert=invert, power=power
+        )
         if pad > 0:
-            distance_transform = distance_transform[pad: -pad, pad: -pad]
+            distance_transform = distance_transform[pad:-pad, pad:-pad]
         return distance_transform
-    
+
     # @saver
-    def get_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=False, power=1,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+    def get_distance_transform(
+        self, points=None, image_shape=None, exagerate=False, invert=False, power=1
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    def get_inverse_distance_transform(self, points=None, image_shape=None, exagerate=False, invert=True, power=1,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+
+    def get_inverse_distance_transform(
+        self, points=None, image_shape=None, exagerate=False, invert=True, power=1
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    
-    def get_sqrt_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+
+    def get_sqrt_distance_transform(
+        self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+
+    def get_sqrt_inverse_distance_transform(
+        self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    def get_power_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=False, power=4,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+
+    def get_power_distance_transform(
+        self, points=None, image_shape=None, exagerate=True, invert=False, power=4
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    def get_power_inverse_distance_transform(self, points=None, image_shape=None, exagerate=True, invert=True, power=4,):
-        distance_transform = self._get_distance_transform(points=points, image_shape=image_shape, pad=self.distance_transform_pad, exagerate=exagerate, invert=invert, power=power)
+
+    def get_power_inverse_distance_transform(
+        self, points=None, image_shape=None, exagerate=True, invert=True, power=4
+    ):
+        distance_transform = self._get_distance_transform(
+            points=points,
+            image_shape=image_shape,
+            pad=self.distance_transform_pad,
+            exagerate=exagerate,
+            invert=invert,
+            power=power,
+        )
         return distance_transform
-    
-    
+
     def get_centerness(self, points=None, image_shape=None):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         try:
             inner_center = self.get_inner_center()
-            xv, yv = np.meshgrid(np.arange(image_shape[1]), np.arange(image_shape[0]))
+
+            xv, yv = self.get_meshgrid()
             centerness = np.sqrt(
                 (inner_center[0] - xv) ** 2 + (inner_center[1] - yv) ** 2
             )
@@ -191,9 +255,7 @@ class Regionprops(object):
         return self.centroid
 
     # #@saver
-    def get_inner_center(
-        self, points=None, image_shape=None, method="medianmax",
-    ):
+    def get_inner_center(self, points=None, image_shape=None, method="medianmax"):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         dt = self.get_distance_transform(points, image_shape)
         if method == "medianmax":
@@ -209,7 +271,7 @@ class Regionprops(object):
         elif method == "maximum_position":
             winner = scipy.ndimage.maximum_position(dt)
         ic = tuple(winner[::-1])
-        #print("inner_center", ic)
+        # print("inner_center", ic)
         self.inner_center = ic
         return self.inner_center
 
@@ -234,6 +296,64 @@ class Regionprops(object):
         mask_boundary = db - pad
         return mask_boundary
 
+    def get_meshgrid(self):
+        xv, yv = np.meshgrid(
+            np.arange(self.image_shape[1]), np.arange(self.image_shape[0])
+        )
+        return xv, yv
+
+    def get_min_distance(distances):
+        less_then_zero = distances[distances<=0]
+        more_then_zero = distances[distances>=0]
+        l = less_then_zero.max()
+        m = more_then_zero.min()
+        return l, m
+    
+    def get_distances(point, boundary):
+        vrelevant = boundary[boundary[:, 1] == point[0]]
+        hrelevant = boundary[boundary[:, 0] == point[1]]
+        l, r = get_min_distance(vrelevant - point)
+        t, b = get_min_distance(hrelevant - point)
+        return l, t, r, b
+
+    def get_ltrb_boundary_slow(self):
+        mp = self.get_mask_points()
+        boundary = self.get_dense_boundary()
+        ltrb = np.apply_along_axis(get_distances_cdb, 1, mp)
+        return ltrb
+    
+    
+    def get_universal_ltrb(self, kind="mask"):
+        self.universal_ltrb = np.zeros(self.image_shape + (4,), np.float32)
+
+        mask = getattr(self, f"get_{kind}")()
+        boundary = get_mask_boundary(mask)
+        
+        xv, yv = self.get_meshgrid()
+        
+        for point in boundary:
+            x, y = point
+            if np.all(x <= boundary[boundary == y]):
+                l.append(point)
+            else:
+                r.append(point)
+            if np.all(y >= boundary[boundary == x]):
+                t.append(point)
+            else:
+                b.append(point)
+
+        self.universal_ltrb[0][:, h_min: h_max] = np.array(l)
+        self.universal_ltrb[1][:, v_min: v_max] = np.array(t)
+        self.universal_ltrb[2][:, h_min: h_max] = np.array(r)
+        self.universal_ltrb[3][:, v_min: v_max] = np.array(b)
+        
+        self.universal_ltrb[0] -= xv
+        self.universal_ltrb[1] -= yv
+        self.universal_ltrb[2] -= xv
+        self.universal_ltrb[3] -= yv
+        
+        return self.universal_ltrb
+    
     # @saver
     def get_ltrb_boundary(self):
         self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
@@ -248,6 +368,7 @@ class Regionprops(object):
             b = ys.max()
             T.append(t)
             B.append(b)
+
         for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
             xs = dense_boundary[dense_boundary[:, 1] == y]
             l = xs.min()
@@ -256,9 +377,8 @@ class Regionprops(object):
             R.append(r)
 
         mask = self.get_mask().astype(bool)
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
+
+        xv, yv = self.get_meshgrid()
         print(f"xv {xv}")
         print(f"yv {yv}")
         for k, boundary in enumerate((L, T, R, B)):
@@ -288,9 +408,8 @@ class Regionprops(object):
         l, t, w, h = self.get_bbox()
         r, b = l + w, t + h
         bbox_mask = self.get_bbox_mask().astype(bool)
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
+
+        xv, yv = self.get_meshgrid()
         for k, boundary in enumerate((l, t, r, b)):
             bb = self.get_blank().astype(np.float32)
             if k % 2 == 0:
@@ -300,36 +419,6 @@ class Regionprops(object):
             self.bbox_ltrb[:, :, k] = bb
 
         return self.bbox_ltrb
-
-    def get_universal_ltrb(self, kind="mask"):
-        self.universal_ltrb = np.zeros(self.image_shape + (4,), np.float32)
-
-        mask = getattr(self, f"get_{kind}")()
-        boundary = get_mask_boundary(mask)
-        l, t, r, b = [], [], [], []
-        for point in boundary:
-            x, y = point
-            if np.all(x <= boundary[boundary == y]):
-                l.append(point)
-            else:
-                r.appdn(point)
-            if np.all(y >= boundary[boundary == x]):
-                t.append(point)
-            else:
-                b.append(point)
-
-        x = np.arange(0, self.image_shape[1], 1)
-        y = np.arange(0, self.image_shape[0], 1)
-        xv, yv = np.meshgrid(x, y)
-        for k, boundary in enumerate((l, t, r, b)):
-            bb = self.get_blank().astype(np.float32)
-            if k % 2 == 0:
-                bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
-            else:
-                bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
-            self.bbox_ltrb[:, :, k] = bb
-
-        return self.universal_ltrb
 
     # @saver
     def get_ellipse(self):
@@ -578,11 +667,11 @@ def get_distance_transform(
     cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
     if invert:
         dt = 1 - dt
-        #dt[mask == 0] = 0
+        # dt[mask == 0] = 0
     if exagerate:
-        dt = dt**power
-    #if normalize:
-        #cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+        dt = dt ** power
+    # if normalize:
+    # cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
     return dt
 
 
