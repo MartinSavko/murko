@@ -358,48 +358,25 @@ class Regionprops(object):
     def get_ltrb_boundary(self):
         self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
 
-        print(f"self.ltrb_boundary shape {self.ltrb_boundary.shape}")
         dense_boundary = self.get_dense_boundary()
-
-        L, T, R, B = [], [], [], []
-        for x in sorted(list(set(dense_boundary[:, 0])))[1:-1]:
+        xv, yv = self.get_meshgrid()
+        
+        for x in sorted(list(set(dense_boundary[:, 0]))):
             ys = dense_boundary[dense_boundary[:, 0] == x]
             t = ys.min()
             b = ys.max()
-            T.append(t)
-            B.append(b)
+            self.ltrb_boundary[1][xv==x] = xv - t
+            self.ltrb_boundary[3][xv==x] = b - xv
 
-        for y in sorted(list(set(dense_boundary[:, 1])))[1:-1]:
+        for y in sorted(list(set(dense_boundary[:, 1]))):
             xs = dense_boundary[dense_boundary[:, 1] == y]
             l = xs.min()
             r = xs.max()
-            L.append(l)
-            R.append(r)
+            self.ltrb_boundary[0][yv==y] = yv - l 
+            self.ltrb_boundary[2][yv==y] = r - yv
 
         mask = self.get_mask().astype(bool)
 
-        xv, yv = self.get_meshgrid()
-        print(f"xv {xv}")
-        print(f"yv {yv}")
-        for k, boundary in enumerate((L, T, R, B)):
-            boundary = np.array(boundary)
-            print(f"{k}, boundary.shape: {boundary.shape}")
-            bb = self.get_blank().astype(np.float32)
-            print(f"bb.shape {bb.shape}")
-            if k % 2 == 0:
-                print(f"xv[mask].shape {xv[mask].shape}")
-                # bb[mask] = xv[mask][:, 1] - boundary
-
-                # np.abs(
-                # np.apply_along_axis(lambda x: x - boundary, 1, xv[mask])
-                # )
-            else:
-                print(f"yv[mask].shape {yv[mask].shape}")
-                # bb[mask] = yv[mask][:, 0] - boundary
-                # np.abs(
-                # np.apply_along_axis(lambda y: y - boundary, 0, yv[mask])
-                # )
-            self.ltrb_boundary[:, :, k] = bb
         return self.ltrb_boundary
 
     # @saver
