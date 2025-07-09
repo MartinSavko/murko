@@ -190,15 +190,30 @@ regionprops = (["area", "perimeter", "aspect", "extent", "solidity"],)
 encoders = (["identity", "identity_bw"],)
 
 keypoints = [
-    "most_likely_click",
     "origin",
+    "most_likely_click",
     "extreme",
     "start_possible",
     "start_likely",
-    "aoi_base",
-    "aoi_top",
+
+    "loop_left",
+    "loop_top",
+    "loop_right",
+    "loop_bottom",
+    "loop_center",
+    
     "aoi_left",
+    "aoi_top",
     "aoi_right",
+    "aoi_bottom",
+    "aoi_center",
+    
+    "pin_left",
+    "pin_top",
+    "pin_center",
+    "pin_right",
+    "pin_bottom",
+
     "base_left",
     "base_right",
 ]
@@ -206,13 +221,13 @@ keypoints = [
 keypoint_labels = dict([(item, i + 1) for i, item in enumerate(keypoints)])
 
 keypoints_global_classification = {
-    1: ["most_likely_click", "extreme", "start_likely", "start_possible", "origin"],
+    1: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",],
     2: [
-        "aoi_top",
-        "aoi_left",
-        "most_likely_click",
-        "aoi_right",
-        "aoi_base",
+        "loop_left",
+        "loop_top",
+        "loop_right",
+        "loop_bottom",
+        "loop_center",
         "stem_center",
         "start_possible",
         "pin_left",

@@ -10,8 +10,23 @@ import skimage as ski
 from objects_of_interest import get_objects_of_interest, update_maps
 from regionprops import Regionprops
 
-from config import notion_importance, keypoints, keypoint_labels
+from config import (
+    notion_importance,
+    keypoints,
+    keypoint_labels,
+    keypoints_global_classification,
+)
 
+from keypoints import (
+    get_origin,
+    get_most_likely_click,
+    get_extreme,
+    get_start_possible,
+    get_start_likely,
+    get_ltbrc,
+    get_orientation_and_direction,
+    get_named_pca_points,
+)
 
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
@@ -229,10 +244,7 @@ def get_label_mask_from_points(oois, labels, points=None):
 
 class Sample:
     def __init__(
-        self, 
-        json_file, 
-        notion_importance=notion_importance, 
-        not_to_keep=["masks"], 
+        self, json_file, notion_importance=notion_importance, not_to_keep=["masks"]
     ):
 
         self.oois = get_objects_of_interest(json_file)
@@ -269,16 +281,23 @@ class Sample:
 
     def get_indices(self):
         return self.indices
-    
+
     def get_labels(self):
         return self.labels
-    
+
     def _get_maps(
-        self, points=None, image_shape=None, properties=None, kind="mask", method="logical_or", normalize=True, **kwargs
+        self,
+        points=None,
+        image_shape=None,
+        properties=None,
+        kind="mask",
+        method="logical_or",
+        normalize=True,
+        **kwargs,
     ):
         if properties is None:
             properties = self._get_properties(points, image_shape)
-        
+
         _maps = {}
         for k, label in enumerate(self.labels):
             print(f"label {label} kind {kind} method {method}")
@@ -288,14 +307,14 @@ class Sample:
                 update_maps(_maps, label, _map, method=method)
             else:
                 print(f"possible problem {_map.shape} shape is wrong, please check")
-        
+
         if kind != "mask" and normalize:
             for _n, _m in _maps.items():
                 _min = _m.min()
                 _max = _m.max()
                 if np.any(_min != _max):
-                    _maps[_n] = (_m-_min)/(_max-_min)
-                    
+                    _maps[_n] = (_m - _min) / (_max - _min)
+
         return _maps
 
     def _get_properties(self, points=None, image_shape=None):
@@ -303,18 +322,22 @@ class Sample:
             points = self.get_points()
         if image_shape is None:
             image_shape = self.get_image_shape()
-        
+
         properties = []
         for k, label in enumerate(self.labels):
             i_start, i_end = self.indices[k]
             ps = points[i_start:i_end]
             if self.fractional:
                 ps *= image_shape
-            props = Regionprops(ps, image_shape=image_shape, distance_transform_pad=0 if label == "aether" else 2)
+            props = Regionprops(
+                ps,
+                image_shape=image_shape,
+                distance_transform_pad=0 if label == "aether" else 2,
+            )
             properties.append(props)
 
         return properties
-    
+
     def get_masks(self, points=None, image_shape=None):
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
         return masks
@@ -366,37 +389,37 @@ class Sample:
             points, image_shape, kind="distance_transform", method="min"
         )
         return distance_transform
-    
+
     def get_inverse_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
             points, image_shape, kind="inverse_distance_transform", method="max"
         )
         return distance_transform
-    
+
     def get_sqrt_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
             points, image_shape, kind="sqrt_distance_transform", method="min"
         )
         return distance_transform
-    
+
     def get_sqrt_inverse_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
             points, image_shape, kind="sqrt_inverse_distance_transform", method="max"
         )
         return distance_transform
-    
+
     def get_power_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
             points, image_shape, kind="power_distance_transform", method="min"
         )
         return distance_transform
-    
+
     def get_power_inverse_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
             points, image_shape, kind="power_inverse_distance_transform", method="max"
         )
         return distance_transform
-    
+
     def get_centerness(self, points=None, image_shape=None):
         centerness = self._get_maps(
             points, image_shape, kind="centerness", method="max"
@@ -427,19 +450,38 @@ class Sample:
         )
         return min_rectangle_mask
 
-    def get_most_likely_click(self):
-        pass
-
-    def get_keypoints(self):
-        pass
+    def _get_origin(self, labels, indices, points, properties):
+        return get_origin(labels, indices, points, properties)
+    
+    def _get_most_likely_click(self, labels, indices, points, properties):
+        return get_most_likely_click(labels, indices, points, properties)
+        
+    def _get_extreme(self, labels, indices, points, properties):
+        return get_extreme(labels, indices, points, properties)
+    
+    def _get_start_possible(self, labels, indices, points, properties):
+        return get_start_possible(labels, indices, points, properties)
+    
+    def _get_start_likely(self, labels, indices, points, properties):
+        return get_start_likely(labels, indices, points, properties)
+    
+    def _get_ltbrc(self, labels, indices, points, properties, label):
+        return get_ltbrc(labels, indices, points, properties, label)
+    
+    def get_keypoints(self, keypoints, labels=None, indices=None, points=None, properties=None):
+        for keypoint in keypoints:
+            
 
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
-        image_shape,
+        image_shape=None,
     ):
-        """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
 
+        if image_shape is None:
+            image_shape = self.get_image_shape()
+
+        """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
         cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
         for key, p in keypoints.items():
             if p is not None:
@@ -590,15 +632,15 @@ def test():
         "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
     )
     import pylab
-    
-    #fh = s.get_flat_hierarchy()
-    
-    #pylab.figure(figsize=(16, 9))
-    #pylab.imshow(s.get_flat_hierarchy())
-    #pylab.show()
-    
+
+    # fh = s.get_flat_hierarchy()
+
+    # pylab.figure(figsize=(16, 9))
+    # pylab.imshow(s.get_flat_hierarchy())
+    # pylab.show()
+
     dt = s.get_distance_transform()
-    print('distance_transform')
+    print("distance_transform")
     print(dt)
 
 

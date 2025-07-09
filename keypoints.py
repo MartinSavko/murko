@@ -90,7 +90,7 @@ def get_most_likely_click(labels, indices, points, properties):
 
 
 def get_start_possible(labels, indices, points, properties):
-    sp = (-1, -1)
+    sp = get_origin(labels, indices, points, properties)
     if "support" in labels:
         s = properties[labels.index("support")]
         support = s.get_dense_boundary()
@@ -102,59 +102,58 @@ def get_start_possible(labels, indices, points, properties):
             sm = dm.min(axis=1)
             frontier = support[sm == sm.min()]
             sp = np.median(frontier, axis=0)
-        else:
-            sp = get_origin(labels, indices, points, properties)
 
     return sp
 
 
 def get_start_likely(labels, indices, points, properties):
-    sl = (-1, -1)
+    sl = get_origin(labels, indices, points, properties)
     if "area_of_interest" in labels:
         a = properties[labels.index("area_of_interest")]
-        aoi = a.get_dense_boundary()
-        if "stem" in labels:
-            s = properties[labels.index("stem")]
-            stem = s.get_dense_boundary()
-            dm = distance_matrix(stem, aoi)
-            sm = dm.min(axis=1)
-            frontier = stem[sm == sm.min()]
-            sl = np.median(frontier, axis=0)
-        else:
-            sl = get_origin(labels, indices, points, properties)
-
+        b = a.get_dense_boundary()
+        o = get_origin(labels, indices, points, properties)
+        sl = b[np.argmin(b - o)]
     return sl
 
+def get_stem_center(labels, indices, points, properties):
+    stem_center = (-1, -1)
+    if "stem" in labels:
+        stem_center = properties[labels.index("stem")].get_inner_center()
+    return stem_center
 
-def get_aoi_keypoints(labels, indices, points, properties, label="area_of_interest"):
-    ab = (-1, -1)
-    at = (-1, -1)
-    al = (-1, -1)
-    ar = (-1, -1)
+def get_ltrbc(labels, indices, points, properties, label="area_of_interest"):
+    l = (-1, -1)
+    t = (-1, -1)
+    r = (-1, -1)
+    b = (-1, -1)
+    c = (-1, -1)
     if label in labels:
-        aoi = properties[labels.index(label)]
-        # sl = get_start_likely(labels, indices, points, properties)
+        o = properties[labels.index(label)]
+        c = o.get_inner_center()
+
         sl = get_origin(labels, indices, points, properties)
         epoints = np.array(aoi.get_eigen_points())
         el = list(epoints)
+        
         distances = np.linalg.norm(np.array(el) - sl, axis=1)
-        ab = el.pop(np.argmin(distances))
-        distances = np.linalg.norm(np.array(el) - ab, axis=1)
-        at = el.pop(np.argmax(distances))
-        e1 = at - ab
+        b = el.pop(np.argmin(distances))
+        
+        distances = np.linalg.norm(np.array(el) - b, axis=1)
+        t = el.pop(np.argmax(distances))
+        e1 = t - b
 
-        v1 = el[0] - ab
-        v2 = el[1] - ab
+        v1 = el[0] - b
+        v2 = el[1] - b
         if np.cross(e1, v1) > 0 and np.cross(e1, v2) <= 0:
-            al = el[0]
-            ar = el[1]
+            l = el[0]
+            r = el[1]
         elif np.cross(e1, v1) <= 0 and np.cross(e1, v2) > 0:
-            al = el[1]
-            ar = el[0]
+            l = el[1]
+            r = el[0]
         else:
             print(f"e1 {e1}, v1 {v1}, v2 {v2} should never get here, please check")
-    return ab, at, al, ar
-
+    
+    return l, t, r, b, c
 
 def get_pin_right_and_left(
     labels, indices, points, properties, min_dist=0.25, filter_window=11
@@ -267,7 +266,7 @@ def get_minmax(projection, atol=5):
     xyz_O = xyz - center
     xyz_S = np.dot(xyz_O, S)
 
-    minmax = {}
+    minmax = {"center": center}
     for a, k in zip(("major", "minor"), (0, 1)):
         xyz_S_onaxis = xyz_S[np.isclose(xyz_S[:, abs(k - 1)], 0.0, atol=atol)]
 
@@ -300,7 +299,7 @@ def get_named_pca_points(
     dm = distance_matrix(ouc, scaled)
     point_order = np.argmin(dm, axis=1)
 
-    npp = {"center": center}
+    npp = {"center": minmax["center"]}
     for k, name in enumerate(order):
         npp[name] = points[point_order[k]]
 
