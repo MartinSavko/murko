@@ -32,7 +32,7 @@ class Regionprops(object):
         self.blank = None
         self.bbox_ltrb = None
         self.ltrb_boundary = None
-        self.get_bbox_as_minbox = None
+        self.bbox_as_minbox = None
         self.dense_boundary = None
         self.aspect = None
         self.eigen_points = None
@@ -190,17 +190,17 @@ class Regionprops(object):
 
     # @saver
     def get_bbox(self):
-        # self.bbox = get_rectangle_from_polygon(self.points) #
+        # self.bbox = get_rectangle_from_polygon(self.points.astype(np.int32)) #
         # x, y , w, h (top-left coordinate, width, height)
-        self.bbox = cv.boundingRect(self.points)
+        self.bbox = cv.boundingRect(self.points.astype(np.int32))
         return self.bbox
 
     # @saver
     def get_bbox_as_minbox(self):
         center = self.get_bbox_center()
         extent = self.get_bbox_extent()
-        self.get_bbox_as_minbox = (center, extent, 0)
-        return self.get_bbox_as_minbox
+        self.bbox_as_minbox = (center, extent, 0)
+        return self.bbox_as_minbox
 
     # @saver
     def get_bbox_points(self):
@@ -218,20 +218,29 @@ class Regionprops(object):
     def get_min_rectangle_mask(self, image_shape=None):
         if image_shape is None:
             image_shape = self.image_shape
-        min_rectangle_points = cv.boxPoints(self.get_min_rectangle)
+        min_rectangle = self.get_min_rectangle()
+        print(f"min_rectangle {min_rectangle}")
+        min_rectangle_points = cv.boxPoints(min_rectangle)
         self.bbox_mask = self._get_mask(min_rectangle_points, image_shape)
         return self.bbox_mask
 
-    def get_ellipse_contour(self, ellipse=None):
+    def get_ellipse_contour(self, ellipse=None, start=0, end=360, delta=5, angle_offset=90, rotation_direction=-1):
         if ellipse is None:
-            ellipse = self.get_ellipse
-        ellipse_contour = cv.ellipse2Poly(ellipse)
+            ellipse = self.get_ellipse()
+        print(f"ellipse {ellipse}")
+        center, size, angle = ellipse
+        center = list(map(int, center))
+        size = list(map(int, [size[0]/2, size[1]/2]))
+        angle = int(angle_offset + rotation_direction * angle)
+        ellipse_contour = cv.ellipse2Poly(center, size, angle, start, end, delta)
         return ellipse_contour
 
     def get_ellipse_mask(self, ellipse=None, ellipse_contour=None, image_shape=None):
+        if image_shape is None:
+            image_shape = self.image_shape
         if ellipse_contour is None:
             ellipse_contour = self.get_ellipse_contour(ellipse=ellipse)
-        self.ellipse_mask = self._get_mask(ellipse_contour)
+        self.ellipse_mask = self._get_mask(ellipse_contour, image_shape)
         return self.ellipse_mask
 
     # @saver
@@ -293,7 +302,7 @@ class Regionprops(object):
         )
         shape = contours[0].shape
         db = np.reshape(contours[0], (shape[0], shape[-1]))
-        mask_boundary = db - pad
+        mask_boundary = db
         return mask_boundary
 
     def get_meshgrid(self):
@@ -302,86 +311,28 @@ class Regionprops(object):
         )
         return xv, yv
 
-    def get_min_distance(distances):
-        less_then_zero = distances[distances<=0]
-        more_then_zero = distances[distances>=0]
-        l = less_then_zero.max()
-        m = more_then_zero.min()
-        return l, m
-    
-    def get_distances(point, boundary):
-        vrelevant = boundary[boundary[:, 1] == point[0]]
-        hrelevant = boundary[boundary[:, 0] == point[1]]
-        l, r = get_min_distance(vrelevant - point)
-        t, b = get_min_distance(hrelevant - point)
-        return l, t, r, b
+    # for x in xss:
+    # ys = boundary[boundary[:, 0] == x][:, 1]
+    # mi = ys.min()
+    # ma = ys.max()
+    # indices = xv==x
+    # a = yv[indices]
+    # ltrb[:, :, 1][indices] = a - mi
+    # ltrb[:, :, 3][indices] = ma - a
 
-    def get_ltrb_boundary_slow(self):
-        mp = self.get_mask_points()
-        boundary = self.get_dense_boundary()
-        ltrb = np.apply_along_axis(get_distances_cdb, 1, mp)
-        return ltrb
-    
-    
-    def get_universal_ltrb(self, kind="mask"):
-        self.universal_ltrb = np.zeros(self.image_shape + (4,), np.float32)
+    # for y in yss:
+    # xs = boundary[boundary[:, 1] == y][:, 0]
+    # mi = xs.min()
+    # ma = xs.max()
+    # indices = yv==y
+    # a = xv[indices]
+    # ltrb[:, :, 0][indices] = a - mi
+    # ltrb[:, :, 2][indices] = ma - a
 
-        mask = getattr(self, f"get_{kind}")()
-        boundary = get_mask_boundary(mask)
-        
-        xv, yv = self.get_meshgrid()
-        
-        for point in boundary:
-            x, y = point
-            if np.all(x <= boundary[boundary == y]):
-                l.append(point)
-            else:
-                r.append(point)
-            if np.all(y >= boundary[boundary == x]):
-                t.append(point)
-            else:
-                b.append(point)
-
-        self.universal_ltrb[0][:, h_min: h_max] = np.array(l)
-        self.universal_ltrb[1][:, v_min: v_max] = np.array(t)
-        self.universal_ltrb[2][:, h_min: h_max] = np.array(r)
-        self.universal_ltrb[3][:, v_min: v_max] = np.array(b)
-        
-        self.universal_ltrb[0] -= xv
-        self.universal_ltrb[1] -= yv
-        self.universal_ltrb[2] -= xv
-        self.universal_ltrb[3] -= yv
-        
-        return self.universal_ltrb
-    
-    # @saver
-    def get_ltrb_boundary(self):
-        self.ltrb_boundary = np.zeros(self.image_shape + (4,), np.float32)
-
-        dense_boundary = self.get_dense_boundary()
-        xv, yv = self.get_meshgrid()
-        
-        for x in sorted(list(set(dense_boundary[:, 0]))):
-            ys = dense_boundary[dense_boundary[:, 0] == x]
-            t = ys.min()
-            b = ys.max()
-            self.ltrb_boundary[1][xv==x] = xv - t
-            self.ltrb_boundary[3][xv==x] = b - xv
-
-        for y in sorted(list(set(dense_boundary[:, 1]))):
-            xs = dense_boundary[dense_boundary[:, 1] == y]
-            l = xs.min()
-            r = xs.max()
-            self.ltrb_boundary[0][yv==y] = yv - l 
-            self.ltrb_boundary[2][yv==y] = r - yv
-
-        mask = self.get_mask().astype(bool)
-
-        return self.ltrb_boundary
-
+    # mask = self.get_mask().astype(bool)
     # @saver
     def get_bbox_ltrb(self):
-        self.bbox_ltrb = np.zeros(self.image_shape + (4,), np.float32)
+        ltrb = np.zeros(self.image_shape + (4,), np.float32)
         l, t, w, h = self.get_bbox()
         r, b = l + w, t + h
         bbox_mask = self.get_bbox_mask().astype(bool)
@@ -393,9 +344,106 @@ class Regionprops(object):
                 bb[bbox_mask] = np.abs(xv[bbox_mask] - boundary)
             else:
                 bb[bbox_mask] = np.abs(yv[bbox_mask] - boundary)
-            self.bbox_ltrb[:, :, k] = bb
+            ltrb[:, :, k] = bb
+        self.bbox_ltrb = ltrb
+        return ltrb
+    
+    def get_ltrb_boundary(self, ):
+        ltrb = np.zeros(self.image_shape + (4,), np.float32)
+        mask = self.get_mask()
+        boundary = self.get_dense_boundary()
+        xv, yv = self.get_meshgrid()
+        
+        xss = sorted(list(set(boundary[:, 0])))
+        yss = sorted(list(set(boundary[:, 1])))
 
-        return self.bbox_ltrb
+        for k, (pr, se, bp, lt) in enumerate(
+            zip([xv, yv], [yv, xv], [xss, yss], [(1, 3), (0, 2)])
+        ):
+            for p in bp:
+                relevant = boundary[boundary[:, k] == p][:, (k + 1) % 2]
+                mi = relevant.min()
+                ma = relevant.max()
+                indices = pr == p
+                a = se[indices]
+                ltrb[:, :, lt[0]][indices] = a - mi
+                ltrb[:, :, lt[1]][indices] = ma - a
+
+        ltrb[mask == False] = 0
+        return ltrb
+
+    def get_universal_ltrb(self, kind="mask"):
+        ltrb = np.zeros(self.image_shape + (4,), np.float32)
+
+        mask = getattr(self, f"get_{kind}")()
+        boundary = self.get_mask_boundary(mask)
+
+        xv, yv = self.get_meshgrid()
+
+        xss = sorted(list(set(boundary[:, 0])))
+        yss = sorted(list(set(boundary[:, 1])))
+
+        for k, (pr, se, bp, lt) in enumerate(
+            zip([xv, yv], [yv, xv], [xss, yss], [(1, 3), (0, 2)])
+        ):
+            for p in bp:
+                relevant = boundary[boundary[:, k] == p][:, (k + 1) % 2]
+                mi = relevant.min()
+                ma = relevant.max()
+                indices = pr == p
+                a = se[indices]
+                ltrb[:, :, lt[0]][indices] = a - mi
+                ltrb[:, :, lt[1]][indices] = ma - a
+
+        ltrb[mask == False] = 0
+        return ltrb
+    
+        #for point in boundary:
+            #x, y = point
+            #if np.all(x <= boundary[boundary == y]):
+                #l.append(point)
+            #else:
+                #r.append(point)
+            #if np.all(y >= boundary[boundary == x]):
+                #t.append(point)
+            #else:
+                #b.append(point)
+
+        #ltrb[0][:, h_min:h_max] = np.array(l)
+        #ltrb[1][:, v_min:v_max] = np.array(t)
+        #ltrb[2][:, h_min:h_max] = np.array(r)
+        #ltrb[3][:, v_min:v_max] = np.array(b)
+
+        #ltrb[0] -= xv
+        #ltrb[1] -= yv
+        #ltrb[2] -= xv
+        #ltrb[3] -= yv
+
+        #return ltrb
+    
+    def _get_min_distance(distances):
+        less_then_zero = distances[distances <= 0]
+        more_then_zero = distances[distances >= 0]
+        l = less_then_zero.max()
+        m = more_then_zero.min()
+        return l, m
+
+    def _get_distances(point, boundary):
+        vrelevant = boundary[boundary[:, 1] == point[0]]
+        hrelevant = boundary[boundary[:, 0] == point[1]]
+        l, r = _get_min_distance(vrelevant - point)
+        t, b = _get_min_distance(hrelevant - point)
+        return l, t, r, b
+
+    def get_ltrb_boundary_slow(self):
+        mp = self.get_mask_points()
+        boundary = self.get_dense_boundary()
+        # this will not work as is -- _get_distances needs to know about boundary
+        ltrb = np.apply_along_axis(_get_distances, 1, mp)
+        return ltrb
+    
+    # @saver
+
 
     # @saver
     def get_ellipse(self):
@@ -406,17 +454,17 @@ class Regionprops(object):
     # @saver
     def get_min_rectangle(self):
         # (cx, cy), (w, h), angle
-        self.min_rectangle = cv.minAreaRect(self.points)
+        self.min_rectangle = cv.minAreaRect(self.points.astype(np.int32))
         return self.min_rectangle
 
     # @saver
     def get_min_enclosing_circle(self):
-        self.min_enclosing_circle = cv.minEnclosingCircle(self.points)
+        self.min_enclosing_circle = cv.minEnclosingCircle(self.points.astype(np.int32))
         return self.min_enclosing_circle
 
     # @saver
     def get_area(self):
-        self.area = cv.contourArea(self.points)
+        self.area = cv.contourArea(self.points.astype(np.int32))
         return self.area
 
     def get_perimeter(self):
