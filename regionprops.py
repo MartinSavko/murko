@@ -306,10 +306,7 @@ class Regionprops(object):
         return mask_boundary
 
     def get_meshgrid(self):
-        xv, yv = np.meshgrid(
-            np.arange(self.image_shape[1]), np.arange(self.image_shape[0])
-        )
-        return xv, yv
+        return get_meshgrid(self.image_shape)
 
     # @saver
     def get_bbox_ltrb(self):
@@ -390,7 +387,7 @@ class Regionprops(object):
         return ltrb
 
     def get_universal_ltrb(self, kind="mask"):
-        mask = getattr(self, f"get_{kind}")().astype(bool)
+        mask = getattr(self, f"get_{kind}")()
         
         ltrb = get_universal_ltrb(mask)
 
@@ -656,6 +653,7 @@ def get_universal_ltrb(mask):
     boundary = get_mask_boundary(mask)
     image_shape = mask.shape
     
+    mask = mask.astype(bool)
     ltrb = get_LTRB(boundary, image_shape)
     xv, yv = get_meshgrid(image_shape)
     
