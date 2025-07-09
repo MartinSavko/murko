@@ -311,24 +311,7 @@ class Regionprops(object):
         )
         return xv, yv
 
-    # for x in xss:
-    # ys = boundary[boundary[:, 0] == x][:, 1]
-    # mi = ys.min()
-    # ma = ys.max()
-    # indices = xv==x
-    # a = yv[indices]
-    # ltrb[:, :, 1][indices] = a - mi
-    # ltrb[:, :, 3][indices] = ma - a
-
-    # for y in yss:
-    # xs = boundary[boundary[:, 1] == y][:, 0]
-    # mi = xs.min()
-    # ma = xs.max()
-    # indices = yv==y
-    # a = xv[indices]
-    # ltrb[:, :, 0][indices] = a - mi
-    # ltrb[:, :, 2][indices] = ma - a
-
+    
     # mask = self.get_mask().astype(bool)
     # @saver
     def get_bbox_ltrb(self):
@@ -372,10 +355,28 @@ class Regionprops(object):
         ltrb[mask == False] = 0
         return ltrb
 
+    # for x in xss:
+    # ys = boundary[boundary[:, 0] == x][:, 1]
+    # mi = ys.min()
+    # ma = ys.max()
+    # indices = xv==x
+    # a = yv[indices]
+    # ltrb[:, :, 1][indices] = a - mi
+    # ltrb[:, :, 3][indices] = ma - a
+
+    # for y in yss:
+    # xs = boundary[boundary[:, 1] == y][:, 0]
+    # mi = xs.min()
+    # ma = xs.max()
+    # indices = yv==y
+    # a = xv[indices]
+    # ltrb[:, :, 0][indices] = a - mi
+    # ltrb[:, :, 2][indices] = ma - a
+
     def get_universal_ltrb(self, kind="mask"):
         ltrb = np.zeros(self.image_shape + (4,), np.float32)
 
-        mask = getattr(self, f"get_{kind}")()
+        mask = getattr(self, f"get_{kind}")().astype(bool)
         boundary = self.get_mask_boundary(mask)
 
         xv, yv = self.get_meshgrid()
@@ -397,29 +398,62 @@ class Regionprops(object):
 
         ltrb[mask == False] = 0
         return ltrb
+
+    def get_universal_ltrb_fast(self, kind="mask"):
+        ltrb = np.zeros(self.image_shape + (4,), np.float32)
+
+        mask = getattr(self, f"get_{kind}")()
+        boundary = self.get_mask_boundary(mask)
+        xv, yv = self.get_meshgrid()
+        xss, yss = Regionprops._get_xss_and_yss(boundary)
+        l, t, r, b = Regionprops._get_LTRB(boundary, xss, yss)
+        
+        LTRB = ltrb.copy()
+        
+        LTRB[yss.min(): yss.max()+1, :, 0] = np.expand_dims(l, 1)
+        LTRB[yss.min(): yss.max()+1, :, 2] = np.expand_dims(r, 1)
+        LTRB[:, xss.min(): xss.max()+1, 1] = np.expand_dims(t, 0)
+        LTRB[:, xss.min(): xss.max()+1, 3] = np.expand_dims(b, 0)
+        
+        ltrb[:, :, 0] = xv - LTRB[:, :, 0]
+        ltrb[:, :, 2] = LTRB[:, :, 2] - xv
+        ltrb[:, :, 1] = yv - LTRB[:, :, 1]
+        ltrb[:, :, 3] = LTRB[:, :, 3] - yv
+        
+        ltrb[mask == False] = 0
+        return ltrb
+        
     
-        #for point in boundary:
-            #x, y = point
-            #if np.all(x <= boundary[boundary == y]):
-                #l.append(point)
-            #else:
-                #r.append(point)
-            #if np.all(y >= boundary[boundary == x]):
-                #t.append(point)
-            #else:
-                #b.append(point)
-
-        #ltrb[0][:, h_min:h_max] = np.array(l)
-        #ltrb[1][:, v_min:v_max] = np.array(t)
-        #ltrb[2][:, h_min:h_max] = np.array(r)
-        #ltrb[3][:, v_min:v_max] = np.array(b)
-
-        #ltrb[0] -= xv
-        #ltrb[1] -= yv
-        #ltrb[2] -= xv
-        #ltrb[3] -= yv
-
-        #return ltrb
+    def _get_xss_and_yss(boundary, method=2):
+        if method == 1:
+            xss = sorted(list(set(boundary[:, 0])))
+            yss = sorted(list(set(boundary[:, 1])))
+        elif method == 2:
+            xss = np.unique(np.sort(boundary[:, 0]))
+            yss = np.unique(np.sort(boundary[:, 1]))
+        return xss, yss
+        
+    def _get_LTRB(boundary, xss=None, yss=None):
+        
+        L, T, R, B = [], [], [], []
+        if xss is None or yss is None:
+            xss, yss = Regionprops._get_xss_and_yss(boundary)
+        
+        for x in xss:
+            relevant = boundary[boundary[:, 0] == x][:, 1]
+            mi = relevant.min()
+            ma = relevant.max()
+            T.append(mi)
+            B.append(ma)
+        
+        for y in yss:
+            relevant = boundary[boundary[:, 1] == y][:, 0]
+            mi = relevant.min()
+            ma = relevant.max()
+            L.append(mi)
+            R.append(ma)
+            
+        return L, T, R, B
     
     def _get_min_distance(distances):
         less_then_zero = distances[distances <= 0]
@@ -442,9 +476,6 @@ class Regionprops(object):
         ltrb = np.apply_along_axis(_get_distances, 1, mp)
         return ltrb
     
-    # @saver
-
-
     # @saver
     def get_ellipse(self):
         # (cx, cy), (MA, ma), angle
