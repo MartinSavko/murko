@@ -311,8 +311,6 @@ class Regionprops(object):
         )
         return xv, yv
 
-    
-    # mask = self.get_mask().astype(bool)
     # @saver
     def get_bbox_ltrb(self):
         ltrb = np.zeros(self.image_shape + (4,), np.float32)
@@ -355,32 +353,15 @@ class Regionprops(object):
         ltrb[mask == False] = 0
         return ltrb
 
-    # for x in xss:
-    # ys = boundary[boundary[:, 0] == x][:, 1]
-    # mi = ys.min()
-    # ma = ys.max()
-    # indices = xv==x
-    # a = yv[indices]
-    # ltrb[:, :, 1][indices] = a - mi
-    # ltrb[:, :, 3][indices] = ma - a
 
-    # for y in yss:
-    # xs = boundary[boundary[:, 1] == y][:, 0]
-    # mi = xs.min()
-    # ma = xs.max()
-    # indices = yv==y
-    # a = xv[indices]
-    # ltrb[:, :, 0][indices] = a - mi
-    # ltrb[:, :, 2][indices] = ma - a
-
-    def get_universal_ltrb(self, kind="mask"):
+    def get_universal_ltrb_slow(self, kind="mask"):
         ltrb = np.zeros(self.image_shape + (4,), np.float32)
 
         mask = getattr(self, f"get_{kind}")().astype(bool)
         boundary = self.get_mask_boundary(mask)
 
         xv, yv = self.get_meshgrid()
-
+        
         xss = sorted(list(set(boundary[:, 0])))
         yss = sorted(list(set(boundary[:, 1])))
 
@@ -396,10 +377,19 @@ class Regionprops(object):
                 ltrb[:, :, lt[0]][indices] = a - mi
                 ltrb[:, :, lt[1]][indices] = ma - a
 
+            # for x in xss:
+                # ys = boundary[boundary[:, 0] == x][:, 1]
+                # mi = ys.min()
+                # ma = ys.max()
+                # indices = xv==x
+                # a = yv[indices]
+                # ltrb[:, :, 1][indices] = a - mi
+                # ltrb[:, :, 3][indices] = ma - a
+                
         ltrb[mask == False] = 0
         return ltrb
 
-    def get_universal_ltrb_fast(self, kind="mask"):
+    def get_universal_ltrb(self, kind="mask"):
         mask = getattr(self, f"get_{kind}")().astype(bool)
         boundary = self.get_mask_boundary(mask)
         
@@ -415,12 +405,6 @@ class Regionprops(object):
         ltrb[:, :, 1][mask] += yv[mask]
         
         ltrb[:, :, 3][mask] -= yv[mask]
-        
-        
-        #ltrb[:, :, 0] = xv - LTRB[:, :, 0]
-        #ltrb[:, :, 2] = LTRB[:, :, 2] - xv
-        #ltrb[:, :, 1] = yv - LTRB[:, :, 1]
-        #ltrb[:, :, 3] = LTRB[:, :, 3] - yv
         
         ltrb[mask == False] = 0
         return ltrb
