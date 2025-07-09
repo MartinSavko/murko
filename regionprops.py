@@ -400,30 +400,31 @@ class Regionprops(object):
         return ltrb
 
     def get_universal_ltrb_fast(self, kind="mask"):
-        ltrb = np.zeros(self.image_shape + (4,), np.float32)
-
-        mask = getattr(self, f"get_{kind}")()
+        mask = getattr(self, f"get_{kind}")().astype(bool)
         boundary = self.get_mask_boundary(mask)
+        
+        ltrb = Regionprops._get_LTRB(boundary, self.image_shape)
+        
         xv, yv = self.get_meshgrid()
-        xss, yss = Regionprops._get_xss_and_yss(boundary)
-        l, t, r, b = Regionprops._get_LTRB(boundary, xss, yss)
+        ltrb[:, :, 0][mask] *= -1
+        ltrb[:, :, 0][mask] += xv[mask]
         
-        LTRB = ltrb.copy()
+        ltrb[:, :, 2][mask] -= xv[mask]
         
-        LTRB[yss.min(): yss.max()+1, :, 0] = np.expand_dims(l, 1)
-        LTRB[yss.min(): yss.max()+1, :, 2] = np.expand_dims(r, 1)
-        LTRB[:, xss.min(): xss.max()+1, 1] = np.expand_dims(t, 0)
-        LTRB[:, xss.min(): xss.max()+1, 3] = np.expand_dims(b, 0)
+        ltrb[:, :, 1][mask] *= -1
+        ltrb[:, :, 1][mask] += yv[mask]
         
-        ltrb[:, :, 0] = xv - LTRB[:, :, 0]
-        ltrb[:, :, 2] = LTRB[:, :, 2] - xv
-        ltrb[:, :, 1] = yv - LTRB[:, :, 1]
-        ltrb[:, :, 3] = LTRB[:, :, 3] - yv
+        ltrb[:, :, 3][mask] -= yv[mask]
+        
+        
+        #ltrb[:, :, 0] = xv - LTRB[:, :, 0]
+        #ltrb[:, :, 2] = LTRB[:, :, 2] - xv
+        #ltrb[:, :, 1] = yv - LTRB[:, :, 1]
+        #ltrb[:, :, 3] = LTRB[:, :, 3] - yv
         
         ltrb[mask == False] = 0
         return ltrb
         
-    
     def _get_xss_and_yss(boundary, method=2):
         if method == 1:
             xss = sorted(list(set(boundary[:, 0])))
@@ -433,9 +434,10 @@ class Regionprops(object):
             yss = np.sort(np.unique(boundary[:, 1]))
         return xss, yss
         
-    def _get_LTRB(boundary, xss=None, yss=None):
+    def _get_LTRB(boundary, image_shape, xss=None, yss=None):
         
-        L, T, R, B = [], [], [], []
+        LTRB = np.zeros(image_shape + (4,), np.float32)
+        l, t, r, b = [], [], [], []
         if xss is None or yss is None:
             xss, yss = Regionprops._get_xss_and_yss(boundary)
         
@@ -443,17 +445,22 @@ class Regionprops(object):
             relevant = boundary[boundary[:, 0] == x][:, 1]
             mi = relevant.min()
             ma = relevant.max()
-            T.append(mi)
-            B.append(ma)
+            t.append(mi)
+            b.append(ma)
         
         for y in yss:
             relevant = boundary[boundary[:, 1] == y][:, 0]
             mi = relevant.min()
             ma = relevant.max()
-            L.append(mi)
-            R.append(ma)
-            
-        return L, T, R, B
+            l.append(mi)
+            r.append(ma)
+        
+        LTRB[yss.min(): yss.max()+1, :, 0] = np.expand_dims(l, 1)
+        LTRB[yss.min(): yss.max()+1, :, 2] = np.expand_dims(r, 1)
+        LTRB[:, xss.min(): xss.max()+1, 1] = np.expand_dims(t, 0)
+        LTRB[:, xss.min(): xss.max()+1, 3] = np.expand_dims(b, 0)
+        
+        return LTRB
     
     def _get_min_distance(distances):
         less_then_zero = distances[distances <= 0]
