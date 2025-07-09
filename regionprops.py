@@ -429,8 +429,8 @@ class Regionprops(object):
             xss = sorted(list(set(boundary[:, 0])))
             yss = sorted(list(set(boundary[:, 1])))
         elif method == 2:
-            xss = np.unique(np.sort(boundary[:, 0]))
-            yss = np.unique(np.sort(boundary[:, 1]))
+            xss = np.sort(np.unique(boundary[:, 0]))
+            yss = np.sort(np.unique(boundary[:, 1]))
         return xss, yss
         
     def _get_LTRB(boundary, xss=None, yss=None):
