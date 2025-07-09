@@ -391,80 +391,16 @@ class Regionprops(object):
 
     def get_universal_ltrb(self, kind="mask"):
         mask = getattr(self, f"get_{kind}")().astype(bool)
-        boundary = self.get_mask_boundary(mask)
         
-        ltrb = Regionprops._get_LTRB(boundary, self.image_shape)
-        
-        xv, yv = self.get_meshgrid()
-        ltrb[:, :, 0][mask] *= -1
-        ltrb[:, :, 0][mask] += xv[mask]
-        
-        ltrb[:, :, 2][mask] -= xv[mask]
-        
-        ltrb[:, :, 1][mask] *= -1
-        ltrb[:, :, 1][mask] += yv[mask]
-        
-        ltrb[:, :, 3][mask] -= yv[mask]
-        
-        ltrb[mask == False] = 0
+        ltrb = get_universal_ltrb(mask)
+
         return ltrb
         
-    def _get_xss_and_yss(boundary, method=2):
-        if method == 1:
-            xss = sorted(list(set(boundary[:, 0])))
-            yss = sorted(list(set(boundary[:, 1])))
-        elif method == 2:
-            xss = np.sort(np.unique(boundary[:, 0]))
-            yss = np.sort(np.unique(boundary[:, 1]))
-        return xss, yss
-        
-    def _get_LTRB(boundary, image_shape, xss=None, yss=None):
-        
-        LTRB = np.zeros(image_shape + (4,), np.float32)
-        l, t, r, b = [], [], [], []
-        if xss is None or yss is None:
-            xss, yss = Regionprops._get_xss_and_yss(boundary)
-        
-        for x in xss:
-            relevant = boundary[boundary[:, 0] == x][:, 1]
-            mi = relevant.min()
-            ma = relevant.max()
-            t.append(mi)
-            b.append(ma)
-        
-        for y in yss:
-            relevant = boundary[boundary[:, 1] == y][:, 0]
-            mi = relevant.min()
-            ma = relevant.max()
-            l.append(mi)
-            r.append(ma)
-        
-        LTRB[yss.min(): yss.max()+1, :, 0] = np.expand_dims(l, 1)
-        LTRB[yss.min(): yss.max()+1, :, 2] = np.expand_dims(r, 1)
-        LTRB[:, xss.min(): xss.max()+1, 1] = np.expand_dims(t, 0)
-        LTRB[:, xss.min(): xss.max()+1, 3] = np.expand_dims(b, 0)
-        
-        return LTRB
-    
-    def _get_min_distance(distances):
-        less_then_zero = distances[distances <= 0]
-        more_then_zero = distances[distances >= 0]
-        l = less_then_zero.max()
-        m = more_then_zero.min()
-        return l, m
-
-    def _get_distances(point, boundary):
-        vrelevant = boundary[boundary[:, 1] == point[0]]
-        hrelevant = boundary[boundary[:, 0] == point[1]]
-        l, r = _get_min_distance(vrelevant - point)
-        t, b = _get_min_distance(hrelevant - point)
-        return l, t, r, b
-
     def get_ltrb_boundary_slow(self):
         mp = self.get_mask_points()
         boundary = self.get_dense_boundary()
         # this will not work as is -- _get_distances needs to know about boundary
-        ltrb = np.apply_along_axis(_get_distances, 1, mp)
+        ltrb = np.apply_along_axis(get_distances, 1, mp)
         return ltrb
     
     # @saver
@@ -701,6 +637,79 @@ class Regionprops(object):
         return boundary
 
 
+def get_mask_boundary(mask):
+    contours, _ = cv.findContours(
+        mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
+    )
+    shape = contours[0].shape
+    db = np.reshape(contours[0], (shape[0], shape[-1]))
+    mask_boundary = db
+    return mask_boundary
+    
+def get_meshgrid(image_shape):
+    xv, yv = np.meshgrid(
+        np.arange(image_shape[1]), np.arange(image_shape[0])
+    )
+    return xv, yv
+
+def get_universal_ltrb(mask):
+    boundary = get_mask_boundary(mask)
+    image_shape = mask.shape
+    
+    ltrb = get_LTRB(boundary, image_shape)
+    xv, yv = get_meshgrid(image_shape)
+    
+    ltrb[:, :, 0][mask] *= -1
+    ltrb[:, :, 0][mask] += xv[mask]
+    
+    ltrb[:, :, 2][mask] -= xv[mask]
+    
+    ltrb[:, :, 1][mask] *= -1
+    ltrb[:, :, 1][mask] += yv[mask]
+    
+    ltrb[:, :, 3][mask] -= yv[mask]
+    
+    ltrb[mask == False] = 0
+    return ltrb
+    
+    
+def get_xss_and_yss(boundary, method=2):
+    if method == 1:
+        xss = sorted(list(set(boundary[:, 0])))
+        yss = sorted(list(set(boundary[:, 1])))
+    elif method == 2:
+        xss = np.sort(np.unique(boundary[:, 0]))
+        yss = np.sort(np.unique(boundary[:, 1]))
+    return xss, yss
+    
+def get_LTRB(boundary, image_shape, xss=None, yss=None):
+    
+    LTRB = np.zeros(image_shape + (4,), np.float32)
+    l, t, r, b = [], [], [], []
+    if xss is None or yss is None:
+        xss, yss = get_xss_and_yss(boundary)
+    
+    for x in xss:
+        relevant = boundary[boundary[:, 0] == x][:, 1]
+        mi = relevant.min()
+        ma = relevant.max()
+        t.append(mi)
+        b.append(ma)
+    
+    for y in yss:
+        relevant = boundary[boundary[:, 1] == y][:, 0]
+        mi = relevant.min()
+        ma = relevant.max()
+        l.append(mi)
+        r.append(ma)
+    
+    LTRB[yss.min(): yss.max()+1, :, 0] = np.expand_dims(l, 1)
+    LTRB[yss.min(): yss.max()+1, :, 2] = np.expand_dims(r, 1)
+    LTRB[:, xss.min(): xss.max()+1, 1] = np.expand_dims(t, 0)
+    LTRB[:, xss.min(): xss.max()+1, 3] = np.expand_dims(b, 0)
+    
+    return LTRB
+
 def get_distance_transform(
     mask,
     normalize=True,
@@ -896,3 +905,18 @@ def get_mask_from_polygon(polygon, image_shape=(1200, 1600), doer="cv"):
 
 def ltrb(x, l, t, r, b):
     return x[0] - l, x[1] - t, r - x[0], b - x[1]
+
+    
+def get_min_distance(distances):
+    less_then_zero = distances[distances <= 0]
+    more_then_zero = distances[distances >= 0]
+    l = less_then_zero.max()
+    m = more_then_zero.min()
+    return l, m
+
+def get_distances(point, boundary):
+    vrelevant = boundary[boundary[:, 1] == point[0]]
+    hrelevant = boundary[boundary[:, 0] == point[1]]
+    l, r = get_min_distance(vrelevant - point)
+    t, b = get_min_distance(hrelevant - point)
+    return l, t, r, b
