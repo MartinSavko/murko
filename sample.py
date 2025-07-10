@@ -6,6 +6,7 @@
 import numpy as np
 import cv2 as cv
 import skimage as ski
+import pylab
 
 from objects_of_interest import get_objects_of_interest, update_maps
 from regionprops import Regionprops
@@ -23,9 +24,10 @@ from keypoints import (
     get_extreme,
     get_start_possible,
     get_start_likely,
-    get_ltbrc,
+    get_ltrbc,
     get_orientation_and_direction,
     get_named_pca_points,
+    #draw_point,
 )
 
 def flip_axis(x, axis):
@@ -241,6 +243,9 @@ def get_label_mask_from_points(oois, labels, points=None):
             label_mask = np.logical_or(label_mask == 1, mask == 1)
     return label_mask
 
+def get_unmasked_image(image, masks, label):
+    image[masks[label].astype(bool) == False] = 0
+    return image
 
 class Sample:
     def __init__(
@@ -300,10 +305,8 @@ class Sample:
 
         _maps = {}
         for k, label in enumerate(self.labels):
-            print(f"label {label} kind {kind} method {method}")
             _map = getattr(properties[k], f"get_{kind}")(**kwargs)
             if len(_map.shape) == 2:
-                print(f"_map.shape {_map.shape}")
                 update_maps(_maps, label, _map, method=method)
             else:
                 print(f"possible problem {_map.shape} shape is wrong, please check")
@@ -386,7 +389,7 @@ class Sample:
 
     def get_distance_transform(self, points=None, image_shape=None):
         distance_transform = self._get_maps(
-            points, image_shape, kind="distance_transform", method="min"
+            points, image_shape, kind="distance_transform", method="max"
         )
         return distance_transform
 
@@ -465,13 +468,45 @@ class Sample:
     def _get_start_likely(self, labels, indices, points, properties):
         return get_start_likely(labels, indices, points, properties)
     
-    def _get_ltbrc(self, labels, indices, points, properties, label):
-        return get_ltbrc(labels, indices, points, properties, label)
+    def _get_ltrbc(self, labels, indices, points, properties, label):
+        return get_ltrbc(labels, indices, points, properties, label)
     
-    def get_keypoints(self, keypoints, labels=None, indices=None, points=None, properties=None):
-        for keypoint in keypoints:
-            
-
+    def _guess_point(self, point_name):
+        pns = point_name.split("_")
+        label, kind = None, None
+        if len(pns) == 2:
+            abbreviation = pns[0]
+            if pns[0] == "aoi":
+                label = "area_of_interest"
+            else:
+                label = pns[0]
+            kind = pns[1]
+        return label, abbreviation, kind
+    
+    def _check_lipp(self, labels, indices, points, properties):
+        l = labels if labels is not None else self.get_labels()
+        i = indices if indices is not None else self.get_indices()
+        p = points if points is not None else self.get_points()
+        _p = properties if properties is not None else self._get_properties()
+        return l, i, p, _p
+    
+    def get_keypoints(self, named_points, labels=None, indices=None, points=None, properties=None):
+        args = self._check_lipp(labels, indices, points, properties)
+        keypoints = {}
+        ltrbcs = {}
+        for point_name in named_points:
+            if hasattr(self, f"_get_{point_name}"):
+                keypoints[point_name] = getattr(self, f"_get_{point_name}")(*args)
+            else:
+                label, abbreviation, kind = self._guess_point(point_name)
+                if label not in ltrbcs:
+                    ltrbcs[label] = self._get_ltrbc(*args+(label,))
+                print(label, abbreviation, kind)
+                print(f"ltrbcs {ltrbcs}")
+                keypoints[point_name] = ltrbcs[label][kind]
+        
+        return keypoints
+                
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
@@ -482,14 +517,17 @@ class Sample:
             image_shape = self.get_image_shape()
 
         """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
-        cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
+        
+        subdiv = cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
+        
         for key, p in keypoints.items():
             if p is not None:
                 subdiv.insert(p)
+        
         facets, centers = subdiv.getVoronoiFacetList([])
         voronoi = np.zeros(image_shape, dtype=np.int8)
         i = 0
-        for key, p in keypoints:
+        for key, p in keypoints.items():
             label = keypoint_labels[key]
             if p is not None:
                 facet = facets[i]
@@ -627,22 +665,79 @@ class Sample:
         )
 
 
+def draw_point(point, ax=None, radius=3, color="red"):
+    if ax is None:
+        ax = pylab.gca()
+
+    p = pylab.Circle(point, radius=radius, color=color)
+    ax.add_patch(p)
+
 def test():
-    s = Sample(
-        "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
+    
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-j",
+        "--json",
+        default="soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
+        #"soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
+        type=str,
+        help="path to the json file containing sample annotation",
     )
-    import pylab
+    args = parser.parse_args()
+    print("args", args)
+
+    s = Sample(args.json)
 
     # fh = s.get_flat_hierarchy()
 
     # pylab.figure(figsize=(16, 9))
     # pylab.imshow(s.get_flat_hierarchy())
     # pylab.show()
+    image = s.get_image()
+    #masks = s.get_masks()
+    #ct = s.get_centerness()["ice"]
+    #dt = s.get_distance_transform()["ice"]
+    #m = masks["ice"]
+    #h = s.get_flat_hierarchy()
+    #cimage = get_unmasked_image(image.copy(), masks, "crystal")
+    
+    #fig, axes = pylab.subplots(3, 2)
+    
+    #fig.set_tight_layout(True)
+    #a = axes.flatten()
+    #for aa in a: aa.set_axis_off()
+        
+    #a[0].imshow(image)
+    #a[0].set_title("input image")
+    
+    #a[1].imshow(s.get_flat_hierarchy())
+    #a[1].set_title("hierarchy")
+    
+    #a[2].imshow(m)
+    #a[2].set_title("ice mask")
+    
+    #a[3].imshow(ct)
+    #a[3].set_title("ice centerness")
 
-    dt = s.get_distance_transform()
-    print("distance_transform")
-    print(dt)
-
+    #a[4].imshow(dt)
+    #a[4].set_title("ice distance transform")
+    
+    #a[5].imshow(cimage)
+    #a[5].set_title("unmasked crystal")
+    
+    for k in [1, 2]:
+        pylab.figure()
+        pylab.title(f"keypoints{k}")
+        pylab.imshow(image)
+        ax = pylab.gca()
+        kp = s.get_keypoints(keypoints_global_classification[k])
+        print(f"kp {kp}")
+        for p, v in kp.items():
+            draw_point(v, ax=ax)
+            
+    pylab.show()
 
 if __name__ == "__main__":
     test()

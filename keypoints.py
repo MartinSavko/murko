@@ -7,7 +7,6 @@ import numpy as np
 from scipy.spatial import distance_matrix
 import peakutils
 
-
 def principal_axes(array, verbose=False):
     # https://github.com/pierrepo/principal_axes/blob/master/principal_axes.py
     _start = time.time()
@@ -44,7 +43,7 @@ def get_origin(labels, indices, points, properties):
         f = properties[labels.index("foreground")]
         a = properties[labels.index("aether")]
         fb = f.get_dense_boundary()
-        ac = np.array(a.get_inner_center(pad=0))
+        ac = np.array(a.get_inner_center())
         distances = np.linalg.norm(fb - ac, axis=1)
         origin = fb[np.argmax(distances)]
 
@@ -132,7 +131,7 @@ def get_ltrbc(labels, indices, points, properties, label="area_of_interest"):
         c = o.get_inner_center()
 
         sl = get_origin(labels, indices, points, properties)
-        epoints = np.array(aoi.get_eigen_points())
+        epoints = np.array(o.get_eigen_points())
         el = list(epoints)
         
         distances = np.linalg.norm(np.array(el) - sl, axis=1)
@@ -153,7 +152,7 @@ def get_ltrbc(labels, indices, points, properties, label="area_of_interest"):
         else:
             print(f"e1 {e1}, v1 {v1}, v2 {v2} should never get here, please check")
     
-    return l, t, r, b, c
+    return {"left": l, "top": t, "right": r, "bottom": b, "center": c}
 
 def get_pin_right_and_left(
     labels, indices, points, properties, min_dist=0.25, filter_window=11
@@ -219,17 +218,9 @@ def _get_point(label, labels, indices, points, properties):
     return point
 
 
-def draw_point(point, ax=None, radius=3, color="red"):
-    if ax is None:
-        ax = pylab.gca()
-
-    p = pylab.Circle(point, radius=radius, color=color)
-    ax.add_patch(p)
-
-
 def get_orientation_and_direction(origin, extreme):
     # assuming origin and extreme points are in [V, H] format
-    vector = global_extreme - global_origin
+    vector = extreme - origin
     theta = np.degrees(np.arctan2(vector[0], vector[1]))
     if (theta <= 45.0 and theta > -45.0) or (theta >= 135 and theta < -135):
         orientation = 1
@@ -289,6 +280,7 @@ def get_named_pca_points(
     atol=5,
     default=np.array((-1, -1)),
     order=["top", "bottom", "left", "right"],
+    #unit_cross=[[1.0, 0.0], [-1.0, 0.0], [0.0, -1.0], [0.0, 1.0]]
 ):
 
     minmax = get_minmax(projection, atol=atol)
