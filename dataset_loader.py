@@ -4,6 +4,7 @@
 # part of the MURKO project
 
 import copy
+import copy
 import math
 import random
 import numpy as np
@@ -166,7 +167,7 @@ class JsonDataset(Sequence):
 
     def get_sample(self, sample, img_size, new_background=None):
 
-        if self.agument and self.swap_backgrounds:
+        if self.augment and self.swap_backgrounds:
             new_background = random.choice(self.backgrounds)["image"]
         
         img, points = sample.get_image_and_points(img_size=img_size, augment=self.augment, new_background=new_background)

@@ -104,9 +104,12 @@ def get_transformed_image(
 
 def get_resized_image(
     img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
+    img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
-        resized_image = ski.transform.resize(img, img_size, anti_aliasing=anti_aliasing)
+        resized_image = ski.transform.resize(
+            img, img_size, anti_aliasing=anti_aliasing
+        )
     elif doer == "cv":
         # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
         # Method	        Description	Best               Used For
