@@ -3,13 +3,14 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+import random
 import numpy as np
 import cv2 as cv
 import skimage as ski
 import pylab
 
 from objects_of_interest import get_objects_of_interest, update_maps
-from regionprops import Regionprops
+from regionprops import Regionprops, get_mask_from_polygon
 
 from config import (
     notion_importance,
@@ -38,7 +39,7 @@ def flip_axis(x, axis):
 
 
 def get_flipped_image(image, axis):
-    flipped_image = flip_axis(img, axis)
+    flipped_image = flip_axis(image, axis)
     return flipped_image
 
 
@@ -52,7 +53,7 @@ def get_flipped_img_and_points(img, points):
 
 def get_transposed_image(image):
     new_axes_order = (1, 0) + tuple(range(2, len(image.shape)))
-    transposed_image = np.transpose(imag, new_axes_order)
+    transposed_image = np.transpose(image, new_axes_order)
     return transposed_image
 
 
@@ -242,6 +243,9 @@ def get_label_mask_from_points(oois, labels, points=None):
             mask = get_mask_from_polygon(polygon, image_shape)
             label_mask = np.logical_or(label_mask == 1, mask == 1)
     return label_mask
+
+def size_differs(original_size, img_size):
+    return original_size[0] != img_size[0] or original_size[1] != img_size[1]
 
 def get_unmasked_image(image, masks, label):
     image[masks[label].astype(bool) == False] = 0
@@ -547,6 +551,7 @@ class Sample:
             do_swap_backgrounds,
             do_black_and_white,
             do_random_brightness,
+            do_random_contrast,
             do_random_channel_shift,
         ) = self.get_augment_control()
 
@@ -578,11 +583,19 @@ class Sample:
             if not self.fractional:
                 points = points * resize_factor
 
-        if do_random_brightness is True:
-            img = image.random_brightness(img, [0.75, 1.25]) / 255.0
-
-        if do_random_channel_shift is True:
-            img = image.random_channel_shift(img, 0.5, channel_axis=2)
+        if do_random_brightness or do_random_contrast:
+            #https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html
+            alpha, beta = 1., 0.
+            if do_random_brightness:
+                beta = 100*(random.random())
+            if do_random_contrast:
+                alpha += random.random()*2
+            img = cv.convertScaleAbs(img, alpha=alpha, beta=beta)
+                         
+        if do_random_channel_shift and not do_black_and_white:
+            channel_order = [0, 1, 2]
+            np.random.shuffle(channel_order)
+            img = img[:,:,channel_order]
 
         if do_black_and_white:
             img_bw = img.mean(axis=2)
@@ -607,6 +620,7 @@ class Sample:
         swap_backgrounds=True,
         black_and_white=True,
         random_brightness=True,
+        random_contrast=True,
         random_channel_shift=False,
         verbose=False,
     ):
@@ -617,12 +631,12 @@ class Sample:
         do_swap_backgrounds = False
         do_black_and_white = False
         do_random_brightness = False
+        do_random_contrast = False,
         do_random_channel_shift = False
         if transform and self.transform and random.random() < threshold:
             do_transform = True
 
         if transpose and random.random() < threshold:
-            final_img_size = img_size[::-1]
             do_transpose = True
             if self.flip and random.random() < threshold:
                 do_flip = True
@@ -639,6 +653,9 @@ class Sample:
         if random_brightness and random.random() < threshold / 2:
             do_random_brightness = True
 
+        if random_contrast and random.random() < threshold / 2:
+            do_random_contrast = True
+
         if (
             random_channel_shift
             and not do_black_and_white
@@ -653,6 +670,7 @@ class Sample:
             print(f"do_swap_backgrounds: {do_swap_backgrounds}")
             print(f"do_black_and_white: {do_black_and_white}")
             print(f"do_random_brightness: {do_random_brightness}")
+            print(f"do_random_contrast: {do_random_contrast}")
             print(f"do_random_channel_shift: {do_random_channel_shift}")
         return (
             do_flip,
@@ -661,6 +679,7 @@ class Sample:
             do_swap_backgrounds,
             do_black_and_white,
             do_random_brightness,
+            do_random_contrast,
             do_random_channel_shift,
         )
 

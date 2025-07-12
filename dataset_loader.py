@@ -3,11 +3,12 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+import math
+import random
+import numpy as np
+
 from keras.utils import Sequence
-
-
-def size_differs(original_size, img_size):
-    return original_size[0] != img_size[0] or original_size[1] != img_size[1]
+from sample import Sample
 
 
 def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
@@ -121,7 +122,7 @@ class JsonDataset(Sequence):
             y.append(output)
         return y
 
-    def get_img_size_and_batch(self):
+    def get_img_size_and_batch(self, idx):
         if self.dynamic_batch_size:
             img_size = get_img_size_as_scale_of_pixel_budget(
                 random.choice(self.possible_scales),
@@ -131,21 +132,19 @@ class JsonDataset(Sequence):
             batch_size = get_dynamic_batch_size(
                 img_size, pixel_budget=self.pixel_budget
             )
-            i = idx
-            batch = get_batch(i, self.samples, batch_size)
+            batch = get_batch(idx, self.samples, batch_size)
         else:
             img_size = self.img_size[:]
             batch_size = self.batch_size
-            i = idx * self.batch_size
-            start_index = i
-            end_index = i + batch_size
-            batch = self.samples[start_index:end_index]
+            start_index = idx * self.batch_size
+            end_index = start_index + batch_size
+            batch = self.samples[start_index: end_index]
 
         return img_size, batch
 
     def __getitem__(self, idx):
         if idx == 0 and self.shuffle_at_0:
-            random.Random().shuffle(self.samples)
+            random.shuffle(self.samples)
 
         img_size, batch = self.get_img_size_and_batch()
         final_img_size = copy.copy(img_size)
