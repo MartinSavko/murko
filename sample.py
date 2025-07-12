@@ -102,11 +102,11 @@ def get_transformed_image(
 
 
 def get_resized_image(
-    img, final_img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
+    img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
         resized_image = ski.transform.resize(
-            img, final_img_size, anti_aliasing=anti_aliasing
+            img, img_size, anti_aliasing=anti_aliasing
         )
     elif doer == "cv":
         # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
@@ -125,7 +125,7 @@ def get_resized_image(
         #               using 8×8 pixel neighborhood    downscaling (preserves fine
         #                                               details)
         resized_image = cv.resize(
-            img, final_img_size[::-1], interpolation=getattr(cv, interpolation)
+            img, img_size[::-1], interpolation=getattr(cv, interpolation)
         )
     return resized_image
 
@@ -319,7 +319,7 @@ class Sample:
             for _n, _m in _maps.items():
                 _min = _m.min()
                 _max = _m.max()
-                if np.any(_min != _max):
+                if _min != _max:
                     _maps[_n] = (_m - _min) / (_max - _min)
 
         return _maps
@@ -543,7 +543,18 @@ class Sample:
             cv.fillPoly(voronoi, np.array(polygon, dtype=np.int32), label)
         return voronoi
 
-    def transform(self, final_img_size, new_background=None):
+    def get_image_and_points(self, img_size=None):
+        img = self.get_image()
+        points = self.get_points()
+        
+        if img_size is not None and size_differs(img.shape[:2], img_size):
+            resize_factor = np.array(img_size) / np.array(img.shape[:2])
+            img = get_resized_image(img, img_size, anti_aliasing=True)
+            if not self.fractional:
+                points = points * resize_factor
+        return img, points
+    
+    def transform(self, img_size, new_background=None):
         (
             do_flip,
             do_transpose,
@@ -555,8 +566,7 @@ class Sample:
             do_random_channel_shift,
         ) = self.get_augment_control()
 
-        img = self.get_image()
-        points = self.get_points()
+        img, points = self.get_image_and_points(img_size)
 
         if do_transpose is True:
             img, points = get_transposed_img_and_points(img, points)
@@ -576,12 +586,6 @@ class Sample:
             and "foreground" in masks
         ):
             img = self.swap_backgrounds(img, masks["foreground"], new_background)
-
-        if size_differs(img.shape[:2], final_img_size):
-            resize_factor = np.array(final_img_size) / np.array(img.shape[:2])
-            img = get_resized_image(img, final_img_size, anti_aliasing=True)
-            if not self.fractional:
-                points = points * resize_factor
 
         if do_random_brightness or do_random_contrast:
             #https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html

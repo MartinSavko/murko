@@ -3,6 +3,7 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+import copy
 import math
 import random
 import numpy as np
@@ -105,18 +106,18 @@ class JsonDataset(Sequence):
     def __len__(self):
         return self.nsamples
 
-    def get_empty_sample(self, final_img_size):
+    def get_empty_sample(self, img_size):
         y = []
         for head in self.heads:
-            output = np.zeros(final_img_size + (head["channels"],), dtype=head["dtype"])
+            output = np.zeros(img_size + (head["channels"],), dtype=head["dtype"])
             y.append(output)
         return y
 
-    def get_empty_batch(self, batch_size, final_img_size):
+    def get_empty_batch(self, batch_size, img_size):
         y = []
         for head in self.heads:
             output = np.zeros(
-                (batch_size,) + final_img_size + (head["channels"],),
+                (batch_size,) + img_size + (head["channels"],),
                 dtype=head["dtype"],
             )
             y.append(output)
@@ -147,14 +148,14 @@ class JsonDataset(Sequence):
             random.shuffle(self.samples)
 
         img_size, batch = self.get_img_size_and_batch()
-        final_img_size = copy.copy(img_size)
+        
         batch_size = len(batch)
 
         x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
-        y = self.get_empty_batch(batch_size, final_img_size)
+        y = self.get_empty_batch(batch_size, img_size)
 
         for j, sample in enumerate(batch):
-            x[j], y_j = self.get_sample(sample, final_img_size)
+            x[j], y_j = self.get_sample(sample, img_size)
             for k, output in enumerate(y_j):
                 y[k][j] = output[k]
 
@@ -163,12 +164,12 @@ class JsonDataset(Sequence):
 
         return x, y if self.target else x
 
-    def get_sample(self, sample, final_img_size, new_background=None):
+    def get_sample(self, sample, img_size, new_background=None):
 
         if self.augment:
             if self.swap_backgrounds:
                 new_background = random.choice(self.backgrounds)["image"]
-            img, points = sample.transform(final_img_size, new_background)
+            img, points = sample.transform(img_size, new_background)
         else:
             img = sample.get_image()
             points = sample.get_points()
