@@ -10,8 +10,6 @@ import json
 import traceback
 import numpy as np
 import cv2 as cv
-from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
-import scipy.special
 from labelme import utils
 from config import additional_labels, notion_importance, keypoints, keypoint_labels
 from regionprops import Regionprops
@@ -128,14 +126,14 @@ def update_maps(maps, label, _map, method="logical_or"):
     return maps
 
 
-def get_secondary_notions(
+def add_derived_notions(
     points,
     indices,
     labels,
     properties,
     image_shape,
     fractional=False,
-    secondary_notions=[
+    derived_notions=[
         "area_of_interest",
         "support",
         "foreground",
@@ -147,7 +145,7 @@ def get_secondary_notions(
     
     masks = get_masks(points, indices, labels, properties, image_shape)
 
-    for notion in secondary_notions:
+    for notion in derived_notions:
         if notion in masks:
             contours, h = cv.findContours(
                 masks[notion].astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
@@ -190,6 +188,7 @@ def get_objects_of_interest(
 
         if fractional:
             ooi /= image_shape
+        
         points, indices, labels, properties = add_ooi(
             ooi, label, points, indices, labels, properties, image_shape
         )
@@ -197,11 +196,12 @@ def get_objects_of_interest(
     if "background" not in labels:
         if not fractional:
             ooi = unit_square[:] * image_shape
+        
         points, indices, labels, properties = add_ooi(
             ooi, "background", points, indices, labels, properties, image_shape
         )
 
-    points, indices, labels, properties, masks = get_secondary_notions(
+    points, indices, labels, properties, masks = add_derived_notions(
         points, indices, labels, properties, image_shape, fractional=fractional
     )
 

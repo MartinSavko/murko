@@ -28,8 +28,9 @@ from keypoints import (
     get_ltrbc,
     get_orientation_and_direction,
     get_named_pca_points,
-    #draw_point,
+    # draw_point,
 )
+
 
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
@@ -102,12 +103,10 @@ def get_transformed_image(
 
 
 def get_resized_image(
-    img, final_img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
+    img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
-        resized_image = ski.transform.resize(
-            img, final_img_size, anti_aliasing=anti_aliasing
-        )
+        resized_image = ski.transform.resize(img, img_size, anti_aliasing=anti_aliasing)
     elif doer == "cv":
         # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
         # Method	        Description	Best               Used For
@@ -125,7 +124,7 @@ def get_resized_image(
         #               using 8×8 pixel neighborhood    downscaling (preserves fine
         #                                               details)
         resized_image = cv.resize(
-            img, final_img_size[::-1], interpolation=getattr(cv, interpolation)
+            img, img_size[::-1], interpolation=getattr(cv, interpolation)
         )
     return resized_image
 
@@ -244,12 +243,15 @@ def get_label_mask_from_points(oois, labels, points=None):
             label_mask = np.logical_or(label_mask == 1, mask == 1)
     return label_mask
 
+
 def size_differs(original_size, img_size):
     return original_size[0] != img_size[0] or original_size[1] != img_size[1]
+
 
 def get_unmasked_image(image, masks, label):
     image[masks[label].astype(bool) == False] = 0
     return image
+
 
 class Sample:
     def __init__(
@@ -319,7 +321,7 @@ class Sample:
             for _n, _m in _maps.items():
                 _min = _m.min()
                 _max = _m.max()
-                if np.any(_min != _max):
+                if _min != _max:
                     _maps[_n] = (_m - _min) / (_max - _min)
 
         return _maps
@@ -459,22 +461,22 @@ class Sample:
 
     def _get_origin(self, labels, indices, points, properties):
         return get_origin(labels, indices, points, properties)
-    
+
     def _get_most_likely_click(self, labels, indices, points, properties):
         return get_most_likely_click(labels, indices, points, properties)
-        
+
     def _get_extreme(self, labels, indices, points, properties):
         return get_extreme(labels, indices, points, properties)
-    
+
     def _get_start_possible(self, labels, indices, points, properties):
         return get_start_possible(labels, indices, points, properties)
-    
+
     def _get_start_likely(self, labels, indices, points, properties):
         return get_start_likely(labels, indices, points, properties)
-    
+
     def _get_ltrbc(self, labels, indices, points, properties, label):
         return get_ltrbc(labels, indices, points, properties, label)
-    
+
     def _guess_point(self, point_name):
         pns = point_name.split("_")
         label, kind = None, None
@@ -486,15 +488,17 @@ class Sample:
                 label = pns[0]
             kind = pns[1]
         return label, abbreviation, kind
-    
+
     def _check_lipp(self, labels, indices, points, properties):
         l = labels if labels is not None else self.get_labels()
         i = indices if indices is not None else self.get_indices()
         p = points if points is not None else self.get_points()
         _p = properties if properties is not None else self._get_properties()
         return l, i, p, _p
-    
-    def get_keypoints(self, named_points, labels=None, indices=None, points=None, properties=None):
+
+    def get_keypoints(
+        self, named_points, labels=None, indices=None, points=None, properties=None
+    ):
         args = self._check_lipp(labels, indices, points, properties)
         keypoints = {}
         ltrbcs = {}
@@ -504,13 +508,13 @@ class Sample:
             else:
                 label, abbreviation, kind = self._guess_point(point_name)
                 if label not in ltrbcs:
-                    ltrbcs[label] = self._get_ltrbc(*args+(label,))
+                    ltrbcs[label] = self._get_ltrbc(*args + (label,))
                 print(label, abbreviation, kind)
                 print(f"ltrbcs {ltrbcs}")
                 keypoints[point_name] = ltrbcs[label][kind]
-        
+
         return keypoints
-                
+
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
@@ -521,13 +525,13 @@ class Sample:
             image_shape = self.get_image_shape()
 
         """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
-        
+
         subdiv = cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
-        
+
         for key, p in keypoints.items():
             if p is not None:
                 subdiv.insert(p)
-        
+
         facets, centers = subdiv.getVoronoiFacetList([])
         voronoi = np.zeros(image_shape, dtype=np.int8)
         i = 0
@@ -543,65 +547,68 @@ class Sample:
             cv.fillPoly(voronoi, np.array(polygon, dtype=np.int32), label)
         return voronoi
 
-    def transform(self, final_img_size, new_background=None):
-        (
-            do_flip,
-            do_transpose,
-            do_transform,
-            do_swap_backgrounds,
-            do_black_and_white,
-            do_random_brightness,
-            do_random_contrast,
-            do_random_channel_shift,
-        ) = self.get_augment_control()
-
+    def get_image_and_points(self, img_size=None, augment=False, new_background=None):
         img = self.get_image()
         points = self.get_points()
 
-        if do_transpose is True:
-            img, points = get_transposed_img_and_points(img, points)
-
-        if do_flip is True:
-            img, points = get_flipped_img_and_points(img, points)
-
-        if do_transform is True:
-            img, points = get_transformed_img_and_points(img, points)
-
-        masks = self.get_masks(points, img.shape[:2])
-
-        if (
-            new_background is not None
-            and do_swap_backgrounds
-            and "background" not in self.image_path
-            and "foreground" in masks
-        ):
-            img = self.swap_backgrounds(img, masks["foreground"], new_background)
-
-        if size_differs(img.shape[:2], final_img_size):
-            resize_factor = np.array(final_img_size) / np.array(img.shape[:2])
-            img = get_resized_image(img, final_img_size, anti_aliasing=True)
+        if img_size is not None and size_differs(img.shape[:2], img_size):
+            resize_factor = np.array(img_size) / np.array(img.shape[:2])
+            img = get_resized_image(img, img_size, anti_aliasing=True)
             if not self.fractional:
                 points = points * resize_factor
 
-        if do_random_brightness or do_random_contrast:
-            #https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html
-            alpha, beta = 1., 0.
-            if do_random_brightness:
-                beta = 100*(random.random())
-            if do_random_contrast:
-                alpha += random.random()*2
-            img = cv.convertScaleAbs(img, alpha=alpha, beta=beta)
-                         
-        if do_random_channel_shift and not do_black_and_white:
-            channel_order = [0, 1, 2]
-            np.random.shuffle(channel_order)
-            img = img[:,:,channel_order]
+        if augment:
+            (
+                do_flip,
+                do_transpose,
+                do_transform,
+                do_swap_backgrounds,
+                do_black_and_white,
+                do_random_brightness,
+                do_random_contrast,
+                do_random_channel_shift,
+            ) = self.get_augment_control()
 
-        if do_black_and_white:
-            img_bw = img.mean(axis=2)
-            img = np.stack([img_bw] * 3, axis=2)
+            if do_flip is True:
+                img, points = get_flipped_img_and_points(img, points)
 
-        return img, points
+            if do_transpose is True:
+                img, points = get_transposed_img_and_points(img, points)
+
+            if do_transform is True:
+                img, points = get_transformed_img_and_points(img, points)
+
+            self.masks = self.get_masks(points, img.shape[:2])
+
+            if (
+                new_background is not None
+                and do_swap_backgrounds
+                and "background" not in self.image_path
+                and "foreground" in self.masks
+            ):
+                img = self.swap_backgrounds(
+                    img, self.masks["foreground"], new_background
+                )
+
+            if do_random_brightness or do_random_contrast:
+                # https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html
+                alpha, beta = 1.0, 0.0
+                if do_random_brightness:
+                    beta = 100 * (random.random())
+                if do_random_contrast:
+                    alpha += random.random() * 2
+                img = cv.convertScaleAbs(img, alpha=alpha, beta=beta)
+
+            if do_random_channel_shift and not do_black_and_white:
+                channel_order = [0, 1, 2]
+                np.random.shuffle(channel_order)
+                img = img[:, :, channel_order]
+
+            if do_black_and_white:
+                img_bw = img.mean(axis=2)
+                img = np.stack([img_bw] * 3, axis=2)
+
+            return img, points
 
     def swap_backgrounds(self, img, foreground_mask, new_background):
         if size_differs(img.shape[:2], new_background.shape[:2]):
@@ -631,7 +638,7 @@ class Sample:
         do_swap_backgrounds = False
         do_black_and_white = False
         do_random_brightness = False
-        do_random_contrast = False,
+        do_random_contrast = (False,)
         do_random_channel_shift = False
         if transform and self.transform and random.random() < threshold:
             do_transform = True
@@ -691,8 +698,9 @@ def draw_point(point, ax=None, radius=3, color="red"):
     p = pylab.Circle(point, radius=radius, color=color)
     ax.add_patch(p)
 
+
 def test():
-    
+
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -700,7 +708,7 @@ def test():
         "-j",
         "--json",
         default="soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
-        #"soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
+        # "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
         type=str,
         help="path to the json file containing sample annotation",
     )
@@ -715,37 +723,37 @@ def test():
     # pylab.imshow(s.get_flat_hierarchy())
     # pylab.show()
     image = s.get_image()
-    #masks = s.get_masks()
-    #ct = s.get_centerness()["ice"]
-    #dt = s.get_distance_transform()["ice"]
-    #m = masks["ice"]
-    #h = s.get_flat_hierarchy()
-    #cimage = get_unmasked_image(image.copy(), masks, "crystal")
-    
-    #fig, axes = pylab.subplots(3, 2)
-    
-    #fig.set_tight_layout(True)
-    #a = axes.flatten()
-    #for aa in a: aa.set_axis_off()
-        
-    #a[0].imshow(image)
-    #a[0].set_title("input image")
-    
-    #a[1].imshow(s.get_flat_hierarchy())
-    #a[1].set_title("hierarchy")
-    
-    #a[2].imshow(m)
-    #a[2].set_title("ice mask")
-    
-    #a[3].imshow(ct)
-    #a[3].set_title("ice centerness")
+    # masks = s.get_masks()
+    # ct = s.get_centerness()["ice"]
+    # dt = s.get_distance_transform()["ice"]
+    # m = masks["ice"]
+    # h = s.get_flat_hierarchy()
+    # cimage = get_unmasked_image(image.copy(), masks, "crystal")
 
-    #a[4].imshow(dt)
-    #a[4].set_title("ice distance transform")
-    
-    #a[5].imshow(cimage)
-    #a[5].set_title("unmasked crystal")
-    
+    # fig, axes = pylab.subplots(3, 2)
+
+    # fig.set_tight_layout(True)
+    # a = axes.flatten()
+    # for aa in a: aa.set_axis_off()
+
+    # a[0].imshow(image)
+    # a[0].set_title("input image")
+
+    # a[1].imshow(s.get_flat_hierarchy())
+    # a[1].set_title("hierarchy")
+
+    # a[2].imshow(m)
+    # a[2].set_title("ice mask")
+
+    # a[3].imshow(ct)
+    # a[3].set_title("ice centerness")
+
+    # a[4].imshow(dt)
+    # a[4].set_title("ice distance transform")
+
+    # a[5].imshow(cimage)
+    # a[5].set_title("unmasked crystal")
+
     for k in [1, 2]:
         pylab.figure()
         pylab.title(f"keypoints{k}")
@@ -755,8 +763,9 @@ def test():
         print(f"kp {kp}")
         for p, v in kp.items():
             draw_point(v, ax=ax)
-            
+
     pylab.show()
+
 
 if __name__ == "__main__":
     test()

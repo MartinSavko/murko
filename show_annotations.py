@@ -9,7 +9,7 @@ import json
 import numpy as np
 import skimage as ski
 from objects_of_interest import get_image, get_objects_of_interest, load_json
-from regionprops import Regionprops, get_eigen_points, get_ellipse_from_rps, get_extreme_points, get_mask_from_polygon
+from regionprops import Regionprops, get_eigen_points, get_ellipse_from_rps, get_extreme_points, get_mask_from_polygon, get_rps
 import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
