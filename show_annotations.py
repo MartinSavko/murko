@@ -8,11 +8,11 @@ import time
 import json
 import numpy as np
 import skimage as ski
-from skimage.draw import polygon2mask
+from objects_of_interest import get_image, get_objects_of_interest, load_json
+from regionprops import Regionprops, get_eigen_points, get_ellipse_from_rps, get_extreme_points, get_mask_from_polygon
 import scipy.ndimage as ndi
 import cv2 as cv
 import imageio
-from math import sqrt
 
 
 import pylab
@@ -24,8 +24,8 @@ import time
 import copy
 import traceback
 
-from keypoints import principal_axes
-from sample import get_label_mask_from_points
+from keypoints import get_orientation_and_direction, principal_axes
+from sample import get_label_mask_from_points, get_random_transformation, get_transformed_image, get_transformed_points
 from config import (
     colors_for_labels,
     xkcd_colors_that_i_like,
@@ -380,16 +380,16 @@ def get_targets_old(
                 polygons = get_label_polygons(oois, [notion], points=points)
                 print("notion %s polygons" % notion, polygons)
                 if polygons:
-                    rps = cvRegionprops(polygons[0])
+                    rps = Regionprops(polygons[0])
                 # rps = get_rps(targets[notion])
                 if bbox in notions:
-                    if type(rps) is cvRegionprops:
+                    if type(rps) is Regionprops:
                         rectangles = rps.get_bbox()
                     else:
                         rectangles = [get_rectangle_from_rps(rps)]
                     targets[bbox] = rectangles
                 if ellipse in notions:
-                    if type(rps) is cvRegionprops:
+                    if type(rps) is Regionprops:
                         ellipses = rps.get_ellipse()
                     else:
                         ellipses = [get_ellipse_from_rps(rps)]
@@ -481,7 +481,7 @@ def get_targets(
         mask = get_mask_from_polygon(ps, image_shape=image_shape)
 
         if label in notions["primary"]:
-            prop = get_regionprops(polygon)
+            prop = get_regionprops(ps)
             prop["label"] = label
             props.append(prop)
             masks[label] = np.logical_or(masks[label], mask) if label in masks else mask
@@ -570,12 +570,6 @@ def get_ellipse_from_polygon(polygon):
     ellipse = cv.fitEllipse(polygon.astype(int))
     print(f"ellipse {ellipse}")
     return ellipse
-
-
-# @timeit
-def get_rps(mask):
-    rps = ski.measure.regionprops(ski.measure.label(mask))[0]
-    return rps
 
 
 def get_labelme_shape_from_mask(mask, label):
@@ -674,7 +668,7 @@ def get_primary_masks(points, indices, labels, image_shape, fractional=False):
         if fractional:
             ps *= image_shape
 
-        properties = cvRegionprops(ps)
+        properties = Regionprops(ps)
         mask = properties.get_mask(image_shape)
         masks = update_masks(masks, label, mask)
 

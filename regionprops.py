@@ -3,10 +3,21 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+from math import sqrt
 import cv2 as cv
 import numpy as np
+import scipy.special
+import scipy.ndimage as ndi
+import skimage as ski
+from skimage.draw import polygon2mask
+from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
+
 import traceback
 
+# @timeit
+def get_rps(mask):
+    rps = ski.measure.regionprops(ski.measure.label(mask))[0]
+    return rps
 
 class Regionprops(object):
     def __init__(self, points, image_shape=None, distance_transform_pad=2):
@@ -278,7 +289,7 @@ class Regionprops(object):
         elif method == "firstmax":
             winner = np.unravel_index(np.argmax(dt), dt.shape)
         elif method == "maximum_position":
-            winner = scipy.ndimage.maximum_position(dt)
+            winner = ndi.maximum_position(dt)
         ic = tuple(winner[::-1])
         # print("inner_center", ic)
         self.inner_center = ic
@@ -459,7 +470,7 @@ class Regionprops(object):
     # @saver
     def get_solidity(self):
         area = self.get_area()
-        hull = cv.convexHull(cnt)
+        hull = cv.convexHull(self.points)
         hull_area = cv.contourArea(hull)
         self.solidity = float(area) / hull_area
         return self.solidity
@@ -617,7 +628,7 @@ class Regionprops(object):
 
         return boundary
 
-    def get_boundary_from_spherical(self, coeff=None, center=None, thetas=None):
+    def get_boundary_from_spherical(self, coeff=None, center=None, thetas=None, degree=20):
         if thetas is None:
             thetas = self.get_thetas()
         if coeff is None:
@@ -791,6 +802,7 @@ def get_spherical_basis(
 
 def get_spherical_basis2(
     degree_max,
+    order_max,
     fname="sph_harm",
     domain=[0, 1],
     points=None,
@@ -806,7 +818,7 @@ def get_spherical_basis2(
         [
             getattr(scipy.special, fname)(order, degree, thetas, phi)
             for degree in range(0, degree_max + 1)
-            for order in range(-n, n + 1)
+            for order in range(-order_max, order_max + 1)
         ]
     ).T
 
