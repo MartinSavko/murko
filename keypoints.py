@@ -38,7 +38,7 @@ def principal_axes(array, verbose=False):
 
 
 def get_origin(labels, indices, points, properties):
-    origin = (-1, -1)
+    origin = np.array((-1, -1))
     if "foreground" in labels:
         f = properties[labels.index("foreground")]
         a = properties[labels.index("aether")]
@@ -55,7 +55,7 @@ def get_origin(labels, indices, points, properties):
 
 
 def get_extreme(labels, indices, points, properties):
-    extreme = (-1, -1)
+    extreme = np.array((-1, -1))
     if "foreground" in labels:
         origin = _get_origin(labels, indices, points, properties)
         k = labels.index("foreground")
@@ -67,7 +67,7 @@ def get_extreme(labels, indices, points, properties):
 
 
 def get_most_likely_click(labels, indices, points, properties):
-    mlc = (-1, -1)
+    mlc = np.array((-1, -1))
     largest_area = -np.inf
 
     if "user_click" in labels:
@@ -115,17 +115,17 @@ def get_start_likely(labels, indices, points, properties):
     return sl
 
 def get_stem_center(labels, indices, points, properties):
-    stem_center = (-1, -1)
+    stem_center = np.array((-1, -1))
     if "stem" in labels:
         stem_center = properties[labels.index("stem")].get_inner_center()
     return stem_center
 
 def get_ltrbc(labels, indices, points, properties, label="area_of_interest"):
-    l = (-1, -1)
-    t = (-1, -1)
-    r = (-1, -1)
-    b = (-1, -1)
-    c = (-1, -1)
+    l = np.array((-1, -1))
+    t = np.array((-1, -1))
+    r = np.array((-1, -1))
+    b = np.array((-1, -1))
+    c = np.array((-1, -1))
     if label in labels:
         o = properties[labels.index(label)]
         c = o.get_inner_center()
@@ -157,8 +157,8 @@ def get_ltrbc(labels, indices, points, properties, label="area_of_interest"):
 def get_pin_right_and_left(
     labels, indices, points, properties, min_dist=0.25, filter_window=11
 ):
-    r = (-1, -1)
-    l = (-1, -1)
+    r = np.array((-1, -1))
+    l = np.array((-1, -1))
     if "pin" in labels:
         p = properties[labels.index("pin")]
         pin = p.get_dense_boundary()

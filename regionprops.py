@@ -292,7 +292,7 @@ class Regionprops(object):
             winner = ndi.maximum_position(dt)
         ic = tuple(winner[::-1])
         # print("inner_center", ic)
-        self.inner_center = ic
+        self.inner_center = np.array(ic)
         return self.inner_center
 
     # #@saver
@@ -500,7 +500,7 @@ class Regionprops(object):
     ):
 
         if center is None:
-            center = np.array(self.get_inner_center())
+            center = self.get_inner_center()
 
         if dense or self.points.shape[0] < 21:
             points = self.get_dense_boundary()
@@ -615,7 +615,7 @@ class Regionprops(object):
         if coeff is None:
             coeff = self.get_chebyshev(degree=degree, domain=domain, npoints=npoints)
         if center is None:
-            center = np.array(self.get_inner_center())
+            center = self.get_inner_center()
 
         if method == "numpy":
             rs = np.polynomial.chebyshev.chebval(thetas, coeff)
@@ -634,7 +634,7 @@ class Regionprops(object):
         if coeff is None:
             coeff = self.get_sph_coeff()
         if center is None:
-            center = np.array(self.get_inner_center())
+            center = self.get_inner_center()
 
         basis = get_spherical_basis(degree, points=thetas)
 

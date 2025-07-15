@@ -517,6 +517,17 @@ class Sample:
 
         return keypoints
 
+     # def draw_voronoi(img, subdiv) :
+     #...: 
+     #...:     ( facets, centers) = subdiv.getVoronoiFacetList([])
+     #...:     for f, c in zip(facets, centers) :
+     #...:         f = f.astype(np.int32)
+     #...:         c = c.astype(np.int16)
+     #...:         color = random.randint(0, 255)
+     #...:         cv2.fillConvexPoly(img, f, color);
+     #...:         cv2.polylines(img, [f], True, (0, 0, 0), 1)
+     #...:         cv2.circle(img, c, 33, (0, 0, 0))
+
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
@@ -528,25 +539,26 @@ class Sample:
 
         """http://learnopencv.com/delaunay-triangulation-and-voronoi-diagram-using-opencv-c-python/"""
 
+        voronoi = np.zeros(image_shape, dtype=np.int8)
         subdiv = cv.Subdiv2D((0, 0, image_shape[1], image_shape[0]))
 
-        for key, p in keypoints.items():
-            if p is not None:
-                subdiv.insert(p)
-
+        present_points = []
+        for key, point in keypoints.items():
+            if point is not None and -1 not in point:
+                print(f"{key}, {point}")
+                pt = point.astype(np.int16)
+                subdiv.insert(pt)
+                present_points.append(key)
+                
         facets, centers = subdiv.getVoronoiFacetList([])
-        voronoi = np.zeros(image_shape, dtype=np.int8)
-        i = 0
-        for key, p in keypoints.items():
+        print(f"facets {facets}")
+        print(f"centers {centers}")
+        for i, key in enumerate(present_points):
             label = keypoint_labels[key]
-            if p is not None:
-                facet = facets[i]
-            else:
-                continue
-            polygon = []
-            for f in facet:
-                polygon.append(f)
-            cv.fillPoly(voronoi, np.array(polygon, dtype=np.int32), label)
+            ifacets = facets[i].astype(np.int32)
+            cv.fillConvexPoly(voronoi, ifacets, label)
+            
+        #voronoi = voronoi[:image_shape[0], :image_shape[1]]
         return voronoi
 
     def get_image_and_points(self, img_size=None, augment=False, new_background=None):
@@ -590,7 +602,7 @@ class Sample:
                 and "foreground" in self.masks
             ):
                 img = self.swap_backgrounds(
-                    img, self.masks["foreground"], new_background, img_shape)
+                    img, self.masks["foreground"], new_background, img_shape
                 )
 
             if do_random_brightness or do_random_contrast:
@@ -762,13 +774,18 @@ def test():
 
     for k in [1, 2]:
         pylab.figure()
-        pylab.title(f"keypoints{k}")
+        pylab.title(f"keypoints {k}")
         pylab.imshow(image)
         ax = pylab.gca()
         kp = s.get_keypoints(keypoints_global_classification[k])
-        print(f"kp {kp}")
+        #print(f"kp {kp}")
         for p, v in kp.items():
             draw_point(v, ax=ax)
+            
+        pylab.figure()
+        pylab.title(f"voronoi {k}")
+        print(f"keypoints for voronio {kp}")
+        pylab.imshow(s.get_voronoi(kp))
 
     pylab.show()
 

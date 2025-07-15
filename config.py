@@ -213,6 +213,8 @@ keypoints = [
     "pin_center",
     "pin_right",
     "pin_bottom",
+    
+    "stem_center",
 
     "base_left",
     "base_right",
