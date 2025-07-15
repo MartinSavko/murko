@@ -104,7 +104,6 @@ def get_transformed_image(
 
 def get_resized_image(
     img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
-    img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
         resized_image = ski.transform.resize(
@@ -553,9 +552,10 @@ class Sample:
     def get_image_and_points(self, img_size=None, augment=False, new_background=None):
         img = self.get_image()
         points = self.get_points()
-
-        if img_size is not None and size_differs(img.shape[:2], img_size):
-            resize_factor = np.array(img_size) / np.array(img.shape[:2])
+        img_shape = img.shape[:2]
+        
+        if img_size is not None and size_differs(img_size, img_shape):
+            resize_factor = np.array(img_size) / np.array(img_shape)
             img = get_resized_image(img, img_size, anti_aliasing=True)
             if not self.fractional:
                 points = points * resize_factor
@@ -570,7 +570,7 @@ class Sample:
                 do_random_brightness,
                 do_random_contrast,
                 do_random_channel_shift,
-            ) = self.get_augment_control()
+            ) = get_augment_control()
 
             if do_flip is True:
                 img, points = get_flipped_img_and_points(img, points)
@@ -581,7 +581,7 @@ class Sample:
             if do_transform is True:
                 img, points = get_transformed_img_and_points(img, points)
 
-            self.masks = self.get_masks(points, img.shape[:2])
+            self.masks = self.get_masks(points, img_shape)
 
             if (
                 new_background is not None
@@ -590,7 +590,7 @@ class Sample:
                 and "foreground" in self.masks
             ):
                 img = self.swap_backgrounds(
-                    img, self.masks["foreground"], new_background
+                    img, self.masks["foreground"], new_background, img_shape)
                 )
 
             if do_random_brightness or do_random_contrast:
@@ -613,85 +613,88 @@ class Sample:
 
             return img, points
 
-    def swap_backgrounds(self, img, foreground_mask, new_background):
-        if size_differs(img.shape[:2], new_background.shape[:2]):
+    def swap_backgrounds(self, img, foreground_mask, new_background, img_shape=None):
+        if img_shape is None: img_shape = img.shape[:2]
+            
+        if size_differs(img_shape, new_background.shape[:2]):
             new_background = get_resized_image(
-                new_background, img.shape[:2], anti_aliasing=True
+                new_background, img_shape, anti_aliasing=True
             )
         img[foreground_mask == 0] = new_background[foreground_mask == 0]
         return img
 
-    def get_augment_control(
-        self,
-        threshold=0.5,
-        transform=True,
-        transpose=True,
-        flip=True,
-        swap_backgrounds=True,
-        black_and_white=True,
-        random_brightness=True,
-        random_contrast=True,
-        random_channel_shift=False,
-        verbose=False,
+
+def get_augment_control(
+    threshold=0.5,
+    transform=True,
+    transpose=True,
+    flip=True,
+    swap_backgrounds=True,
+    black_and_white=True,
+    random_brightness=True,
+    random_contrast=True,
+    random_channel_shift=False,
+    verbose=False,
+):
+
+    do_flip = False
+    do_transpose = False
+    do_transform = False
+    do_swap_backgrounds = False
+    do_black_and_white = False
+    do_random_brightness = False
+    do_random_contrast = False
+    do_random_channel_shift = False
+    
+    if transform and random.random() < threshold:
+        do_transform = True
+
+    if transpose and random.random() < threshold:
+        do_transpose = True
+        if flip and random.random() < threshold:
+            do_flip = True
+    else:
+        if flip and random.random() < threshold:
+            do_flip = True
+
+    if swap_backgrounds and random.random() < threshold / 2:
+        do_swap_backgrounds = True
+
+    if black_and_white and random.random() < threshold / 2:
+        do_black_and_white = True
+
+    if random_brightness and random.random() < threshold / 2:
+        do_random_brightness = True
+
+    if random_contrast and random.random() < threshold / 2:
+        do_random_contrast = True
+
+    if (
+        random_channel_shift
+        and not do_black_and_white
+        and random.random() < threshold / 2
     ):
+        do_random_channel_shift = True
 
-        do_flip = False
-        do_transpose = False
-        do_transform = False
-        do_swap_backgrounds = False
-        do_black_and_white = False
-        do_random_brightness = False
-        do_random_contrast = (False,)
-        do_random_channel_shift = False
-        if transform and self.transform and random.random() < threshold:
-            do_transform = True
-
-        if transpose and random.random() < threshold:
-            do_transpose = True
-            if self.flip and random.random() < threshold:
-                do_flip = True
-        else:
-            if flip and random.random() < threshold:
-                do_flip = True
-
-        if swap_backgrounds and random.random() < threshold / 2:
-            do_swap_backgrounds = True
-
-        if black_and_white and random.random() < threshold / 2:
-            do_black_and_white = True
-
-        if random_brightness and random.random() < threshold / 2:
-            do_random_brightness = True
-
-        if random_contrast and random.random() < threshold / 2:
-            do_random_contrast = True
-
-        if (
-            random_channel_shift
-            and not do_black_and_white
-            and random.random() < threshold / 2
-        ):
-            do_random_channel_shift = True
-
-        if verbose:
-            print(f"do_transform: {do_transform}")
-            print(f"do_transpose: {do_transpose}")
-            print(f"do_flip: {do_flip}")
-            print(f"do_swap_backgrounds: {do_swap_backgrounds}")
-            print(f"do_black_and_white: {do_black_and_white}")
-            print(f"do_random_brightness: {do_random_brightness}")
-            print(f"do_random_contrast: {do_random_contrast}")
-            print(f"do_random_channel_shift: {do_random_channel_shift}")
-        return (
-            do_flip,
-            do_transpose,
-            do_transform,
-            do_swap_backgrounds,
-            do_black_and_white,
-            do_random_brightness,
-            do_random_contrast,
-            do_random_channel_shift,
-        )
+    if verbose:
+        print(f"do_transform: {do_transform}")
+        print(f"do_transpose: {do_transpose}")
+        print(f"do_flip: {do_flip}")
+        print(f"do_swap_backgrounds: {do_swap_backgrounds}")
+        print(f"do_black_and_white: {do_black_and_white}")
+        print(f"do_random_brightness: {do_random_brightness}")
+        print(f"do_random_contrast: {do_random_contrast}")
+        print(f"do_random_channel_shift: {do_random_channel_shift}")
+    return (
+        do_flip,
+        do_transpose,
+        do_transform,
+        do_swap_backgrounds,
+        do_black_and_white,
+        do_random_brightness,
+        do_random_contrast,
+        do_random_channel_shift,
+    )
 
 
 def draw_point(point, ax=None, radius=3, color="red"):
