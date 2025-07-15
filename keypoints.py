@@ -6,6 +6,7 @@
 import numpy as np
 from scipy.spatial import distance_matrix
 import peakutils
+import time
 
 def principal_axes(array, verbose=False):
     # https://github.com/pierrepo/principal_axes/blob/master/principal_axes.py
@@ -37,20 +38,27 @@ def principal_axes(array, verbose=False):
     return xyz, inertia, eigenvalues, eigenvectors, center
 
 
-def get_origin(labels, indices, points, properties):
+
+def get_origin(labels, indices, points, properties, method=2):
     origin = np.array((-1, -1))
     if "foreground" in labels:
         f = properties[labels.index("foreground")]
-        a = properties[labels.index("aether")]
-        fb = f.get_dense_boundary()
-        ac = np.array(a.get_inner_center())
-        distances = np.linalg.norm(fb - ac, axis=1)
-        origin = fb[np.argmax(distances)]
+        
+        if method == 1:
+            a = properties[labels.index("aether")]
+            b = f.get_dense_boundary()
+            ac = np.array(a.get_inner_center())
+            distances = np.linalg.norm(b - ac, axis=1)
+            origin = b[np.argmax(distances)]
 
-        epoints = np.array(f.get_extreme_points())
+            epoints = np.array(f.get_extreme_points())
 
-        origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
+            origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
 
+        elif method == 2:
+            minmax = get_minmax(f.get_mask())
+            origin = minmax["max_major"]
+        
     return origin
 
 
@@ -59,12 +67,23 @@ def get_extreme(labels, indices, points, properties):
     if "foreground" in labels:
         origin = _get_origin(labels, indices, points, properties)
         k = labels.index("foreground")
-        fb = properties[k].get_dense_boundary()
-        distances = np.linalg.norm(fb - origin, axis=1)
-        extreme = fb[np.argmax(distances)]
+        b = properties[k].get_dense_boundary()
+        distances = np.linalg.norm(b - origin, axis=1)
+        extreme = b[np.argmax(distances)]
 
     return extreme
 
+def get_origin_and_extreme(labels, indices, points, properties):
+    extreme, origin = np.array((-1, -1)), np.array((-1, -1))
+    
+    if "foreground" in labels:
+        f = properties[labels.index("foreground")]
+        origin = get_minmax(f.get_mask())["max_major"][::-1]
+        b = f.get_dense_boundary()
+        distances = np.linalg.norm(b-origin, axis=1)
+        extreme = b[np.argmax(distances)]
+    return origin, extreme
+    
 
 def get_most_likely_click(labels, indices, points, properties):
     mlc = np.array((-1, -1))
@@ -269,6 +288,9 @@ def get_minmax(projection, atol=5):
                 minmax[key] = xyz_S[getattr(np, f"arg{l}")(xyz_S[:, k])]
 
             minmax[key] = np.dot(minmax[key], S_inv) + center
+    
+    for key in minmax: 
+        minmax[key] = minmax[key][::-1]
 
     return minmax
 
@@ -285,10 +307,9 @@ def get_named_pca_points(
 
     minmax = get_minmax(projection, atol=atol)
 
-    ouc = get_oriented_unit_cross(orientation, direction)
-    points = [item[key] for key in minmax]
+    points = list(minmax.values())
     scaled = [a / np.linalg.norm(a) for a in points]
-    dm = distance_matrix(ouc, scaled)
+    dm = distance_matrix(get_oriented_unit_cross(orientation, direction), scaled)
     point_order = np.argmin(dm, axis=1)
 
     npp = {"center": minmax["center"]}
