@@ -35,6 +35,15 @@ additional_labels = {
     "mt_stem": "stem",
 }
 
+named_points_colors = {
+    "bottom": "gray",
+    "top": "white",
+    "left": "red",
+    "right": "green",
+    "center": "blue",
+    "origin": "gray",
+}
+
 xkcd_colors_that_i_like = [
     "pale purple",
     "coral",

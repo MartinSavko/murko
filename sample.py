@@ -17,6 +17,7 @@ from config import (
     keypoints,
     keypoint_labels,
     keypoints_global_classification,
+    named_points_colors,
 )
 
 from keypoints import (
@@ -491,7 +492,7 @@ class Sample:
             kind = pns[1]
         return label, abbreviation, kind
 
-    def _check_lipp(self, labels, indices, points, properties):
+    def _check_lipp(self, labels=None, indices=None, points=None, properties=None):
         l = labels if labels is not None else self.get_labels()
         i = indices if indices is not None else self.get_indices()
         p = points if points is not None else self.get_points()
@@ -528,6 +529,15 @@ class Sample:
      #...:         cv2.polylines(img, [f], True, (0, 0, 0), 1)
      #...:         cv2.circle(img, c, 33, (0, 0, 0))
 
+    def get_aoi_keypoints(self, origin=None, label="area_of_interest"):
+        lipp = self._check_lipp()
+        if origin is None:
+            origin = get_origin(*lipp)
+        projection = lipp[-1][lipp[0].index(label)].get_mask()
+        npp = get_named_pca_points(origin, projection)
+        npp["origin"] = origin
+        return npp
+        
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
@@ -734,44 +744,71 @@ def test():
     print("args", args)
 
     s = Sample(args.json)
+    #plot_targets(s)
+    #plot_voronoi(s)
+    plot_keypoints(s)
 
-    # fh = s.get_flat_hierarchy()
+def plot_keypoints(s, radius=11):
 
-    # pylab.figure(figsize=(16, 9))
-    # pylab.imshow(s.get_flat_hierarchy())
-    # pylab.show()
+    npp = s.get_aoi_keypoints()
+    #npp["origin"] = s._get_origin()
+    #lipp = s._check_lipp()
+    #projection = 
+    pylab.figure()
+    pylab.title("pca keypoints")
+    pylab.imshow(s.get_image())
+    for key in npp:
+        draw_point(npp[key], color=named_points_colors[key], radius=radius)
+    
+    npp2 = s.get_aoi_keypoints(label="pin")
+    for key in npp2:
+        draw_point(npp2[key], color=named_points_colors[key], radius=radius)
+    
+    pylab.show()
+
+def plot_targets(s):
+
+    fh = s.get_flat_hierarchy()
+
+    pylab.figure(figsize=(16, 9))
+    pylab.imshow(s.get_flat_hierarchy())
+    pylab.show()
+    
+    masks = s.get_masks()
+    ct = s.get_centerness()["ice"]
+    dt = s.get_distance_transform()["ice"]
+    m = masks["ice"]
+    h = s.get_flat_hierarchy()
+    cimage = get_unmasked_image(image.copy(), masks, "crystal")
+
+    fig, axes = pylab.subplots(3, 2)
+
+    fig.set_tight_layout(True)
+    a = axes.flatten()
+    for aa in a: aa.set_axis_off()
+
+    a[0].imshow(s.get_image())
+    a[0].set_title("input image")
+
+    a[1].imshow(s.get_flat_hierarchy())
+    a[1].set_title("hierarchy")
+
+    a[2].imshow(m)
+    a[2].set_title("ice mask")
+
+    a[3].imshow(ct)
+    a[3].set_title("ice centerness")
+
+    a[4].imshow(dt)
+    a[4].set_title("ice distance transform")
+
+    a[5].imshow(cimage)
+    a[5].set_title("unmasked crystal")
+
+def plot_voronoi(s):
+    
     image = s.get_image()
-    # masks = s.get_masks()
-    # ct = s.get_centerness()["ice"]
-    # dt = s.get_distance_transform()["ice"]
-    # m = masks["ice"]
-    # h = s.get_flat_hierarchy()
-    # cimage = get_unmasked_image(image.copy(), masks, "crystal")
-
-    # fig, axes = pylab.subplots(3, 2)
-
-    # fig.set_tight_layout(True)
-    # a = axes.flatten()
-    # for aa in a: aa.set_axis_off()
-
-    # a[0].imshow(image)
-    # a[0].set_title("input image")
-
-    # a[1].imshow(s.get_flat_hierarchy())
-    # a[1].set_title("hierarchy")
-
-    # a[2].imshow(m)
-    # a[2].set_title("ice mask")
-
-    # a[3].imshow(ct)
-    # a[3].set_title("ice centerness")
-
-    # a[4].imshow(dt)
-    # a[4].set_title("ice distance transform")
-
-    # a[5].imshow(cimage)
-    # a[5].set_title("unmasked crystal")
-
+    
     for k in [1, 2]:
         pylab.figure()
         pylab.title(f"keypoints {k}")

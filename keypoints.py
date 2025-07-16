@@ -295,7 +295,7 @@ def get_minmax(projection, atol=5):
     return minmax
 
 
-def get_named_pca_points(
+def get_named_pca_points_old(
     projection,
     orientation,
     direction,
@@ -317,3 +317,70 @@ def get_named_pca_points(
         npp[name] = points[point_order[k]]
 
     return npp
+
+
+def get_named_pca_points(origin, projection):
+    
+    minmax = get_minmax(projection)
+    points = np.array(list(minmax.values()))
+    
+    distances = np.linalg.norm(points - origin, axis=1)
+    
+    bottom = points[np.argmin(distances)]
+    keys = list(minmax.keys())
+    bottom_key = keys[np.squeeze(np.argwhere(np.all(np.isclose(bottom, [minmax[key] for key in keys]), axis=1)))]
+    
+    if "max" in bottom_key:
+        top_key = bottom_key.replace("max", "min")
+    elif "min" in bottom_key:
+        top_key = bottom_key.replace("min", "max")
+    else:
+        print("this should not have happened, is it that the center was found as a bottom, something off with the supplied origin?")
+        print(f"minmax {minmax}")
+
+    top = minmax[top_key]
+    
+    if "major" in bottom_key:
+        tentative_left_key = bottom_key.replace("major", "minor")
+        tentative_right_key = top_key.replace("major", "minor")
+    elif "minor" in bottom_key:
+        tentative_left_key = bottom_key.replace("minor", "major")
+        tentative_right_key = top_key.replace("minor", "major")
+    else:
+        print("this should not have happened, is it that the center was found as a bottom, something off with the supplied origin?")
+        print(f"minmax {minmax}")
+
+    tr, tl = minmax[tentative_right_key], minmax[tentative_left_key]
+    
+    e = top - bottom
+
+    vr = tr - bottom
+    vl = tl - bottom
+    if np.cross(e, vr) > 0 and np.cross(e, vl) <= 0:
+        l = tl
+        r = tr
+        right_key = tentative_right_key
+        left_key = tentative_left_key
+    elif np.cross(e, vr) <= 0 and np.cross(e, vr) > 0:
+        l = tr
+        r = tl
+        right_key = tentative_left_key
+        left_key = tentative_right_key
+    else:
+        print(f"e {e}, vl {vl}, vr {vr} should never get here, please check")
+    
+    npp = {
+        "center": minmax["center"],
+        "bottom": minmax[bottom_key],
+        "top": minmax[top_key],
+        "left": minmax[left_key],
+        "right": minmax[right_key],
+    }
+
+    return npp
+
+    
+
+    
+
+
