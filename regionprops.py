@@ -186,14 +186,7 @@ class Regionprops(object):
     def get_centerness(self, points=None, image_shape=None):
         points, image_shape = self._check_points_and_shape(points, image_shape)
         try:
-            inner_center = self.get_inner_center()
-
-            xv, yv = self.get_meshgrid()
-            centerness = np.sqrt(
-                (inner_center[0] - xv) ** 2 + (inner_center[1] - yv) ** 2
-            )
-            centerness = centerness / centerness.max()
-            centerness = (1 - centerness) ** 2
+            centerness = get_centerness(self.get_inner_center(), self.image_shape)
         except:
             traceback.print_exc()
             centerness = np.zeros(image_shape, dtype=np.float32)
@@ -653,7 +646,16 @@ def get_mask_boundary(mask):
     db = np.reshape(contours[0], (shape[0], shape[-1]))
     mask_boundary = db
     return mask_boundary
-    
+
+def get_centerness(point, image_shape):
+    xv, yv = get_meshgrid(image_shape)
+    centerness = np.sqrt(
+        (point[0] - xv) ** 2 + (point[1] - yv) ** 2
+    )
+    centerness = centerness / centerness.max()
+    centerness = (1 - centerness) ** 2
+    return centerness
+
 def get_meshgrid(image_shape):
     xv, yv = np.meshgrid(
         np.arange(image_shape[1]), np.arange(image_shape[0])

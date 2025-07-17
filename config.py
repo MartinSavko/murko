@@ -35,14 +35,6 @@ additional_labels = {
     "mt_stem": "stem",
 }
 
-named_points_colors = {
-    "bottom": "gray",
-    "top": "white",
-    "left": "red",
-    "right": "green",
-    "center": "blue",
-    "origin": "gray",
-}
 
 xkcd_colors_that_i_like = [
     "pale purple",
@@ -231,20 +223,51 @@ keypoints = [
 
 keypoint_labels = dict([(item, i + 1) for i, item in enumerate(keypoints)])
 
+named_points_colors = {
+    "bottom": "yellow",
+    "top": "light blue",
+    "left": "red",
+    "right": "green",
+    "center": "white",
+    
+    "origin": "lilac",
+    "extreme": "carmine",
+    
+    "start_likely": "magenta",
+    "start_possible": "cyan",
+    "most_likely_click": "orange",
+    
+    "stem_center": "white",
+    
+    "aoi_bottom": "yellow",
+    "aoi_top": "light blue",
+    "aoi_left": "red",
+    "aoi_right": "green",
+    "aoi_center": "white",
+    
+    "pin_bottom": "yellow",
+    "pin_top": "light blue",
+    "pin_left": "red",
+    "pin_right": "green",
+    "pin_center": "white",
+    
+}
+
 keypoints_global_classification = {
     1: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",],
     2: [
-        "loop_left",
-        "loop_top",
-        "loop_right",
-        "loop_bottom",
-        "loop_center",
+        "aoi_left",
+        "aoi_top",
+        "aoi_right",
+        "aoi_bottom",
+        "aoi_center",
         "stem_center",
         "start_possible",
         "pin_left",
         "pin_center",
         "pin_right",
-        "origin",
+        "pin_bottom",
+        #"pin_top",
     ],
 }
 

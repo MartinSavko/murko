@@ -39,26 +39,29 @@ def principal_axes(array, verbose=False):
 
 
 
-def get_origin(labels, indices, points, properties, method=2):
+def get_origin(labels, indices, points, properties):
     origin = np.array((-1, -1))
     if "foreground" in labels:
         f = properties[labels.index("foreground")]
         
-        if method == 1:
-            a = properties[labels.index("aether")]
-            b = f.get_dense_boundary()
-            ac = np.array(a.get_inner_center())
-            distances = np.linalg.norm(b - ac, axis=1)
-            origin = b[np.argmax(distances)]
+        a = properties[labels.index("aether")]
+        b = f.get_dense_boundary()
+        ac = np.array(a.get_inner_center())
+        distances = np.linalg.norm(b - ac, axis=1)
+        origin = b[np.argmax(distances)]
 
-            epoints = np.array(f.get_extreme_points())
+        epoints = np.array(f.get_extreme_points())
 
-            origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
+        origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
 
-        elif method == 2:
-            minmax = get_minmax(f.get_mask())
-            origin = minmax["max_major"]
+        minmax = get_minmax(f.get_mask())
+            #origin = minmax["max_major"]
+            #origin = get_minmax(f.get_mask())["max_major"]
+        o1, o2 = minmax["max_major"], minmax["max_minor"]
+        points = np.array(list(minmax.values()))
         
+        origin = points[np.argmin(np.linalg.norm(points - origin, axis=1))]
+                          
     return origin
 
 
@@ -78,7 +81,7 @@ def get_origin_and_extreme(labels, indices, points, properties):
     
     if "foreground" in labels:
         f = properties[labels.index("foreground")]
-        origin = get_minmax(f.get_mask())["max_major"][::-1]
+        origin = get_minmax(f.get_mask())["max_major"]
         b = f.get_dense_boundary()
         distances = np.linalg.norm(b-origin, axis=1)
         extreme = b[np.argmax(distances)]
@@ -129,8 +132,7 @@ def get_start_likely(labels, indices, points, properties):
     if "area_of_interest" in labels:
         a = properties[labels.index("area_of_interest")]
         b = a.get_dense_boundary()
-        o = get_origin(labels, indices, points, properties)
-        sl = b[np.argmin(b - o)]
+        sl = b[np.argmin(np.linalg.norm(b - sl, axis=1))]
     return sl
 
 def get_stem_center(labels, indices, points, properties):
@@ -319,26 +321,37 @@ def get_named_pca_points_old(
     return npp
 
 
-def get_named_pca_points(origin, projection):
+def get_named_pca_points(origin, projection, origin_is_extreme=False):
     
     minmax = get_minmax(projection)
     points = np.array(list(minmax.values()))
     
     distances = np.linalg.norm(points - origin, axis=1)
     
-    bottom = points[np.argmin(distances)]
     keys = list(minmax.keys())
-    bottom_key = keys[np.squeeze(np.argwhere(np.all(np.isclose(bottom, [minmax[key] for key in keys]), axis=1)))]
     
-    if "max" in bottom_key:
-        top_key = bottom_key.replace("max", "min")
-    elif "min" in bottom_key:
-        top_key = bottom_key.replace("min", "max")
+    if origin_is_extreme:
+        nachalo = points[np.argmin(distances)]
+    else:
+        nachalo = points[np.argmin(distances)]
+    
+    nachalo_key = keys[np.squeeze(np.argwhere(np.all(np.isclose(nachalo, [minmax[key] for key in keys]), axis=1)))]
+    
+    if "max_" in nachalo_key:
+        konec_key = nachalo_key.replace("max_", "min_")
+    elif "min_" in nachalo_key:
+        konec_key = nachalo_key.replace("min_", "max_")
     else:
         print("this should not have happened, is it that the center was found as a bottom, something off with the supplied origin?")
         print(f"minmax {minmax}")
 
+    if origin_is_extreme:
+        bottom_key, top_key = konec_key, nachalo_key
+    else:
+        bottom_key, top_key = nachalo_key, konec_key
+    
     top = minmax[top_key]
+    bottom = minmax[bottom_key]
     
     if "major" in bottom_key:
         tentative_left_key = bottom_key.replace("major", "minor")
@@ -361,14 +374,16 @@ def get_named_pca_points(origin, projection):
         r = tr
         right_key = tentative_right_key
         left_key = tentative_left_key
-    elif np.cross(e, vr) <= 0 and np.cross(e, vr) > 0:
+    elif np.cross(e, vr) <= 0 and np.cross(e, vl) > 0:
         l = tr
         r = tl
         right_key = tentative_left_key
         left_key = tentative_right_key
     else:
         print(f"e {e}, vl {vl}, vr {vr} should never get here, please check")
-    
+        print("minmax")
+        print(minmax)
+        
     npp = {
         "center": minmax["center"],
         "bottom": minmax[bottom_key],

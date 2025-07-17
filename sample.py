@@ -8,9 +8,19 @@ import numpy as np
 import cv2 as cv
 import skimage as ski
 import pylab
+import seaborn as sns
 
-from objects_of_interest import get_objects_of_interest, update_maps
-from regionprops import Regionprops, get_mask_from_polygon
+from objects_of_interest import (
+    get_objects_of_interest, 
+    update_maps, 
+    merge_maps,
+)
+
+from regionprops import (
+    Regionprops, 
+    get_mask_from_polygon, 
+    get_centerness,
+)
 
 from config import (
     notion_importance,
@@ -438,6 +448,15 @@ class Sample:
         )
         return centerness
 
+    def get_keypoint_centerness(self, keypoints, image_shape=None):
+        if image_shape is None:
+            image_shape = self.get_image_shape()
+        keypoint_centerness = np.zeros(image_shape)
+        for point in keypoints:
+            _centerness = get_centerness(point, image_shape)
+            keypoint_centerness = merge_maps(keypoint_centerness, _centerness, method="max")
+        return keypoint_centerness
+        
     def get_bbox_mask(self, points=None, image_shape=None):
         bbox_mask = self._get_maps(
             points, image_shape, kind="bbox_mask", method="logical_or"
@@ -480,6 +499,9 @@ class Sample:
     def _get_ltrbc(self, labels, indices, points, properties, label):
         return get_ltrbc(labels, indices, points, properties, label)
 
+    def _get_named_pca_points(self, origin, projection, origin_is_extreme=False):
+        return get_named_pca_points(origin, projection, origin_is_extreme=origin_is_extreme)
+    
     def _guess_point(self, point_name):
         pns = point_name.split("_")
         label, kind = None, None
@@ -510,11 +532,20 @@ class Sample:
                 keypoints[point_name] = getattr(self, f"_get_{point_name}")(*args)
             else:
                 label, abbreviation, kind = self._guess_point(point_name)
-                if label not in ltrbcs:
-                    ltrbcs[label] = self._get_ltrbc(*args + (label,))
+                if label in args[0] and label not in ltrbcs:
+                    #ltrbcs[label] = self._get_ltrbc(*args + (label,))
+                    projection = args[-1][args[0].index(label)].get_mask()
+                    if label == "pin":
+                        origin_is_extreme = True
+                        origin = self._get_start_possible(*args)
+                    else:
+                        origin_is_extreme = False
+                        origin = self._get_origin(*args)
+                    ltrbcs[label] = self._get_named_pca_points(origin, projection, origin_is_extreme=origin_is_extreme)
+                    print(f"ltrbcs {ltrbcs}")
                 print(label, abbreviation, kind)
-                print(f"ltrbcs {ltrbcs}")
-                keypoints[point_name] = ltrbcs[label][kind]
+                if label in ltrbcs:
+                    keypoints[point_name] = ltrbcs[label][kind]
 
         return keypoints
 
@@ -533,9 +564,20 @@ class Sample:
         lipp = self._check_lipp()
         if origin is None:
             origin = get_origin(*lipp)
-        projection = lipp[-1][lipp[0].index(label)].get_mask()
-        npp = get_named_pca_points(origin, projection)
-        npp["origin"] = origin
+        
+        npp = { 
+            "origin": origin,
+            "left": np.array((-1, -1)),
+            "right": np.array((-1, -1)),
+            "top": np.array((-1, -1)),
+            "bottom": np.array((-1, -1)),
+        }
+        
+        labels = lipp[0]
+        if label in labels:
+            projection = lipp[-1][lipp[0].index(label)].get_mask()
+            npp.update(get_named_pca_points(origin, projection))
+
         return npp
         
     def get_voronoi(
@@ -559,14 +601,19 @@ class Sample:
                 pt = point.astype(np.int16)
                 subdiv.insert(pt)
                 present_points.append(key)
-                
+        
+        print(f"present_points {present_points}")
         facets, centers = subdiv.getVoronoiFacetList([])
         print(f"facets {facets}")
         print(f"centers {centers}")
+        print(f"len(facets) {len(facets)}")
+        print(f"len(centers) {len(centers)}")
+        print(f"len(present_points) {len(present_points)}")
         for i, key in enumerate(present_points):
             label = keypoint_labels[key]
-            ifacets = facets[i].astype(np.int32)
-            cv.fillConvexPoly(voronoi, ifacets, label)
+            if i < len(facets):
+                ifacets = facets[i].astype(np.int32)
+                cv.fillConvexPoly(voronoi, ifacets, label)
             
         #voronoi = voronoi[:image_shape[0], :image_shape[1]]
         return voronoi
@@ -746,8 +793,10 @@ def test():
     s = Sample(args.json)
     #plot_targets(s)
     #plot_voronoi(s)
-    plot_keypoints(s)
-
+    #plot_keypoints(s)
+    plot_voronoi(s)
+    #plot_targets(s)
+    
 def plot_keypoints(s, radius=11):
 
     npp = s.get_aoi_keypoints()
@@ -758,11 +807,11 @@ def plot_keypoints(s, radius=11):
     pylab.title("pca keypoints")
     pylab.imshow(s.get_image())
     for key in npp:
-        draw_point(npp[key], color=named_points_colors[key], radius=radius)
+        draw_point(npp[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius)
     
     npp2 = s.get_aoi_keypoints(label="pin")
     for key in npp2:
-        draw_point(npp2[key], color=named_points_colors[key], radius=radius)
+        draw_point(npp2[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius)
     
     pylab.show()
 
@@ -770,17 +819,21 @@ def plot_targets(s):
 
     fh = s.get_flat_hierarchy()
 
-    pylab.figure(figsize=(16, 9))
-    pylab.imshow(s.get_flat_hierarchy())
-    pylab.show()
-    
+    image = s.get_image()
     masks = s.get_masks()
-    ct = s.get_centerness()["ice"]
-    dt = s.get_distance_transform()["ice"]
-    m = masks["ice"]
+    
+    if "ice" in masks:
+        ct = s.get_centerness()["ice"]
+        dt = s.get_distance_transform()["ice"]
+        ice_mask = masks["ice"]
+    else:
+        ice_mask = None
+        
     h = s.get_flat_hierarchy()
-    cimage = get_unmasked_image(image.copy(), masks, "crystal")
-
+    if "crystal" in masks:
+        cimage = get_unmasked_image(image.copy(), masks, "crystal")
+    else:
+        cimage = None
     fig, axes = pylab.subplots(3, 2)
 
     fig.set_tight_layout(True)
@@ -793,18 +846,22 @@ def plot_targets(s):
     a[1].imshow(s.get_flat_hierarchy())
     a[1].set_title("hierarchy")
 
-    a[2].imshow(m)
-    a[2].set_title("ice mask")
+    if ice_mask is not None:
+        a[2].imshow(ice_mask)
+        a[2].set_title("ice mask")
 
-    a[3].imshow(ct)
-    a[3].set_title("ice centerness")
+    
+        a[3].imshow(ct)
+        a[3].set_title("ice centerness")
 
-    a[4].imshow(dt)
-    a[4].set_title("ice distance transform")
+        a[4].imshow(dt)
+        a[4].set_title("ice distance transform")
 
     a[5].imshow(cimage)
     a[5].set_title("unmasked crystal")
 
+    pylab.show()
+    
 def plot_voronoi(s):
     
     image = s.get_image()
@@ -815,15 +872,23 @@ def plot_voronoi(s):
         pylab.imshow(image)
         ax = pylab.gca()
         kp = s.get_keypoints(keypoints_global_classification[k])
-        #print(f"kp {kp}")
+        print(f"kp {kp}")
         for p, v in kp.items():
-            draw_point(v, ax=ax)
+            try:
+                color = sns.xkcd_rgb[named_points_colors[p]]
+            except:
+                color = "red"
+            draw_point(v, ax=ax, color=color, radius=11)
             
         pylab.figure()
         pylab.title(f"voronoi {k}")
         print(f"keypoints for voronio {kp}")
         pylab.imshow(s.get_voronoi(kp))
 
+        pylab.figure()
+        pylab.title(f"centerness {k}")
+        pylab.imshow(s.get_keypoint_centerness(list(kp.values())))
+        
     pylab.show()
 
 
