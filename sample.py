@@ -39,6 +39,7 @@ from keypoints import (
     get_ltrbc,
     get_orientation_and_direction,
     get_named_pca_points,
+    get_gang_of_five,
     # draw_point,
 )
 
@@ -521,6 +522,10 @@ class Sample:
         _p = properties if properties is not None else self._get_properties()
         return l, i, p, _p
 
+    def get_gang_of_five(self, labels=None, indices=None, points=None, properties=None):
+        args = self._check_lipp(labels, indices, points, properties)
+        return get_gang_of_five(*args)
+    
     def get_keypoints(
         self, named_points, labels=None, indices=None, points=None, properties=None
     ):
@@ -865,13 +870,13 @@ def plot_targets(s):
 def plot_voronoi(s):
     
     image = s.get_image()
-    
-    for k in [1, 2]:
+    kps = [s.get_keypoints(keypoints_global_classification[k]) for k in [1, 2]]
+    kps.append(s.get_gang_of_five())
+    for k, kp in enumerate(kps):
         pylab.figure()
         pylab.title(f"keypoints {k}")
         pylab.imshow(image)
         ax = pylab.gca()
-        kp = s.get_keypoints(keypoints_global_classification[k])
         print(f"kp {kp}")
         for p, v in kp.items():
             try:

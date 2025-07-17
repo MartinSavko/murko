@@ -37,6 +37,27 @@ def principal_axes(array, verbose=False):
         print()
     return xyz, inertia, eigenvalues, eigenvectors, center
 
+def get_gang_of_five(labels, indices, points, properties):
+    
+    lipp = (labels, indices, points, properties)
+    _origin = get_origin(*lipp)
+    
+    sp = get_start_possible(*lipp + (_origin,))
+    sl = get_start_likely(*lipp + (_origin,))
+    extreme = get_extreme(*lipp + (_origin,))
+    
+    mlc = get_most_likely_click(*lipp + (extreme,))
+    
+    gang_of_five = {
+        "origin": get_refined_origin(*lipp + (_origin,)),
+        "most_likely_click": mlc,
+        "start_likely": sl,
+        "start_possible": sp,
+        "extreme": extreme,
+    }
+
+    return gang_of_five
+
 
 
 def get_origin(labels, indices, points, properties):
@@ -50,25 +71,38 @@ def get_origin(labels, indices, points, properties):
         distances = np.linalg.norm(b - ac, axis=1)
         origin = b[np.argmax(distances)]
 
-        epoints = np.array(f.get_extreme_points())
-
-        origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
-
+        #epoints = np.array(f.get_extreme_points())
+        #origin = epoints[np.argmin(np.linalg.norm(epoints - origin, axis=1))]
+        #origin = minmax["max_major"]
+        #origin = get_minmax(f.get_mask())["max_major"]
+        #o1, o2 = minmax["max_major"], minmax["max_minor"]
         minmax = get_minmax(f.get_mask())
-            #origin = minmax["max_major"]
-            #origin = get_minmax(f.get_mask())["max_major"]
-        o1, o2 = minmax["max_major"], minmax["max_minor"]
         points = np.array(list(minmax.values()))
-        
-        origin = points[np.argmin(np.linalg.norm(points - origin, axis=1))]
-                          
+        distances = np.linalg.norm(points - origin, axis=1)
+        origin = points[np.argmin(distances)]
+    print(f"origing {origin}")
     return origin
 
 
-def get_extreme(labels, indices, points, properties):
+def get_refined_origin(labels, indices, points, properties, origin=None, start_possible=None):
+    lipp = (labels, indices, points, properties)
+    if origin is None:
+        origin = self._get_origin(*lipp)
+    if "pin" in labels:
+        if start_possible is None:
+            start_possible = get_start_possible(*lipp + (origin,))
+        projection = properties[labels.index("pin")].get_mask()
+        named_pca_points = get_named_pca_points(start_possible, projection, origin_is_extreme=True)
+        refined_origin = named_pca_points["bottom"]
+    else:
+        refined_origin = origin
+    return refined_origin
+
+def get_extreme(labels, indices, points, properties, origin=None):
     extreme = np.array((-1, -1))
     if "foreground" in labels:
-        origin = _get_origin(labels, indices, points, properties)
+        if origin is None:
+            origin = _get_origin(labels, indices, points, properties)
         k = labels.index("foreground")
         b = properties[k].get_dense_boundary()
         distances = np.linalg.norm(b - origin, axis=1)
@@ -88,7 +122,7 @@ def get_origin_and_extreme(labels, indices, points, properties):
     return origin, extreme
     
 
-def get_most_likely_click(labels, indices, points, properties):
+def get_most_likely_click(labels, indices, points, properties, extreme=None):
     mlc = np.array((-1, -1))
     largest_area = -np.inf
 
@@ -105,13 +139,17 @@ def get_most_likely_click(labels, indices, points, properties):
         k = labels.index("area_of_interest")
         mlc = properties[k].get_inner_center()
     elif "foreground" in labels:
-        mlc = get_extreme(labels, indices, points, properties)
-
+        if extreme is None:
+            extreme = get_extreme(labels, indices, points, properties)
+        mlc = extreme
+        
     return mlc
 
 
-def get_start_possible(labels, indices, points, properties):
-    sp = get_origin(labels, indices, points, properties)
+def get_start_possible(labels, indices, points, properties, origin=None):
+    if origin is None:
+        origin = get_origin(labels, indices, points, properties)
+    sp = origin.copy()
     if "support" in labels:
         s = properties[labels.index("support")]
         support = s.get_dense_boundary()
@@ -127,8 +165,10 @@ def get_start_possible(labels, indices, points, properties):
     return sp
 
 
-def get_start_likely(labels, indices, points, properties):
-    sl = get_origin(labels, indices, points, properties)
+def get_start_likely(labels, indices, points, properties, origin=None):
+    if origin is None:
+        origin = get_origin(labels, indices, points, properties)
+    sl = origin.copy()
     if "area_of_interest" in labels:
         a = properties[labels.index("area_of_interest")]
         b = a.get_dense_boundary()
