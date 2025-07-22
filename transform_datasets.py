@@ -55,7 +55,8 @@ def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
         f'{len(original["annotations"])} annotations processed in {time.time() - _start1:.3f} seconds'
     )
 
-    destination = os.path.join(pcs.replace(".json", ""), f"_{output}")
+    destination = pcs.replace(".json", "") + output
+    
     _start2 = time.time()
     for image in original["images"]:
         image_path = os.path.join(pcs.replace(".json", ""), image["file_name"])
