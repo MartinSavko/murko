@@ -192,6 +192,16 @@ class Regionprops(object):
             centerness = np.zeros(image_shape, dtype=np.float32)
         return centerness
 
+    def get_offsets(self, point, points=None, image_shape=None):
+        points, image_shape = self._check_points_and_shape(points, image_shape)
+        try:
+            h_offset, v_offset = get_offsets(point, image_shape)
+        except:
+            traceback.print_exc()
+            h_offset = np.zeros(image_shape, dtype=np.float32)
+            v_offset = np.zeros(image_shape, dtype=np.float32)
+        return h_offset, v_offset
+    
     # @saver
     def get_bbox(self):
         # self.bbox = get_rectangle_from_polygon(self.points.astype(np.int32)) #
@@ -647,10 +657,16 @@ def get_mask_boundary(mask):
     mask_boundary = db
     return mask_boundary
 
-def get_centerness(point, image_shape):
+def get_offsets(point, image_shape):
     xv, yv = get_meshgrid(image_shape)
+    h_offset = xv - point[0]
+    v_offset = yv - point[1]
+    return h_offset, v_offset
+
+def get_centerness(point, image_shape):
+    h_offset, v_offset = get_offset(point, image_shape
     centerness = np.sqrt(
-        (point[0] - xv) ** 2 + (point[1] - yv) ** 2
+        h_offset ** 2 + v_offset ** 2
     )
     centerness = centerness / centerness.max()
     centerness = (1 - centerness) ** 2

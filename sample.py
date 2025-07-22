@@ -19,6 +19,7 @@ from objects_of_interest import (
 from regionprops import (
     Regionprops, 
     get_mask_from_polygon, 
+    get_offsets,
     get_centerness,
 )
 
@@ -458,6 +459,12 @@ class Sample:
             keypoint_centerness = merge_maps(keypoint_centerness, _centerness, method="max")
         return keypoint_centerness
         
+    def get_offsets(self, point, image_shape=None):
+        if image_shape is None:
+            image_shape = self.get_image_shape()
+        offset_h, offset_v = get_offsets(point, image_shape)
+        return offset_h, offset_v
+    
     def get_bbox_mask(self, points=None, image_shape=None):
         bbox_mask = self._get_maps(
             points, image_shape, kind="bbox_mask", method="logical_or"
