@@ -8,8 +8,13 @@ import json
 import cv2 as cv
 import time
 import simplejpeg
+import tifffile
+import glob
+import numpy as np
 from labelme import utils
-
+import traceback
+import pickle
+from pprint import pprint
 
 def get_new_json_file(
     shapes,  # list of shape directories
@@ -35,6 +40,55 @@ def get_new_json_file(
     return json_file
 
 
+def get_labelme_shapes_from_ade_annotation(annotation):
+    shapes = []
+    for item in annotation["object"]:
+        shape = {}
+        shape["label"] = item["name"]
+        shape["group_id"] = None
+        shape["description"] = ""
+        shape["flags"] = {}
+        shape["mask"] = None
+        points = list(zip(item["polygon"]["x"], item["polygon"]["y"]))
+        if len(points) >= 3:
+            shape["shape_type"] = "polygon"
+            shape["points"] = points
+            shapes.append(shape)
+        else:
+            print("could not handle this one, please check")
+            print(item)
+            print(annotation)
+    return shapes
+    
+def transform_ADE_dataset(source="/nfs/data4/Martin/Research/ADE20K_2021_17_01/index_ade20k.pkl", destination="json", to_remove="ADE20K_2021_17_01/images/ADE"):
+    
+    _start = time.time()
+    ade = pickle.load(open(source, "rb"))
+    destination = os.path.join(os.path.dirname(source), "json")
+    print(destination)
+    for folder, filename in zip(ade["folder"], ade["filename"]):
+        image_path = os.path.join(os.path.dirname(os.path.dirname(source)), folder, filename)
+        annotation_path = image_path.replace(".jpg", ".json")
+        annotation = json.load(open(annotation_path))["annotation"]
+        
+        img = cv.imread(image_path)
+        image_data = utils.img_arr_to_b64(img)
+        image_height, image_width, channels = annotation["imsize"] #img.shape
+        
+        shapes = get_labelme_shapes_from_ade_annotation(annotation)
+        jf = get_njf = get_new_json_file(
+            shapes,
+            image_path,
+            imageHeight=image_height,
+            imageWidth=image_width,
+            imageData=image_data,
+        )
+
+        fname = os.path.join(destination, folder[len(to_remove)+1:], filename.replace(".jpg", ".json"))
+        save_json_file(jf, fname)
+        
+    print(f"ADE20k's {len(ade['filename'])} samples transformed in {time.time() - _start0:.3f} seconds")
+
 def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
     _start0 = time.time()
     original = json.load(open(pcs, "r"))
@@ -59,14 +113,14 @@ def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
     
     _start2 = time.time()
     for image in original["images"]:
-        image_path = os.path.join(pcs.replace(".json", ""), image["file_name"])
+        image_path = os.path.join(destination, image["file_name"])
         #image_data = simplejpeg.encode_jpeg(cv.imread(image_path))
         image_data = utils.img_arr_to_b64(cv.imread(image_path))
         image_width = image["width"]
         image_height = image["height"]
-        image_id = image["id"]
+        
         jf = get_new_json_file(
-            shapes[image_id],
+            shapes[image["id"]],
             image_path,
             imageHeight=image_height,
             imageWidth=image_width,
@@ -80,7 +134,66 @@ def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
     )
     print(f"{pcs} transformed in {time.time() - _start0:.3f} seconds")
 
+def transform_cristal_dataset(source='/nfs/data2/Martin/Research/hubert', destination="json"):  
+    
+    _start = time.time()
+    
+    tifs = glob.glob(os.path.join(source, "tifs/*.tif"))
 
+    for image_path in tifs:
+        template = image_path.replace(".tif", "")
+        img = tifffile.imread(image_path)
+        
+        bit_depth = 8
+        if img.max() > 255:
+            bit_depth = np.ceil(np.log2(img.max()))
+        
+        img = (img / (2**bit_depth - 1)) 
+        img *= 255
+
+        imgc = np.zeros(img.shape + (3, ), dtype=np.uint8)
+        imgc = img.astype(np.uint8)
+        
+        image_data = utils.img_arr_to_b64(imgc)
+        
+        _mask = glob.glob(os.path.join(source, "masks", f"{os.path.basename(template)}*"))
+        if len(_mask):
+            if _mask[0].endswith(".png"):
+                mask = cv.imread(_mask[0])
+            elif (_mask[0].endswith(".tiff") or _mask[0].endswith(".tif")):
+                mask = tifffile.imread(_mask[0])
+        else:
+            print(f"problem {template} {_mask}")
+
+        if len(mask.shape) > 2:
+            mask = mask.mean(axis=2)
+        mask = mask == mask.max()
+        mask = mask.astype(np.uint8)
+        
+        try:
+            shape = get_labelme_shape_from_mask(mask, "capillary")
+            image_height, image_width = img.shape
+            
+            jf = get_new_json_file(
+                [shape],
+                image_path,
+                imageHeight=image_height,
+                imageWidth=image_width,
+                imageData=image_data,
+            )
+            
+            save_json_file(jf, os.path.join(source, destination, f"{os.path.basename(template)}.json"))
+        except:
+            print(f"mask {mask.min()}, {mask.max()}")
+            print(f" {mask.sum()}")
+            print(f"problem in {image_path}")
+            
+            print(_mask)
+            traceback.print_exc()
+            
+
+    print(f"{len(tifs)} examples in cristal dataset transformed in {time.time() - _start:.3f} seconds")
+    
 def get_labelme_shape_from_pcs_annotation(annotation, categories={1: "crystal"}):
     shape = {}
     shape["label"] = categories[annotation["category_id"]]
@@ -165,4 +278,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    transform_pcs_dataset(args.source)
+    #transform_cristal_dataset()
+    #transform_pcs_dataset(args.source)
+    transform_ADE_dataset()
+    
