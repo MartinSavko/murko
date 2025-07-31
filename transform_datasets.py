@@ -42,6 +42,7 @@ def get_new_json_file(
 
 def get_labelme_shapes_from_ade_annotation(annotation):
     shapes = []
+    could_not_handle = False
     for item in annotation["object"]:
         shape = {}
         shape["label"] = item["name"]
@@ -57,7 +58,11 @@ def get_labelme_shapes_from_ade_annotation(annotation):
         else:
             print("could not handle this one, please check")
             print(item)
-            print(annotation)
+            could_not_handle = True
+    if could_not_handle:
+        print("There were unhandled objects in this annotation")
+        print(annotation)
+        print()
     return shapes
     
 def transform_ADE_dataset(source="/nfs/data4/Martin/Research/ADE20K_2021_17_01/index_ade20k.pkl", destination="json", to_remove="ADE20K_2021_17_01/images/ADE"):
@@ -66,14 +71,40 @@ def transform_ADE_dataset(source="/nfs/data4/Martin/Research/ADE20K_2021_17_01/i
     ade = pickle.load(open(source, "rb"))
     destination = os.path.join(os.path.dirname(source), "json")
     print(destination)
+    skipped = 0
+    failed = 0
     for folder, filename in zip(ade["folder"], ade["filename"]):
+        destination_fname = os.path.join(destination, folder[len(to_remove)+1:], filename.replace(".jpg", ".json"))
+        if os.path.isfile(destination_fname): 
+            skipped += 1
+            continue
+    
         image_path = os.path.join(os.path.dirname(os.path.dirname(source)), folder, filename)
         annotation_path = image_path.replace(".jpg", ".json")
-        annotation = json.load(open(annotation_path))["annotation"]
+        try:
+            annotation = json.load(open(annotation_path))["annotation"]
+        except UnicodeDecodeError:
+            annotation = json.load(open(annotation_path, 'rb'))["annotation"]
+        except:
+            failed += 1
+            print(f"Could not load {annotation_path}, please check")
+            traceback.print_exc()
+            print()
+            continue
         
         img = cv.imread(image_path)
-        image_data = utils.img_arr_to_b64(img)
-        image_height, image_width, channels = annotation["imsize"] #img.shape
+        
+        if len(img.shape) == 3:
+            image_height, image_width, channels = img.shape
+            image_data = utils.img_arr_to_b64(img)
+        elif len(img.shape) == 2:
+            image_height, image_width = img.shape
+            imgc = np.zeros(img.shape + (3, ), dtype=np.uint8)
+            imgc = img
+            image_data = utils.img_arr_to_b64(img)
+        else:
+            print(f"Could not handle {annotation_path}, please check!")
+            continue
         
         shapes = get_labelme_shapes_from_ade_annotation(annotation)
         jf = get_njf = get_new_json_file(
@@ -84,22 +115,32 @@ def transform_ADE_dataset(source="/nfs/data4/Martin/Research/ADE20K_2021_17_01/i
             imageData=image_data,
         )
 
-        fname = os.path.join(destination, folder[len(to_remove)+1:], filename.replace(".jpg", ".json"))
-        save_json_file(jf, fname)
+        save_json_file(jf, destination_fname)
         
-    print(f"ADE20k's {len(ade['filename'])} samples transformed in {time.time() - _start0:.3f} seconds")
+    print(f"ADE20k's {len(ade['filename'])} ({skipped} skipped, {failed} failed) samples transformed in {time.time() - _start0:.3f} seconds")
 
-def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
+def transform_coco_style_dataset(source="validation/labels.json", destination="labelme/validation", include_image_data=False):
     _start0 = time.time()
-    original = json.load(open(pcs, "r"))
+    
+    original = json.load(open(source, "r"))
+    
+    categories = {}
+    for item in original["categories"]:
+        categories[item["id"]] = item["name"]
+
     print(
         f'original records loaded in {time.time() - _start0:.3f} seconds'
     )
+    
+    destination = os.path.realpath(destination)
+    
     shapes = {}
     _start1 = time.time()
     for annotation in original["annotations"]:
         image_id = annotation["image_id"]
-        shape = get_labelme_shape_from_pcs_annotation(annotation)
+        if type(annotation["segmentation"]) is dict:
+            continue
+        shape = get_labelme_shape_from_coco_style_annotation(annotation, categories=categories)
         if image_id in shapes:
             shapes[image_id].append(shape)
         else:
@@ -109,30 +150,54 @@ def transform_pcs_dataset(pcs="pcs_validation.json", output="_labelme"):
         f'{len(original["annotations"])} annotations processed in {time.time() - _start1:.3f} seconds'
     )
 
-    destination = pcs.replace(".json", "") + output
-    
     _start2 = time.time()
     for image in original["images"]:
-        image_path = os.path.join(destination, image["file_name"])
+        image_path = os.path.join(os.path.realpath(os.path.dirname(source)), "data", image["file_name"])
         #image_data = simplejpeg.encode_jpeg(cv.imread(image_path))
-        image_data = utils.img_arr_to_b64(cv.imread(image_path))
+        if include_image_data:
+            image_data = utils.img_arr_to_b64(cv.imread(image_path))
+        else:
+            image_data = None
         image_width = image["width"]
         image_height = image["height"]
-        
-        jf = get_new_json_file(
-            shapes[image["id"]],
-            image_path,
-            imageHeight=image_height,
-            imageWidth=image_width,
-            imageData=image_data,
-        )
+        image_id = image["id"]
+        if image_id in shapes:
+            jf = get_new_json_file(
+                shapes[image_id],
+                image_path,
+                imageHeight=image_height,
+                imageWidth=image_width,
+                imageData=image_data,
+            )
 
-        save_json_file(jf, os.path.join(destination, image_path.replace(".png", ".json")))
+            save_json_file(jf, os.path.join(destination, f"{image_id:07d}.json"))
 
     print(
         f'{len(original["images"])} images processed in {time.time() - _start2:.3f} seconds'
     )
-    print(f"{pcs} transformed in {time.time() - _start0:.3f} seconds")
+    print(f"{source} transformed in {time.time() - _start0:.3f} seconds")
+
+
+def get_labelme_shape_from_coco_style_annotation(annotation, categories={1: "crystal"}):
+    shape = {}
+    try:
+        s = annotation["segmentation"][0]
+    except:
+        print("problem with getting segmentation out, please check")
+        print(annotation)
+        return shape
+    
+    shape["label"] = categories[annotation["category_id"]]
+    shape["group_id"] = None
+    shape["description"] = ""
+    shape["flags"] = {}
+    shape["mask"] = None
+        
+    points = [[s[2 * k], s[2 * k + 1]] for k in range(int(len(s) / 2))]
+    assert len(points) >= 3
+    shape["shape_type"] = "polygon"
+    shape["points"] = points
+    return shape
 
 def transform_cristal_dataset(source='/nfs/data2/Martin/Research/hubert', destination="json"):  
     
@@ -194,20 +259,6 @@ def transform_cristal_dataset(source='/nfs/data2/Martin/Research/hubert', destin
 
     print(f"{len(tifs)} examples in cristal dataset transformed in {time.time() - _start:.3f} seconds")
     
-def get_labelme_shape_from_pcs_annotation(annotation, categories={1: "crystal"}):
-    shape = {}
-    shape["label"] = categories[annotation["category_id"]]
-    shape["group_id"] = None
-    shape["description"] = ""
-    shape["flags"] = {}
-    shape["mask"] = None
-    s = annotation["segmentation"][0]
-    points = [[s[2 * k], s[2 * k + 1]] for k in range(int(len(s) / 2))]
-    assert len(points) >= 3
-    shape["shape_type"] = "polygon"
-    shape["points"] = points
-    return shape
-
 
 def get_labelme_shape_from_mask(mask, label):
     shape = {}
@@ -275,10 +326,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--source", default="pcs_validation.json", type=str, help="source"
     )
-
+    
+    parser.add_argument(
+        "-d", "--destination", default="labelme/validation", type=str, help="destination"
+    )
+    
+    parser.add_argument(
+        "--include_image_data", action="store_true", help="include image data"
+    )
+    
     args = parser.parse_args()
 
     #transform_cristal_dataset()
     #transform_pcs_dataset(args.source)
-    transform_ADE_dataset()
+    #transform_ADE_dataset()
+    transform_coco_style_dataset(args.source, args.destination, include_image_data=bool(args.include_image_data))
     
