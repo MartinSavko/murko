@@ -16,6 +16,8 @@ import traceback
 import pickle
 from pprint import pprint
 
+from regionprops import get_mask_boundary
+
 def get_new_json_file(
     shapes,  # list of shape directories
     imagePath,
@@ -267,12 +269,8 @@ def get_labelme_shape_from_mask(mask, label):
     shape["description"] = ""
     shape["flags"] = {}
     shape["mask"] = None
-    contours = cv.findContours(
-        mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE
-    )
-    points = contours[0][0].astype(float)
-    points = points.reshape((points.shape[0], points.shape[-1]))
-    # points = points[:, ::-1]
+
+    points = get_mask_boundary(mask, approximate=True)
     pts = []
     for p in points:
         pts.append(list(p))
