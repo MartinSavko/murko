@@ -648,6 +648,11 @@ class Regionprops(object):
         return boundary
 
 
+def get_bbox_from_mask(mask):
+    contour = get_mask_boundary(mask)
+    bbox = cv.boundingRect(contour)
+    return bbox
+
 def get_mask_boundary(mask):
     contours, _ = cv.findContours(
         mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
@@ -948,3 +953,20 @@ def get_distances(point, boundary):
     l, r = get_min_distance(vrelevant - point)
     t, b = get_min_distance(hrelevant - point)
     return l, t, r, b
+
+def get_inner_center(dt, method="medianmax"):
+    if method == "medianmax":
+        # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
+        indices = np.vstack(
+            np.unravel_index(np.flatnonzero(dt == dt.max()), dt.shape)
+        ).T
+        imean = indices.mean(axis=0)
+        idist = np.linalg.norm(indices - imean, axis=1)
+        winner = indices[np.argmin(idist)]
+    elif method == "firstmax":
+        winner = np.unravel_index(np.argmax(dt), dt.shape)
+    elif method == "maximum_position":
+        winner = ndi.maximum_position(dt)
+    ic = tuple(winner[::-1])
+    inner_center = np.array(ic)
+    return inner_center
