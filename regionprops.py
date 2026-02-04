@@ -301,22 +301,19 @@ class Regionprops(object):
     # #@saver
     def get_dense_boundary(self, points=None, image_shape=None, pad=2):
         points, image_shape = self._check_points_and_shape(points, image_shape)
-        _mask = self._get_mask(points, image_shape, pad=self.distance_transform_pad)
-        contours, _ = cv.findContours(
-            _mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
+        _mask = self._get_mask(
+            points, 
+            image_shape, 
+            pad=self.distance_transform_pad,
         )
-        shape = contours[0].shape
-        db = np.reshape(contours[0], (shape[0], shape[-1]))
-        self.dense_boundary = db - pad
+        
+        dense_boundary = get_mask_boundary(_mask)
+        self.dense_boundary = dense_boundary - pad
+
         return self.dense_boundary
 
     def get_mask_boundary(self, mask):
-        contours, _ = cv.findContours(
-            mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
-        )
-        shape = contours[0].shape
-        db = np.reshape(contours[0], (shape[0], shape[-1]))
-        mask_boundary = db
+        mask_boundary = get_mask_boundary(mask)
         return mask_boundary
 
     def get_meshgrid(self):
@@ -648,18 +645,16 @@ class Regionprops(object):
         return boundary
 
 
-def get_bbox_from_mask(mask):
-    contour = get_mask_boundary(mask)
-    bbox = cv.boundingRect(contour)
-    return bbox
-
-def get_mask_boundary(mask):
+def get_mask_boundary(mask, approximate=False):
+    if approximate:
+        flag = cv.CHAIN_APPROX_SIMPLE
+    else:
+        flag = cv.CHAIN_APPROX_NONE
     contours, _ = cv.findContours(
-        mask.astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE
+        mask.astype(np.uint8), cv.RETR_EXTERNAL, flag
     )
     shape = contours[0].shape
-    db = np.reshape(contours[0], (shape[0], shape[-1]))
-    mask_boundary = db
+    mask_boundary = np.reshape(contours[0], (shape[0], shape[-1]))
     return mask_boundary
 
 def get_offsets(point, image_shape):
@@ -953,20 +948,3 @@ def get_distances(point, boundary):
     l, r = get_min_distance(vrelevant - point)
     t, b = get_min_distance(hrelevant - point)
     return l, t, r, b
-
-def get_inner_center(dt, method="medianmax"):
-    if method == "medianmax":
-        # https://stackoverflow.com/questions/17568612/how-to-make-numpy-argmax-return-all-occurrences-of-the-maximum
-        indices = np.vstack(
-            np.unravel_index(np.flatnonzero(dt == dt.max()), dt.shape)
-        ).T
-        imean = indices.mean(axis=0)
-        idist = np.linalg.norm(indices - imean, axis=1)
-        winner = indices[np.argmin(idist)]
-    elif method == "firstmax":
-        winner = np.unravel_index(np.argmax(dt), dt.shape)
-    elif method == "maximum_position":
-        winner = ndi.maximum_position(dt)
-    ic = tuple(winner[::-1])
-    inner_center = np.array(ic)
-    return inner_center

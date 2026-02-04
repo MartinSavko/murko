@@ -877,6 +877,19 @@ def plot_keypoints(keypoints, radius=1, colors=xkcd_colors_that_i_like, ax=None)
         c = pylab.Circle(p[:2][::-1], radius=radius, color=sns.xkcd_rgb[colors[k]])
         ax.add_patch(c)
 
+def get_polygon_patch(points, color="green", lw=2, fill=False, ls=1):
+    matlab_ps = points[:, ::-1]
+    patch = pylab.Polygon(
+        matlab_ps, color=color, lw=lw, fill=fill, ls=ls,
+    )
+    return patch
+
+def get_rectangle_patch(points, color="green", lw=2, fill=False, ls=1):
+    x, y, width, height = get_rectangle_from_polygon(points, encoding="matplotlib")
+    patch = pylab.Rectangle(
+        (x, y), width, height, color=color, lw=lw, fill=fill, ls=ls,
+    )
+    return patch
 
 def plot_oois(points, labels, radius=7, ax=None):
     if ax is None:
@@ -891,13 +904,10 @@ def plot_oois(points, labels, radius=7, ax=None):
         ps = points[i_start:i_end, :]
         matlab_ps = ps[:, ::-1]
         if len(ps) >= 3:
-            patch = pylab.Polygon(matlab_ps, color=color, lw=2, fill=False)
-            ax.add_patch(patch)
-            x, y, width, height = get_rectangle_from_polygon(ps, encoding="matplotlib")
-            patch = pylab.Rectangle(
-                (x, y), width, height, color=color, lw=2, fill=False
-            )
-            ax.add_patch(patch)
+            polygon_patch = get_polygon_patch(ps, color=color, lw=2, fill=False)
+            ax.add_patch(polygon_patch)
+            rectangle_patch = get_rectangle_patch(ps, color=color, lw=2, fill=False)
+            ax.add_patch(rectangle_patch)
         elif len(ps) == 1:
             print("point!")
             print(matlab_ps)
@@ -1041,9 +1051,10 @@ def save_annotation_figure(
 
             matlab_points = points[:, ::-1]
             if len(points) >= 3:
-                patch = pylab.Polygon(
-                    matlab_points, color=color, lw=lw, fill=False, ls=ls
-                )
+                patch = get_polygon_patch(points, color=color, lw=lw, fill=fill, ls=ls)
+                #patch = pylab.Polygon(
+                    #matlab_points, color=color, lw=lw, fill=False, ls=ls
+                #)
             elif len(points) == 2:
                 print("Rectangle")
                 x, y, width, height = get_rectangle_from_polygon(points)
