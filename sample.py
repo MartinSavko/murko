@@ -447,7 +447,7 @@ class Sample:
             else:
                 print(f"possible problem {_map.shape} shape is wrong, please check")
 
-        if kind != "mask" and normalize:
+        if kind not in ["mask", "bbox_mask"] and normalize:
             for _n, _m in _maps.items():
                 _min = _m.min()
                 _max = _m.max()
@@ -812,6 +812,12 @@ def plot_targets(s, target="crystal"):
 
     image = s.get_image()
     masks = s.get_masks()
+    kp1 = s.get_keypoints(keypoints_global_classification[1])
+    voronoi1 = s.get_voronoi(kp1)
+    kpcentr1 = s.get_keypoint_centerness(list(kp1.values()))
+    kp2 = s.get_keypoints(keypoints_global_classification[2])
+    voronoi2 = s.get_voronoi(kp2)
+    kpcentr2 = s.get_keypoint_centerness(list(kp2.values()))
     
     if target in masks:
         ct = s.get_centerness()[target]
@@ -823,13 +829,14 @@ def plot_targets(s, target="crystal"):
         sidt = s.get_sqrt_inverse_distance_transform()[target]
         target_mask = masks[target]
         cimage = get_unmasked_image(image.copy(), masks, target)
+        bbox_mask = s.get_bbox_mask()[target]
     else:
         target_mask = None
         cimage = None
 
     h = s.get_flat_hierarchy()
 
-    fig, axes = pylab.subplots(3, 4)
+    fig, axes = pylab.subplots(4, 4)
 
     fig.set_tight_layout(True)
     a = axes.flatten()
@@ -841,10 +848,22 @@ def plot_targets(s, target="crystal"):
     a[1].imshow(s.get_flat_hierarchy())
     a[1].set_title("hierarchy")
 
+    a[2].imshow(voronoi1)
+    a[2].set_title("voronoi 1")
+    
+    a[3].imshow(kpcentr1)
+    a[3].set_title("keypoints 1 centerness")
+    
+    a[4].imshow(voronoi2)
+    a[4].set_title("voronoi 2")
+    
+    a[5].imshow(kpcentr2)
+    a[5].set_title("keypoints 2 centerness")
+    
     if target_mask is not None:
-        for k, (i, d) in enumerate(zip([target_mask, cimage, ct, dt, pdt, sdt, idt, pidt, sidt], ["mask", "unmask", "centerness", "dt", "pdt", "sdt", "idt", "pidt", "sidt"])):
-            a[k+2].imshow(i)
-            a[k+2].set_title(f"{target} {d}")
+        for k, (i, d) in enumerate(zip([target_mask, cimage, ct, dt, pdt, sdt, idt, pidt, sidt, bbox_mask], ["mask", "unmask", "centerness", "dt", "pdt", "sdt", "idt", "pidt", "sidt", "bbox"])):
+            a[k+6].imshow(i)
+            a[k+6].set_title(f"{target} {d}")
 
     pylab.show()
     
@@ -890,15 +909,20 @@ def test():
         type=str,
         help="path to the json file containing sample annotation",
     )
+    parser.add_argument(
+        "-t",
+        "--target",
+        default="area_of_interest",
+        type=str,
+        help="target",
+    )
     args = parser.parse_args()
     print("args", args)
 
     s = Sample(args.json)
-    #plot_targets(s)
-    #plot_voronoi(s)
     #plot_keypoints(s)
     #plot_voronoi(s)
-    plot_targets(s)
+    plot_targets(s, args.target)
     
 if __name__ == "__main__":
     test()
