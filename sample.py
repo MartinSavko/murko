@@ -788,29 +788,6 @@ class Sample:
 
             return img, points
 
-def test():
-
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-j",
-        "--json",
-        default="examples/soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
-        # "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
-        type=str,
-        help="path to the json file containing sample annotation",
-    )
-    args = parser.parse_args()
-    print("args", args)
-
-    s = Sample(args.json)
-    #plot_targets(s)
-    #plot_voronoi(s)
-    #plot_keypoints(s)
-    plot_voronoi(s)
-    #plot_targets(s)
-    
 def plot_keypoints(s, radius=11):
 
     npp = s.get_aoi_keypoints()
@@ -829,26 +806,30 @@ def plot_keypoints(s, radius=11):
     
     pylab.show()
 
-def plot_targets(s):
+def plot_targets(s, target="crystal"):
 
     fh = s.get_flat_hierarchy()
 
     image = s.get_image()
     masks = s.get_masks()
     
-    if "ice" in masks:
-        ct = s.get_centerness()["ice"]
-        dt = s.get_distance_transform()["ice"]
-        ice_mask = masks["ice"]
+    if target in masks:
+        ct = s.get_centerness()[target]
+        dt = s.get_distance_transform()[target]
+        idt = s.get_inverse_distance_transform()[target]
+        pdt = s.get_power_distance_transform()[target]
+        pidt = s.get_power_inverse_distance_transform()[target]
+        sdt = s.get_sqrt_distance_transform()[target]
+        sidt = s.get_sqrt_inverse_distance_transform()[target]
+        target_mask = masks[target]
+        cimage = get_unmasked_image(image.copy(), masks, target)
     else:
-        ice_mask = None
-        
-    h = s.get_flat_hierarchy()
-    if "crystal" in masks:
-        cimage = get_unmasked_image(image.copy(), masks, "crystal")
-    else:
+        target_mask = None
         cimage = None
-    fig, axes = pylab.subplots(3, 2)
+
+    h = s.get_flat_hierarchy()
+
+    fig, axes = pylab.subplots(3, 4)
 
     fig.set_tight_layout(True)
     a = axes.flatten()
@@ -860,18 +841,10 @@ def plot_targets(s):
     a[1].imshow(s.get_flat_hierarchy())
     a[1].set_title("hierarchy")
 
-    if ice_mask is not None:
-        a[2].imshow(ice_mask)
-        a[2].set_title("ice mask")
-    
-        a[3].imshow(ct)
-        a[3].set_title("ice centerness")
-
-        a[4].imshow(dt)
-        a[4].set_title("ice distance transform")
-
-    a[5].imshow(cimage)
-    a[5].set_title("unmasked crystal")
+    if target_mask is not None:
+        for k, (i, d) in enumerate(zip([target_mask, cimage, ct, dt, pdt, sdt, idt, pidt, sidt], ["mask", "unmask", "centerness", "dt", "pdt", "sdt", "idt", "pidt", "sidt"])):
+            a[k+2].imshow(i)
+            a[k+2].set_title(f"{target} {d}")
 
     pylab.show()
     
@@ -904,6 +877,28 @@ def plot_voronoi(s):
         
     pylab.show()
 
+def test():
 
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-j",
+        "--json",
+        default="examples/soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
+        # "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
+        type=str,
+        help="path to the json file containing sample annotation",
+    )
+    args = parser.parse_args()
+    print("args", args)
+
+    s = Sample(args.json)
+    #plot_targets(s)
+    #plot_voronoi(s)
+    #plot_keypoints(s)
+    #plot_voronoi(s)
+    plot_targets(s)
+    
 if __name__ == "__main__":
     test()
