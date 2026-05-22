@@ -268,9 +268,103 @@ def get_unmasked_image(image, masks, label):
     return image
 
 
+def swap_backgrounds(img, foreground_mask, new_background, img_shape=None):
+    if img_shape is None: img_shape = img.shape[:2]
+        
+    if size_differs(img_shape, new_background.shape[:2]):
+        new_background = get_resized_image(
+            new_background, img_shape, anti_aliasing=True
+        )
+    img[foreground_mask == 0] = new_background[foreground_mask == 0]
+    return img
+
+def get_augment_control(
+    threshold=0.5,
+    transform=True,
+    transpose=True,
+    flip=True,
+    swap_backgrounds=True,
+    black_and_white=True,
+    random_brightness=True,
+    random_contrast=True,
+    random_channel_shift=False,
+    verbose=False,
+):
+
+    do_flip = False
+    do_transpose = False
+    do_transform = False
+    do_swap_backgrounds = False
+    do_black_and_white = False
+    do_random_brightness = False
+    do_random_contrast = False
+    do_random_channel_shift = False
+    
+    if transform and random.random() < threshold:
+        do_transform = True
+
+    if transpose and random.random() < threshold:
+        do_transpose = True
+        if flip and random.random() < threshold:
+            do_flip = True
+    else:
+        if flip and random.random() < threshold:
+            do_flip = True
+
+    if swap_backgrounds and random.random() < threshold / 2:
+        do_swap_backgrounds = True
+
+    if black_and_white and random.random() < threshold / 2:
+        do_black_and_white = True
+
+    if random_brightness and random.random() < threshold / 2:
+        do_random_brightness = True
+
+    if random_contrast and random.random() < threshold / 2:
+        do_random_contrast = True
+
+    if (
+        random_channel_shift
+        and not do_black_and_white
+        and random.random() < threshold / 2
+    ):
+        do_random_channel_shift = True
+
+    if verbose:
+        print(f"do_transform: {do_transform}")
+        print(f"do_transpose: {do_transpose}")
+        print(f"do_flip: {do_flip}")
+        print(f"do_swap_backgrounds: {do_swap_backgrounds}")
+        print(f"do_black_and_white: {do_black_and_white}")
+        print(f"do_random_brightness: {do_random_brightness}")
+        print(f"do_random_contrast: {do_random_contrast}")
+        print(f"do_random_channel_shift: {do_random_channel_shift}")
+    return (
+        do_flip,
+        do_transpose,
+        do_transform,
+        do_swap_backgrounds,
+        do_black_and_white,
+        do_random_brightness,
+        do_random_contrast,
+        do_random_channel_shift,
+    )
+
+
+def draw_point(point, ax=None, radius=3, color="red"):
+    if ax is None:
+        ax = pylab.gca()
+
+    p = pylab.Circle(point, radius=radius, color=color)
+    ax.add_patch(p)
+
 class Sample:
+    
     def __init__(
-        self, json_file, notion_importance=notion_importance, not_to_keep=["masks"]
+        self, 
+        json_file, 
+        notion_importance=notion_importance, 
+        not_to_keep=["masks"],
     ):
 
         self.oois = get_objects_of_interest(json_file)
@@ -311,6 +405,27 @@ class Sample:
     def get_labels(self):
         return self.labels
 
+    def _get_properties(self, points=None, image_shape=None):
+        if points is None:
+            points = self.get_points()
+        if image_shape is None:
+            image_shape = self.get_image_shape()
+
+        properties = []
+        for k, label in enumerate(self.labels):
+            i_start, i_end = self.indices[k]
+            ps = points[i_start:i_end]
+            if self.fractional:
+                ps *= image_shape
+            props = Regionprops(
+                ps,
+                image_shape=image_shape,
+                distance_transform_pad=0 if label == "aether" else 2,
+            )
+            properties.append(props)
+
+        return properties
+    
     def _get_maps(
         self,
         points=None,
@@ -340,27 +455,6 @@ class Sample:
                     _maps[_n] = (_m - _min) / (_max - _min)
 
         return _maps
-
-    def _get_properties(self, points=None, image_shape=None):
-        if points is None:
-            points = self.get_points()
-        if image_shape is None:
-            image_shape = self.get_image_shape()
-
-        properties = []
-        for k, label in enumerate(self.labels):
-            i_start, i_end = self.indices[k]
-            ps = points[i_start:i_end]
-            if self.fractional:
-                ps *= image_shape
-            props = Regionprops(
-                ps,
-                image_shape=image_shape,
-                distance_transform_pad=0 if label == "aether" else 2,
-            )
-            properties.append(props)
-
-        return properties
 
     def get_masks(self, points=None, image_shape=None):
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
@@ -670,7 +764,7 @@ class Sample:
                 and "background" not in self.image_path
                 and "foreground" in self.masks
             ):
-                img = self.swap_backgrounds(
+                img = swap_backgrounds(
                     img, self.masks["foreground"], new_background, img_shape
                 )
 
@@ -694,98 +788,6 @@ class Sample:
 
             return img, points
 
-    def swap_backgrounds(self, img, foreground_mask, new_background, img_shape=None):
-        if img_shape is None: img_shape = img.shape[:2]
-            
-        if size_differs(img_shape, new_background.shape[:2]):
-            new_background = get_resized_image(
-                new_background, img_shape, anti_aliasing=True
-            )
-        img[foreground_mask == 0] = new_background[foreground_mask == 0]
-        return img
-
-
-def get_augment_control(
-    threshold=0.5,
-    transform=True,
-    transpose=True,
-    flip=True,
-    swap_backgrounds=True,
-    black_and_white=True,
-    random_brightness=True,
-    random_contrast=True,
-    random_channel_shift=False,
-    verbose=False,
-):
-
-    do_flip = False
-    do_transpose = False
-    do_transform = False
-    do_swap_backgrounds = False
-    do_black_and_white = False
-    do_random_brightness = False
-    do_random_contrast = False
-    do_random_channel_shift = False
-    
-    if transform and random.random() < threshold:
-        do_transform = True
-
-    if transpose and random.random() < threshold:
-        do_transpose = True
-        if flip and random.random() < threshold:
-            do_flip = True
-    else:
-        if flip and random.random() < threshold:
-            do_flip = True
-
-    if swap_backgrounds and random.random() < threshold / 2:
-        do_swap_backgrounds = True
-
-    if black_and_white and random.random() < threshold / 2:
-        do_black_and_white = True
-
-    if random_brightness and random.random() < threshold / 2:
-        do_random_brightness = True
-
-    if random_contrast and random.random() < threshold / 2:
-        do_random_contrast = True
-
-    if (
-        random_channel_shift
-        and not do_black_and_white
-        and random.random() < threshold / 2
-    ):
-        do_random_channel_shift = True
-
-    if verbose:
-        print(f"do_transform: {do_transform}")
-        print(f"do_transpose: {do_transpose}")
-        print(f"do_flip: {do_flip}")
-        print(f"do_swap_backgrounds: {do_swap_backgrounds}")
-        print(f"do_black_and_white: {do_black_and_white}")
-        print(f"do_random_brightness: {do_random_brightness}")
-        print(f"do_random_contrast: {do_random_contrast}")
-        print(f"do_random_channel_shift: {do_random_channel_shift}")
-    return (
-        do_flip,
-        do_transpose,
-        do_transform,
-        do_swap_backgrounds,
-        do_black_and_white,
-        do_random_brightness,
-        do_random_contrast,
-        do_random_channel_shift,
-    )
-
-
-def draw_point(point, ax=None, radius=3, color="red"):
-    if ax is None:
-        ax = pylab.gca()
-
-    p = pylab.Circle(point, radius=radius, color=color)
-    ax.add_patch(p)
-
-
 def test():
 
     import argparse
@@ -794,7 +796,7 @@ def test():
     parser.add_argument(
         "-j",
         "--json",
-        default="soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
+        default="examples/soleil_proxima_dataset/autocenter_100161_Wed_Jan_27_12:21:02_2021_bright_failed.json",
         # "soleil_proxima_dataset/100161_Wed_Feb__6_202122_2019_manual_omega_210.00_zoom_9_y_486_x_670.json"
         type=str,
         help="path to the json file containing sample annotation",
@@ -861,7 +863,6 @@ def plot_targets(s):
     if ice_mask is not None:
         a[2].imshow(ice_mask)
         a[2].set_title("ice mask")
-
     
         a[3].imshow(ct)
         a[3].set_title("ice centerness")

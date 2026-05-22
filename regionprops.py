@@ -664,7 +664,7 @@ def get_offsets(point, image_shape):
     return h_offset, v_offset
 
 def get_centerness(point, image_shape):
-    h_offset, v_offset = get_offset(point, image_shape
+    h_offset, v_offset = get_offsets(point, image_shape)
     centerness = np.sqrt(
         h_offset ** 2 + v_offset ** 2
     )
