@@ -11,16 +11,18 @@ import pylab
 import seaborn as sns
 
 from objects_of_interest import (
-    get_objects_of_interest, 
-    update_maps, 
+    get_objects_of_interest,
+    update_maps,
     merge_maps,
 )
 
 from regionprops import (
-    Regionprops, 
-    get_mask_from_polygon, 
+    Regionprops,
+    get_mask_from_polygon,
     get_offsets,
     get_centerness,
+    get_distance_transform,
+    get_universal_ltrb,
 )
 
 from config import (
@@ -119,9 +121,7 @@ def get_resized_image(
     img, img_size, anti_aliasing=True, interpolation="INTER_LINEAR", doer="cv"
 ):
     if doer == "ski":
-        resized_image = ski.transform.resize(
-            img, img_size, anti_aliasing=anti_aliasing
-        )
+        resized_image = ski.transform.resize(img, img_size, anti_aliasing=anti_aliasing)
     elif doer == "cv":
         # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
         # Method	        Description	Best               Used For
@@ -263,20 +263,27 @@ def size_differs(original_size, img_size):
     return original_size[0] != img_size[0] or original_size[1] != img_size[1]
 
 
+def _get_unmasked_image(image, mask):
+    image[mask.astype(bool) == False] = 0
+    return image
+
 def get_unmasked_image(image, masks, label):
-    image[masks[label].astype(bool) == False] = 0
+    #image[masks[label].astype(bool) == False] = 0
+    image = _get_unmasked_image(image, masks[label])
     return image
 
 
 def swap_backgrounds(img, foreground_mask, new_background, img_shape=None):
-    if img_shape is None: img_shape = img.shape[:2]
-        
+    if img_shape is None:
+        img_shape = img.shape[:2]
+
     if size_differs(img_shape, new_background.shape[:2]):
         new_background = get_resized_image(
             new_background, img_shape, anti_aliasing=True
         )
     img[foreground_mask == 0] = new_background[foreground_mask == 0]
     return img
+
 
 def get_augment_control(
     threshold=0.5,
@@ -290,7 +297,6 @@ def get_augment_control(
     random_channel_shift=False,
     verbose=False,
 ):
-
     do_flip = False
     do_transpose = False
     do_transform = False
@@ -299,7 +305,7 @@ def get_augment_control(
     do_random_brightness = False
     do_random_contrast = False
     do_random_channel_shift = False
-    
+
     if transform and random.random() < threshold:
         do_transform = True
 
@@ -358,15 +364,14 @@ def draw_point(point, ax=None, radius=3, color="red"):
     p = pylab.Circle(point, radius=radius, color=color)
     ax.add_patch(p)
 
+
 class Sample:
-    
     def __init__(
-        self, 
-        json_file, 
-        notion_importance=notion_importance, 
+        self,
+        json_file,
+        notion_importance=notion_importance,
         not_to_keep=["masks"],
     ):
-
         self.oois = get_objects_of_interest(json_file)
         self.image_path = self.oois["image_path"]
         self.image_shape = self.oois["image_shape"]
@@ -425,7 +430,7 @@ class Sample:
             properties.append(props)
 
         return properties
-    
+
     def _get_maps(
         self,
         points=None,
@@ -447,7 +452,7 @@ class Sample:
             else:
                 print(f"possible problem {_map.shape} shape is wrong, please check")
 
-        if kind not in ["mask", "bbox_mask"] and normalize:
+        if "mask" not in kind and normalize:
             for _n, _m in _maps.items():
                 _min = _m.min()
                 _max = _m.max()
@@ -550,15 +555,17 @@ class Sample:
         keypoint_centerness = np.zeros(image_shape)
         for point in keypoints:
             _centerness = get_centerness(point, image_shape)
-            keypoint_centerness = merge_maps(keypoint_centerness, _centerness, method="max")
+            keypoint_centerness = merge_maps(
+                keypoint_centerness, _centerness, method="max"
+            )
         return keypoint_centerness
-        
+
     def get_offsets(self, point, image_shape=None):
         if image_shape is None:
             image_shape = self.get_image_shape()
         offset_h, offset_v = get_offsets(point, image_shape)
         return offset_h, offset_v
-    
+
     def get_bbox_mask(self, points=None, image_shape=None):
         bbox_mask = self._get_maps(
             points, image_shape, kind="bbox_mask", method="logical_or"
@@ -602,8 +609,10 @@ class Sample:
         return get_ltrbc(labels, indices, points, properties, label)
 
     def _get_named_pca_points(self, origin, projection, origin_is_extreme=False):
-        return get_named_pca_points(origin, projection, origin_is_extreme=origin_is_extreme)
-    
+        return get_named_pca_points(
+            origin, projection, origin_is_extreme=origin_is_extreme
+        )
+
     def _guess_point(self, point_name):
         pns = point_name.split("_")
         label, kind = None, None
@@ -626,7 +635,7 @@ class Sample:
     def get_gang_of_five(self, labels=None, indices=None, points=None, properties=None):
         args = self._check_lipp(labels, indices, points, properties)
         return get_gang_of_five(*args)
-    
+
     def get_keypoints(
         self, named_points, labels=None, indices=None, points=None, properties=None
     ):
@@ -639,7 +648,7 @@ class Sample:
             else:
                 label, abbreviation, kind = self._guess_point(point_name)
                 if label in args[0] and label not in ltrbcs:
-                    #ltrbcs[label] = self._get_ltrbc(*args + (label,))
+                    # ltrbcs[label] = self._get_ltrbc(*args + (label,))
                     projection = args[-1][args[0].index(label)].get_mask()
                     if label == "pin":
                         origin_is_extreme = True
@@ -647,7 +656,9 @@ class Sample:
                     else:
                         origin_is_extreme = False
                         origin = self._get_origin(*args)
-                    ltrbcs[label] = self._get_named_pca_points(origin, projection, origin_is_extreme=origin_is_extreme)
+                    ltrbcs[label] = self._get_named_pca_points(
+                        origin, projection, origin_is_extreme=origin_is_extreme
+                    )
                     print(f"ltrbcs {ltrbcs}")
                 print(label, abbreviation, kind)
                 if label in ltrbcs:
@@ -655,43 +666,42 @@ class Sample:
 
         return keypoints
 
-     # def draw_voronoi(img, subdiv) :
-     #...: 
-     #...:     ( facets, centers) = subdiv.getVoronoiFacetList([])
-     #...:     for f, c in zip(facets, centers) :
-     #...:         f = f.astype(np.int32)
-     #...:         c = c.astype(np.int16)
-     #...:         color = random.randint(0, 255)
-     #...:         cv2.fillConvexPoly(img, f, color);
-     #...:         cv2.polylines(img, [f], True, (0, 0, 0), 1)
-     #...:         cv2.circle(img, c, 33, (0, 0, 0))
+    # def draw_voronoi(img, subdiv) :
+    # ...:
+    # ...:     ( facets, centers) = subdiv.getVoronoiFacetList([])
+    # ...:     for f, c in zip(facets, centers) :
+    # ...:         f = f.astype(np.int32)
+    # ...:         c = c.astype(np.int16)
+    # ...:         color = random.randint(0, 255)
+    # ...:         cv2.fillConvexPoly(img, f, color);
+    # ...:         cv2.polylines(img, [f], True, (0, 0, 0), 1)
+    # ...:         cv2.circle(img, c, 33, (0, 0, 0))
 
     def get_aoi_keypoints(self, origin=None, label="area_of_interest"):
         lipp = self._check_lipp()
         if origin is None:
             origin = get_origin(*lipp)
-        
-        npp = { 
+
+        npp = {
             "origin": origin,
             "left": np.array((-1, -1)),
             "right": np.array((-1, -1)),
             "top": np.array((-1, -1)),
             "bottom": np.array((-1, -1)),
         }
-        
+
         labels = lipp[0]
         if label in labels:
             projection = lipp[-1][lipp[0].index(label)].get_mask()
             npp.update(get_named_pca_points(origin, projection))
 
         return npp
-        
+
     def get_voronoi(
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
         image_shape=None,
     ):
-
         if image_shape is None:
             image_shape = self.get_image_shape()
 
@@ -707,7 +717,7 @@ class Sample:
                 pt = point.astype(np.int16)
                 subdiv.insert(pt)
                 present_points.append(key)
-        
+
         print(f"present_points {present_points}")
         facets, centers = subdiv.getVoronoiFacetList([])
         print(f"facets {facets}")
@@ -720,21 +730,22 @@ class Sample:
             if i < len(facets):
                 ifacets = facets[i].astype(np.int32)
                 cv.fillConvexPoly(voronoi, ifacets, label)
-            
-        #voronoi = voronoi[:image_shape[0], :image_shape[1]]
+
+        # voronoi = voronoi[:image_shape[0], :image_shape[1]]
         return voronoi
 
-    def get_image_and_points(self, img_size=None, augment=False, new_background=None):
+    def get_image_and_points_and_masks(self, img_size=None, augment=False, new_background=None):
         img = self.get_image()
         points = self.get_points()
         img_shape = img.shape[:2]
-        
+
         if img_size is not None and size_differs(img_size, img_shape):
             resize_factor = np.array(img_size) / np.array(img_shape)
             img = get_resized_image(img, img_size, anti_aliasing=True)
             if not self.fractional:
                 points = points * resize_factor
-
+            img_shape = img.shape[:2]
+            
         if augment:
             (
                 do_flip,
@@ -756,16 +767,16 @@ class Sample:
             if do_transform is True:
                 img, points = get_transformed_img_and_points(img, points)
 
-            self.masks = self.get_masks(points, img_shape)
+            masks = self.get_masks(points, img_shape)
 
             if (
                 new_background is not None
                 and do_swap_backgrounds
                 and "background" not in self.image_path
-                and "foreground" in self.masks
+                and "foreground" in masks
             ):
                 img = swap_backgrounds(
-                    img, self.masks["foreground"], new_background, img_shape
+                    img, masks["foreground"], new_background, img_shape,
                 )
 
             if do_random_brightness or do_random_contrast:
@@ -786,28 +797,52 @@ class Sample:
                 img_bw = img.mean(axis=2)
                 img = np.stack([img_bw] * 3, axis=2)
 
-            return img, points
+            return img, points, masks
+
+    def get_targets(
+        self,
+        image,
+        points,
+        masks,
+        targets=[
+            "foreground",
+            "pin",
+            "stem",
+            "loop",
+            "loop_inside",
+            "crystal",
+            "area_of_interest",
+            "support",
+            "plastic",
+        ],
+            
+    ):
+        
+        
 
 def plot_keypoints(s, radius=11):
-
     npp = s.get_aoi_keypoints()
-    #npp["origin"] = s._get_origin()
-    #lipp = s._check_lipp()
-    #projection = 
+    # npp["origin"] = s._get_origin()
+    # lipp = s._check_lipp()
+    # projection =
     pylab.figure()
     pylab.title("pca keypoints")
     pylab.imshow(s.get_image())
     for key in npp:
-        draw_point(npp[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius)
-    
+        draw_point(
+            npp[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius
+        )
+
     npp2 = s.get_aoi_keypoints(label="pin")
     for key in npp2:
-        draw_point(npp2[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius)
-    
+        draw_point(
+            npp2[key], color=sns.xkcd_rgb[named_points_colors[key]], radius=radius
+        )
+
     pylab.show()
 
-def plot_targets(s, target="crystal"):
 
+def plot_targets(s, target="crystal"):
     fh = s.get_flat_hierarchy()
 
     image = s.get_image()
@@ -815,60 +850,123 @@ def plot_targets(s, target="crystal"):
     kp1 = s.get_keypoints(keypoints_global_classification[1])
     voronoi1 = s.get_voronoi(kp1)
     kpcentr1 = s.get_keypoint_centerness(list(kp1.values()))
-    kp2 = s.get_keypoints(keypoints_global_classification[2])
-    voronoi2 = s.get_voronoi(kp2)
-    kpcentr2 = s.get_keypoint_centerness(list(kp2.values()))
-    
+    #kp2 = s.get_keypoints(keypoints_global_classification[2])
+    #voronoi2 = s.get_voronoi(kp2)
+    #kpcentr2 = s.get_keypoint_centerness(list(kp2.values()))
+
     if target in masks:
-        ct = s.get_centerness()[target]
+        #centerness = s.get_centerness()[target]
         dt = s.get_distance_transform()[target]
-        idt = s.get_inverse_distance_transform()[target]
-        pdt = s.get_power_distance_transform()[target]
-        pidt = s.get_power_inverse_distance_transform()[target]
-        sdt = s.get_sqrt_distance_transform()[target]
-        sidt = s.get_sqrt_inverse_distance_transform()[target]
+        # idt = s.get_inverse_distance_transform()[target]
+        # pdt = s.get_power_distance_transform()[target]
+        # pidt = s.get_power_inverse_distance_transform()[target]
+        # sdt = s.get_sqrt_distance_transform()[target]
+        # sidt = s.get_sqrt_inverse_distance_transform()[target]
         target_mask = masks[target]
-        cimage = get_unmasked_image(image.copy(), masks, target)
+        ltrb_target = get_universal_ltrb(target_mask)
+        l_target = ltrb_target[:,:,0]
+        t_target = ltrb_target[:,:,1]
+        r_target = ltrb_target[:,:,2]
+        b_target = ltrb_target[:,:,3]
+        unmask = get_unmasked_image(image.copy(), masks, target)
         bbox_mask = s.get_bbox_mask()[target]
+        bbunmask = _get_unmasked_image(image.copy(), bbox_mask)
+        ltrb_bbox = get_universal_ltrb(bbox_mask)
+        l_bbox = ltrb_bbox[:,:,0]
+        t_bbox = ltrb_bbox[:,:,1]
+        r_bbox = ltrb_bbox[:,:,2]
+        b_bbox = ltrb_bbox[:,:,3]
+        aether_mask = np.logical_not(target_mask)
+        aedt = (get_distance_transform(aether_mask.astype("uint8"), invert=True, normalize=False)/2 - 1)
+        aedt[target_mask.astype(bool)] = dt[target_mask.astype(bool)]
+        bbdt = get_distance_transform(bbox_mask.astype("uint8"))
+        aether_bbox_mask = np.logical_not(bbox_mask)
+        aebbdt = (get_distance_transform(aether_bbox_mask.astype("uint8"), invert=True, normalize=False)/2 - 1)
+        aebbdt[bbox_mask.astype(bool)] = bbdt[bbox_mask.astype(bool)]
     else:
         target_mask = None
-        cimage = None
+        centerness = None
 
     h = s.get_flat_hierarchy()
 
-    fig, axes = pylab.subplots(4, 4)
+    fig, axes = pylab.subplots(5, 4)
 
     fig.set_tight_layout(True)
     a = axes.flatten()
-    for aa in a: aa.set_axis_off()
+    for aa in a:
+        aa.set_axis_off()
 
-    a[0].imshow(s.get_image())
-    a[0].set_title("input image")
+    k = 0
+    a[k].imshow(s.get_image())
+    a[k].set_title("input image")
+    
+    k += 1
+    a[k].imshow(s.get_flat_hierarchy())
+    a[k].set_title("hierarchy")
+    
+    k += 1
+    a[k].imshow(voronoi1)
+    a[k].set_title("voronoi 1")
 
-    a[1].imshow(s.get_flat_hierarchy())
-    a[1].set_title("hierarchy")
+    k += 1
+    a[k].imshow(kpcentr1)
+    a[k].set_title("keypoints 1 centerness")
 
-    a[2].imshow(voronoi1)
-    a[2].set_title("voronoi 1")
-    
-    a[3].imshow(kpcentr1)
-    a[3].set_title("keypoints 1 centerness")
-    
-    a[4].imshow(voronoi2)
-    a[4].set_title("voronoi 2")
-    
-    a[5].imshow(kpcentr2)
-    a[5].set_title("keypoints 2 centerness")
-    
+    #a[4].imshow(voronoi2)
+    #a[4].set_title("voronoi 2")
+
+    #a[5].imshow(kpcentr2)
+    #a[5].set_title("keypoints 2 centerness")
+
+    k_start = k + 1
     if target_mask is not None:
-        for k, (i, d) in enumerate(zip([target_mask, cimage, ct, dt, pdt, sdt, idt, pidt, sidt, bbox_mask], ["mask", "unmask", "centerness", "dt", "pdt", "sdt", "idt", "pidt", "sidt", "bbox"])):
-            a[k+6].imshow(i)
-            a[k+6].set_title(f"{target} {d}")
+        for k, (i, d) in enumerate(
+            zip(
+                [
+                    target_mask, 
+                    unmask, 
+                    #centerness, 
+                    dt,
+                    aedt,
+                    l_target, t_target, r_target, b_target,
+                    #pdt, 
+                    #sdt, 
+                    #idt, 
+                    #pidt, 
+                    #sidt, 
+                    bbox_mask,
+                    bbunmask,
+                    bbdt,
+                    aebbdt,
+                    l_bbox, t_bbox, r_bbox, b_bbox, 
+                    ],
+                [
+                    "mask",
+                    "unmask",
+                    #"centerness",
+                    "dt",
+                    "aether dt",
+                    "target l", "target t", "target r", "target b",
+                    #"pdt",
+                    #"sdt",
+                    #"idt",
+                    #"pidt",
+                    #"sidt",
+                    "bbox_mask",
+                    "bbunmask",
+                    "bbdt",
+                    "aether bbdt",
+                    "bbox l", "bbox t", "bbox r", "bbox b",
+                ],
+            )
+        ):
+            a[k + k_start].imshow(i)
+            a[k + k_start].set_title(f"{target} {d}")
 
     pylab.show()
-    
+
+
 def plot_voronoi(s):
-    
     image = s.get_image()
     kps = [s.get_keypoints(keypoints_global_classification[k]) for k in [1, 2]]
     kps.append(s.get_gang_of_five())
@@ -884,7 +982,7 @@ def plot_voronoi(s):
             except:
                 color = "red"
             draw_point(v, ax=ax, color=color, radius=11)
-            
+
         pylab.figure()
         pylab.title(f"voronoi {k}")
         print(f"keypoints for voronio {kp}")
@@ -893,11 +991,11 @@ def plot_voronoi(s):
         pylab.figure()
         pylab.title(f"centerness {k}")
         pylab.imshow(s.get_keypoint_centerness(list(kp.values())))
-        
+
     pylab.show()
 
-def test():
 
+def test():
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -920,9 +1018,10 @@ def test():
     print("args", args)
 
     s = Sample(args.json)
-    #plot_keypoints(s)
-    #plot_voronoi(s)
+    # plot_keypoints(s)
+    # plot_voronoi(s)
     plot_targets(s, args.target)
-    
+
+
 if __name__ == "__main__":
     test()
