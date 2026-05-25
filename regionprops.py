@@ -94,9 +94,14 @@ class Regionprops(object):
         invert=False,
         power=1,
         pad=0,
+        aether=False,
     ):
-        points, image_shape = self._check_points_and_shape(points, image_shape)
-        _mask = self._get_mask(points, image_shape, pad=pad)
+        #points, image_shape = self._check_points_and_shape(points, image_shape)
+        #_mask = self._get_mask(points, image_shape, pad=pad)
+        _mask = self.get_mask(points, image_shape, pad)
+        if aether:
+            _mask = np.logical_not(_mask)
+            pad = 0
         distance_transform = get_distance_transform(
             _mask.astype("uint8"), exagerate=exagerate, invert=invert, power=power
         )
@@ -104,9 +109,31 @@ class Regionprops(object):
             distance_transform = distance_transform[pad:-pad, pad:-pad]
         return distance_transform
 
+    def get_aether_mask(
+        self, points, image_shape, pad=0
+    ):
+        aether_mask = np.logical_not(self.get_mask(points, image_shape, pad))
+        return aether_mask
+    
+    def get_aether_distance_transform(
+        self,
+        points=None,
+        image_shape=None,
+        exagerate=False,
+        invert=False,
+        power=1,
+    ):
+        mask = self.get_aether_mask()
+        
+        distance_transform = get_distance_transform(
+            mask.astype("uint8"), exagerate=exagerate, invert=invert, power=power
+        )
+        
+        return distance_transform
+    
     # @saver
     def get_distance_transform(
-        self, points=None, image_shape=None, exagerate=False, invert=False, power=1
+        self, points=None, image_shape=None, exagerate=False, invert=False, power=1, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -115,11 +142,12 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
     def get_inverse_distance_transform(
-        self, points=None, image_shape=None, exagerate=False, invert=True, power=1
+        self, points=None, image_shape=None, exagerate=False, invert=True, power=1, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -128,11 +156,12 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
     def get_sqrt_distance_transform(
-        self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5
+        self, points=None, image_shape=None, exagerate=True, invert=False, power=0.5, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -141,11 +170,12 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
     def get_sqrt_inverse_distance_transform(
-        self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5
+        self, points=None, image_shape=None, exagerate=True, invert=True, power=0.5, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -154,11 +184,12 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
     def get_power_distance_transform(
-        self, points=None, image_shape=None, exagerate=True, invert=False, power=4
+        self, points=None, image_shape=None, exagerate=True, invert=False, power=4, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -167,11 +198,12 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
     def get_power_inverse_distance_transform(
-        self, points=None, image_shape=None, exagerate=True, invert=True, power=4
+        self, points=None, image_shape=None, exagerate=True, invert=True, power=4, aether=False,
     ):
         distance_transform = self._get_distance_transform(
             points=points,
@@ -180,6 +212,7 @@ class Regionprops(object):
             exagerate=exagerate,
             invert=invert,
             power=power,
+            aether=aether,
         )
         return distance_transform
 
@@ -233,15 +266,15 @@ class Regionprops(object):
         if image_shape is None:
             image_shape = self.image_shape
         min_rectangle = self.get_min_rectangle()
-        print(f"min_rectangle {min_rectangle}")
+        #print(f"min_rectangle {min_rectangle}")
         min_rectangle_points = cv.boxPoints(min_rectangle)
-        self.bbox_mask = self._get_mask(min_rectangle_points, image_shape)
-        return self.bbox_mask
+        self.min_rectangle_mask = self._get_mask(min_rectangle_points, image_shape)
+        return self.min_rectangle_mask
 
     def get_ellipse_contour(self, ellipse=None, start=0, end=360, delta=5, angle_offset=90, rotation_direction=-1):
         if ellipse is None:
             ellipse = self.get_ellipse()
-        print(f"ellipse {ellipse}")
+        #print(f"ellipse {ellipse}")
         center, size, angle = ellipse
         center = list(map(int, center))
         size = list(map(int, [size[0]/2, size[1]/2]))
@@ -476,11 +509,6 @@ class Regionprops(object):
         return self.solidity
 
     # @saver
-    def get_chebyshev_basis(self, n=20):
-        self.chebyshev_basis = get_chebyshev_basis(n)
-        return self.chebyshev_basis
-
-    # @saver
     def get_boundary_interpolator(self, method="rbf"):
 
         tap = self.get_thetas_and_points()
@@ -527,31 +555,37 @@ class Regionprops(object):
 
         return tap
 
-    def get_chebyshev_basis(
-        self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
-    ):
-        tap = self.get_thetas_and_points()
-        t = tap[:, 0]
-        r = tap[:, -1]
-        if extend:
-            # hack to account for periodicity
-            # start = tap[:extend]
-            # end = tap[-extend:]
-            # tap = np.vstack((end, tap))
-            # tap = np.vstack((tap, start))
-            tp = np.hstack([t, t + 2 * np.pi])
-            rp = np.hstack([r, r])
-            tp = np.hstack([t - 2 * np.pi, tp])
-            rp = np.hstack([r, rp])
-            t = tp[:]
-            r = rp[:]
 
-        interp = interp1d(t, r)
-        tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
-        rinterp = interp(tinterp)
+    ## @saver
+    #def get_chebyshev_basis(self, n=20):
+        #self.chebyshev_basis = get_chebyshev_basis(n)
+        #return self.chebyshev_basis
+    
+    #def get_chebyshev_basis(
+        #self, degree=19, extend=True, method="numpy", npoints=401, domain=[-1.05, 1.05]
+    #):
+        #tap = self.get_thetas_and_points()
+        #t = tap[:, 0]
+        #r = tap[:, -1]
+        #if extend:
+            ## hack to account for periodicity
+            ## start = tap[:extend]
+            ## end = tap[-extend:]
+            ## tap = np.vstack((end, tap))
+            ## tap = np.vstack((tap, start))
+            #tp = np.hstack([t, t + 2 * np.pi])
+            #rp = np.hstack([r, r])
+            #tp = np.hstack([t - 2 * np.pi, tp])
+            #rp = np.hstack([r, rp])
+            #t = tp[:]
+            #r = rp[:]
 
-        basis = get_chebyshev_basis(degree, points=tinterp)
-        return basis
+        #interp = interp1d(t, r)
+        #tinterp = np.pi * np.linspace(domain[0], domain[1], npoints)
+        #rinterp = interp(tinterp)
+
+        #basis = get_chebyshev_basis(degree, points=tinterp)
+        #return basis
 
     # @saver
     def get_chebyshev(
@@ -745,9 +779,11 @@ def get_distance_transform(
     power=1,
     invert=False,
     exagerate=False,
+    mini=0,
+    maxi=1,
 ):
     dt = cv.distanceTransform(mask, distanceType, maskSize)
-    cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+    cv.normalize(dt, dt, mini, maxi, cv.NORM_MINMAX)
     if invert:
         dt = 1 - dt
         # dt[mask == 0] = 0
