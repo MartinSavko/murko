@@ -38,6 +38,7 @@ def get_img_size_as_scale_of_pixel_budget(
 
 
 class JsonDataset(Sequence):
+    
     def __init__(
         self,
         annotations,
@@ -78,10 +79,10 @@ class JsonDataset(Sequence):
         self.augment = augment
         self.swap_backgrounds = swap_backgrounds
         self.pixel_budget = pixel_budget
+        
         self.artificial_size_increase = artificial_size_increase
-        # if artificial_size_increase > 1:
-        # self.annotations = annotations * int(artificial_size_increase)
-        # else:
+        if artificial_size_increase > 1:
+            annotations = annotations * int(artificial_size_increase)
 
         self.samples = [Sample(item) for item in annotations]
         self.nsamples = len(self.samples)
@@ -170,7 +171,7 @@ class JsonDataset(Sequence):
         if self.augment and self.swap_backgrounds:
             new_background = random.choice(self.backgrounds)["image"]
         
-        img, points = sample.get_image_and_points(img_size=img_size, augment=self.augment, new_background=new_background)
+        img, points, masks = sample.get_image_points_masks(img_size=img_size, augment=self.augment, new_background=new_background)
         
         y = []
         for head in self.heads:
