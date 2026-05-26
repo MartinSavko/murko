@@ -12,6 +12,7 @@ import numpy as np
 from keras.utils import Sequence
 from sample import Sample
 
+from config import targets_config
 
 def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
     return max(int(pixel_budget / np.prod(img_size)), 1)
@@ -42,7 +43,7 @@ class JsonDataset(Sequence):
     def __init__(
         self,
         annotations,
-        heads,
+        targets_config,
         batch_size=1,
         dynamic_batch_size=False,
         number_batch_size_scales=32,
@@ -63,7 +64,7 @@ class JsonDataset(Sequence):
     ):
 
         self.annotations = annotations
-        self.heads = heads
+        self.targets_config = targets_config
 
         self.batch_size = batch_size
         self.dynamic_batch_size = dynamic_batch_size
@@ -110,17 +111,17 @@ class JsonDataset(Sequence):
 
     def get_empty_sample(self, img_size):
         y = []
-        for head in self.heads:
-            output = np.zeros(img_size + (head["channels"],), dtype=head["dtype"])
+        for target in self.targets_config:
+            output = np.zeros(img_size + (target["channels"],), dtype=target["dtype"])
             y.append(output)
         return y
 
     def get_empty_batch(self, batch_size, img_size):
         y = []
-        for head in self.heads:
+        for target in self.targets_config:
             output = np.zeros(
-                (batch_size,) + img_size + (head["channels"],),
-                dtype=head["dtype"],
+                (batch_size,) + img_size + (target["channels"],),
+                dtype=target["dtype"],
             )
             y.append(output)
         return y
@@ -154,12 +155,15 @@ class JsonDataset(Sequence):
         batch_size = len(batch)
 
         x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
-        y = self.get_empty_batch(batch_size, img_size)
+        if self.target:
+            y = self.get_empty_batch(batch_size, img_size)
 
         for j, sample in enumerate(batch):
-            x[j], y_j = self.get_sample(sample, img_size)
-            for k, output in enumerate(y_j):
-                y[k][j] = output[k]
+            img, targets = self.get_sample(sample, img_size)
+            x[j] = img
+            if self.target:
+                for k, target in enumerate(targets):
+                    y[k][j] = target[k]
 
         if self.target and len(y) == 1:
             y = y[0]
@@ -171,14 +175,30 @@ class JsonDataset(Sequence):
         if self.augment and self.swap_backgrounds:
             new_background = random.choice(self.backgrounds)["image"]
         
-        img, points, masks = sample.get_image_points_masks(img_size=img_size, augment=self.augment, new_background=new_background)
+        img, points = sample.get_image_and_points(
+            img_size=img_size, augment=self.augment, new_background=new_background
+        )
         
-        y = []
-        for head in self.heads:
-            if type(head) != list:
-                head = [head]
-            for item in head:
-                target = sample.get_target(head, img, points)
-                y.append(target)
-
-        return img, y
+        targets = None
+        if self.target:
+            labels, indices, points, properties = sample._check_lipp(points=points)
+            
+            targets = get_targets(
+                img, labels, indices, points, properties, self.targets_config
+            )
+        
+        return img, targets
+    
+def get_targets(targets_config, image, labels, indices, points, properties):
+    
+    targets = []
+    
+    for tc in targets_config:
+        pass
+        
+        
+    return targets
+    
+    
+    
+    
