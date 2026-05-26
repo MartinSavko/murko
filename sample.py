@@ -410,7 +410,7 @@ class Sample:
     def get_labels(self):
         return self.labels
 
-    def _get_properties(self, points=None, image_shape=None):
+    def _get_properties(self, points=None, image_shape=None, exclusive_label=None):
         if points is None:
             points = self.get_points()
         if image_shape is None:
@@ -439,6 +439,7 @@ class Sample:
         kind="mask",
         method="logical_or",
         normalize=True,
+        exclusive_label=None,
         **kwargs,
     ):
         if properties is None:
@@ -446,6 +447,9 @@ class Sample:
 
         _maps = {}
         for k, label in enumerate(self.labels):
+            if exclusive_label:
+                if label != exclusive_label:
+                    continue
             _map = getattr(properties[k], f"get_{kind}")(**kwargs)
             if len(_map.shape) == 2:
                 update_maps(_maps, label, _map, method=method)
@@ -458,9 +462,13 @@ class Sample:
                 _max = _m.max()
                 if _min != _max:
                     _maps[_n] = (_m - _min) / (_max - _min)
-
+        
+        if exclusive_label:
+            _maps = _maps[exclusive_label]
+            
         return _maps
 
+    def get_foreground_mask(self, points, image_shape
     def get_masks(self, points=None, image_shape=None):
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
         return masks
@@ -566,25 +574,25 @@ class Sample:
         offset_h, offset_v = get_offsets(point, image_shape)
         return offset_h, offset_v
 
-    def get_bbox_mask(self, points=None, image_shape=None):
+    def get_bbox_masks(self, points=None, image_shape=None):
         bbox_mask = self._get_maps(
             points, image_shape, kind="bbox_mask", method="logical_or"
         )
         return bbox_mask
 
-    def get_bbox_ltrb(self, points=None, image_shape=None):
+    def get_bbox_ltrbs(self, points=None, image_shape=None):
         bbox_ltrb = self._get_maps(
             points, image_shape, kind="bbox_ltrb", method="logical_or"
         )
         return bbox_ltrb
 
-    def get_ellipse_mask(self, points=None, image_shape=None):
+    def get_ellipse_masks(self, points=None, image_shape=None):
         ellipse_mask = self._get_maps(
             points, image_shape, kind="ellipse_mask", method="logical_or"
         )
         return ellipse_mask
 
-    def get_min_rectangle_mask(self, points=None, image_shape=None):
+    def get_min_rectangle_masks(self, points=None, image_shape=None):
         min_rectangle_mask = self._get_maps(
             points, image_shape, kind="min_rectangle_mask", method="logical_or"
         )
@@ -629,7 +637,7 @@ class Sample:
         l = labels if labels is not None else self.get_labels()
         i = indices if indices is not None else self.get_indices()
         p = points if points is not None else self.get_points()
-        _p = properties if properties is not None else self._get_properties()
+        _p = properties if properties is not None else self._get_properties(points=p)
         return l, i, p, _p
 
     def get_gang_of_five(self, labels=None, indices=None, points=None, properties=None):
@@ -734,7 +742,13 @@ class Sample:
         # voronoi = voronoi[:image_shape[0], :image_shape[1]]
         return voronoi
 
-    def get_image_and_points_and_masks(self, img_size=None, augment=False, new_background=None):
+    def get_image_and_points(
+        self, 
+        img_size=None, 
+        augment=False, 
+        new_background=None
+    ):
+    
         img = self.get_image()
         points = self.get_points()
         img_shape = img.shape[:2]
@@ -767,16 +781,15 @@ class Sample:
             if do_transform is True:
                 img, points = get_transformed_img_and_points(img, points)
 
-            masks = self.get_masks(points, img_shape)
-
             if (
-                new_background is not None
-                and do_swap_backgrounds
+                do_swap_backgrounds
                 and "background" not in self.image_path
-                and "foreground" in masks
+                and "foreground" in self.labels
+                and new_background is not None
             ):
+                foreground = self._get_maps(points, img_shape, exclusive_label="foreground")
                 img = swap_backgrounds(
-                    img, masks["foreground"], new_background, img_shape,
+                    img, foreground, new_background, img_shape,
                 )
 
             if do_random_brightness or do_random_contrast:
@@ -797,28 +810,8 @@ class Sample:
                 img_bw = img.mean(axis=2)
                 img = np.stack([img_bw] * 3, axis=2)
 
-            return img, points, masks
+            return img, points
 
-    def get_targets(
-        self,
-        image,
-        points,
-        masks,
-        targets=[
-            "foreground",
-            "pin",
-            "stem",
-            "loop",
-            "loop_inside",
-            "crystal",
-            "area_of_interest",
-            "support",
-            "plastic",
-        ],
-            
-    ):
-        
-        
 
 def plot_keypoints(s, radius=11):
     npp = s.get_aoi_keypoints()
@@ -869,7 +862,7 @@ def plot_targets(s, target="crystal"):
         r_target = ltrb_target[:,:,2]
         b_target = ltrb_target[:,:,3]
         unmask = get_unmasked_image(image.copy(), masks, target)
-        bbox_mask = s.get_bbox_mask()[target]
+        bbox_mask = s.get_bbox_masks()[target]
         bbunmask = _get_unmasked_image(image.copy(), bbox_mask)
         ltrb_bbox = get_universal_ltrb(bbox_mask)
         l_bbox = ltrb_bbox[:,:,0]
