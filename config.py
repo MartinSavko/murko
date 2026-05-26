@@ -300,7 +300,6 @@ categorical = {
     "hierarchy_crystal": ["crystal", "foreground", "background"],
 }
 
-
 class_tasks = {
     "binary_segment": {"channels": 1, "dtype": "int8"},
     "distance_transform": {"channels": 1, "dtype": "float32"},
@@ -308,6 +307,7 @@ class_tasks = {
     "sqrt_distance_transform": {"channels": 1, "dtype": "float32"},
     "sqrt_inverse_distance_transform": {"channels": 1, "dtype": "float32"},
 }
+
 instance_tasks = {
     "inner_center": {"channels": 1 + 2, "dtype": "float32"},
     "centerness": {"channels": 1, "dtype": "float32"},
