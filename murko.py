@@ -2703,8 +2703,10 @@ def get_descriptions(
                 "notion_mask": notion_mask,
             }
 
+        _pa_possible = description[possible]["pa"]
         epo_cil, epi_cil, epooa_cil, epioa_cil, pa_cil = get_extreme_point(
-            description[crystal_loop]["notion_mask"], pa=description[possible]["pa"]
+            description[crystal_loop]["notion_mask"],
+            pa=_pa_possible if description[possible]["present"] else None,
         )
         description["present"] = description[foreground]["present"]
         description["most_likely_click"] = get_most_likely_click_from_description(
@@ -2765,7 +2767,9 @@ def get_extreme_point(
 ):
     try:
         xyz = np.argwhere(projection != 0)
-        if pa is None:
+        if xyz.size == 0:
+            raise ValueError("projection mask is empty, no non-zero pixels")
+        if pa is None or not hasattr(pa, '__len__'):
             pa = principal_axes(projection)
 
         S = pa[-2]
@@ -2774,6 +2778,8 @@ def get_extreme_point(
         xyz_0 = xyz - center
 
         xyz_S = np.dot(xyz_0, S)
+        if xyz_S.size == 0:
+            raise ValueError("xyz_S is empty after PCA projection")
         xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
 
         mino = xyz_S[np.argmin(xyz_S[:, 0])]
