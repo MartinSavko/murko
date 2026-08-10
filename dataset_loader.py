@@ -11,8 +11,9 @@ import numpy as np
 
 from keras.utils import Sequence
 from sample import Sample
+from candidates import get_candidates
 
-from config import targets_config
+# from config import targets_config
 
 def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
     return max(int(pixel_budget / np.prod(img_size)), 1)
@@ -37,6 +38,8 @@ def get_img_size_as_scale_of_pixel_budget(
     img_size -= np.mod(img_size, modulo)
     return tuple(img_size)
 
+def _pre_compute(concept):
+    return "binary_segment" in concept or "distance_transform" in concept or "centerness" in concept
 
 class JsonDataset(Sequence):
     
@@ -44,6 +47,7 @@ class JsonDataset(Sequence):
         self,
         annotations,
         targets_config,
+        task_concepts,
         batch_size=1,
         dynamic_batch_size=False,
         number_batch_size_scales=32,
@@ -65,6 +69,7 @@ class JsonDataset(Sequence):
 
         self.annotations = annotations
         self.targets_config = targets_config
+        self.task_concepts = task_concepts
 
         self.batch_size = batch_size
         self.dynamic_batch_size = dynamic_batch_size
@@ -92,7 +97,7 @@ class JsonDataset(Sequence):
             self.backgrounds = [
                 sample
                 for sample in self.samples
-                if "background" in sample["image_path"]
+                if "background" in sample.image_path.lower()
             ]
 
         self.shuffle_at_0 = shuffle_at_0
@@ -150,7 +155,7 @@ class JsonDataset(Sequence):
         if idx == 0 and self.shuffle_at_0:
             random.shuffle(self.samples)
 
-        img_size, batch = self.get_img_size_and_batch()
+        img_size, batch = self.get_img_size_and_batch(idx)
         
         batch_size = len(batch)
 
@@ -159,7 +164,7 @@ class JsonDataset(Sequence):
             y = self.get_empty_batch(batch_size, img_size)
 
         for j, sample in enumerate(batch):
-            img, targets = self.get_sample(sample, img_size)
+            img, targets = self.get_image_and_targets(sample, img_size)
             x[j] = img
             if self.target:
                 for k, target in enumerate(targets):
@@ -170,7 +175,7 @@ class JsonDataset(Sequence):
 
         return x, y if self.target else x
 
-    def get_sample(self, sample, img_size, new_background=None):
+    def get_image_and_targets(self, sample, img_size, new_background=None):
 
         if self.augment and self.swap_backgrounds:
             new_background = random.choice(self.backgrounds)["image"]
@@ -181,24 +186,52 @@ class JsonDataset(Sequence):
         
         targets = None
         if self.target:
-            labels, indices, points, properties = sample._check_lipp(points=points)
-            
-            targets = get_targets(
-                img, labels, indices, points, properties, self.targets_config
-            )
+
+            pre_computed = {}
+            for concept in self.task_concepts:
+                if _pre_compute(concept):
+                    pre_computed[concept] = getattr(sample, f"get_{concept}")(points=points, image_shape=img_size)
+
+            targets = []
+            for tc in self.targets_config:
+                if tc["task"] in pre_computed:
+                    target = pre_computed[tc["name"]]
+                elif tc["task"] == "encoder":
+                    if tc["name"] == "identity":
+                        target = img.copy()
+                    elif tc["name"] == "identity_bw":
+                        target = img.mean(axis=2)
+                elif tc["task"] == "hierarchy":
+                    target = sample.get_hierarchy(points=points, notions=tc["concepts"])
+
+                else:
+                    target = getattr(sample, f'get_{tc["name"]}')(points=points)
         
         return img, targets
     
-def get_targets(targets_config, image, labels, indices, points, properties):
-    
-    targets = []
-    
+
+def main():
+    import subprocess
+    targets_config, task_concepts = get_candidates()
+    print(f'targets_config ({len(targets_config)}):')
     for tc in targets_config:
-        pass
-        
-        
-    return targets
+        print(tc)
+    print()
+    print(f"task_concepts ({len(task_concepts)}):")
+    for task_concept in task_concepts:
+        print(task_concept)
+    print()
+
+    annotations = subprocess.getoutput(f'find /nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a/ -iname "*.json"').split("\n")
+
+    print(f"number of annotations {len(annotations)}")
+    dl = JsonDataset(
+        annotations,
+        targets_config=targets_config,
+        task_concepts=task_concepts,
+    )
     
-    
-    
-    
+    return dl
+
+if __name__ == "__main__":
+    main()
