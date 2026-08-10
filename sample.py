@@ -381,7 +381,8 @@ class Sample:
         self.fractional = self.oois["fractional"]
         self.notion_importance = notion_importance
         for key in not_to_keep:
-            del self.oois[key]
+            if key in self.oois:
+                del self.oois[key]
 
     def get_target(self, head, img, points):
         pass
@@ -708,6 +709,7 @@ class Sample:
         self,
         keypoints,  # most_likely_click, aoi_start, aoi_end, aoi_top, aoi_bottom, start_possible, origin
         image_shape=None,
+        verbose=False,
     ):
         if image_shape is None:
             image_shape = self.get_image_shape()
@@ -724,14 +726,15 @@ class Sample:
                 pt = point.astype(np.int16)
                 subdiv.insert(pt)
                 present_points.append(key)
-
-        print(f"present_points {present_points}")
+        if verbose:
+            print(f"present_points {present_points}")
         facets, centers = subdiv.getVoronoiFacetList([])
-        print(f"facets {facets}")
-        print(f"centers {centers}")
-        print(f"len(facets) {len(facets)}")
-        print(f"len(centers) {len(centers)}")
-        print(f"len(present_points) {len(present_points)}")
+        if verbose:
+            print(f"facets {facets}")
+            print(f"centers {centers}")
+            print(f"len(facets) {len(facets)}")
+            print(f"len(centers) {len(centers)}")
+            print(f"len(present_points) {len(present_points)}")
         for i, key in enumerate(present_points):
             label = keypoint_labels[key]
             if i < len(facets):
@@ -809,7 +812,7 @@ class Sample:
                 img_bw = img.mean(axis=2)
                 img = np.stack([img_bw] * 3, axis=2)
 
-            return img, points
+        return img, points
 
 
 def plot_keypoints(s, radius=11):
@@ -977,7 +980,7 @@ def plot_voronoi(s):
 
         pylab.figure()
         pylab.title(f"voronoi {k}")
-        print(f"keypoints for voronio {kp}")
+        print(f"keypoints for voronoi {kp}")
         pylab.imshow(s.get_voronoi(kp))
 
         pylab.figure()

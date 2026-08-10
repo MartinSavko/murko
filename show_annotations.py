@@ -24,8 +24,16 @@ import time
 import copy
 import traceback
 
-from keypoints import get_orientation_and_direction, principal_axes
-from sample import get_label_mask_from_points, get_random_transformation, get_transformed_image, get_transformed_points
+from keypoints import (
+    get_orientation_and_direction,
+    principal_axes,
+)
+from sample import (
+    get_label_mask_from_points,
+    get_random_transformation,
+    get_transformed_image,
+    get_transformed_points,
+)
 from config import (
     colors_for_labels,
     xkcd_colors_that_i_like,
