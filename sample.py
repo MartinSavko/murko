@@ -468,7 +468,6 @@ class Sample:
             
         return _maps
 
-    def get_foreground_mask(self, points, image_shape
     def get_masks(self, points=None, image_shape=None):
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
         return masks
