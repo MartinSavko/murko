@@ -61,139 +61,192 @@ a) 2 layer output
    1 layer per distance transform or its inverse
 """
 
+concepts = [
+    "crystal",
+    "loop_inside",
+    "loop",
+    "stem",
+    "pin",
+    "ice",
+    "foreground",
+    "area_of_interest",
+    "support",
+    "explorable",
+    "aether",
+]
 
-def get_candidates(concepts=concepts):
+def get_candidates(
+    concepts=concepts,
+    wished={
+        "binary_segment": True,
+        "distance_transform": True,
+        "inverse_distance_transform": False,
+        "sqrt_distance_transform": False,
+        "sqrt_inverse_distance_transform": False,
+        "bounding_box": False,
+        "keypoints": False,
+        "encoder": True,
+        "hierarchy": True,
+        "classification": False,
+    },
+
+):
 
     task_concepts = {}
 
     # class_tasks
-    task_concepts["binary_segment"] = copy.copy(concepts)
-
-    distance_transform_concepts = copy.copy(concepts)
-    for concept in ["ice", "diffracting_area"]:
-        del distance_transform_concepts[distance_transform_concepts.index(concept)]
-    for dt in [
-        "distance_transform",
-        "inverse_distance_transform",
-        "sqrt_distance_transform",
-        "sqrt_inverse_distance_transform",
-    ]:
-        task_concepts[dt] = distance_transform_concepts
+    if wished["binary_segment"]:
+        task_concepts["binary_segment"] = copy.copy(concepts)
 
     # instance_tasks
-    bounding_box_concepts = copy.copy(concepts)
-    for concept in ["ice", "diffracting_area", "aether"]:
-        del bounding_box_concepts[bounding_box_concepts.index(concept)]
-    for it in instance_tasks:
-        if it != "encoded_shape":
-            task_concepts[it] = bounding_box_concepts
+    for task in [
+            "distance_transform",
+            "inverse_distance_transform",
+            "sqrt_distance_transform",
+            "sqrt_inverse_distance_transform",
+        ]:
+        if wished[task]:
+            distance_transform_concepts = copy.copy(concepts)
+            for concept in ["ice", "diffracting_area"]:
+                if concept in distance_transform_concepts:
+                    del distance_transform_concepts[distance_transform_concepts.index(concept)]
+            task_concepts[task] = distance_transform_concepts
 
-    encoded_shape_concepts = copy.copy(concepts)
-    for concept in [
-        "ice",
-        "diffracting_area",
-        "aether",
-        "support",
-        "explorable",
-        "foreground",
-    ]:
-        del encoded_shape_concepts[encoded_shape_concepts.index(concept)]
-    task_concepts["encoded_shape"] = encoded_shape_concepts
+    if wished["bounding_box"]:
+        bounding_box_concepts = copy.copy(concepts)
+        for concept in ["ice", "diffracting_area", "aether"]:
+            if concept in distance_transform_concepts:
+                del bounding_box_concepts[bounding_box_concepts.index(concept)]
+        task_concepts["bounding_box"] = bounding_box_concepts
+
+    # for it in instance_tasks:
+    #     if it != "encoded_shape":
+    #         task_concepts[it] = bounding_box_concepts
+    #
+    # encoded_shape_concepts = copy.copy(concepts)
+    # for concept in [
+    #     "ice",
+    #     "diffracting_area",
+    #     "aether",
+    #     "support",
+    #     "explorable",
+    #     "foreground",
+    # ]:
+    #     del encoded_shape_concepts[encoded_shape_concepts.index(concept)]
+    # task_concepts["encoded_shape"] = encoded_shape_concepts
 
     # global_tasks nothing to do
 
     # all tasks
-    tasks = {}
+    possible_tasks = {}
     for t in (class_tasks, instance_tasks, global_tasks):
-        tasks.update(t)
+        possible_tasks.update(t)
 
+    print(f"possible_tasks:")
+    for t in possible_tasks: print(t)
+    print()
+
+    print("task_concepts:")
+    print(task_concepts)
+    print()
     candidates = []
 
-    for task in tasks:
+    for task in possible_tasks:
+
         if task in task_concepts:
             for concept in task_concepts[task]:
                 head = {
-                    "name": f"{concept}_{task}",
+                    "name": concept,
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
-                    "channels": tasks[task]["channels"],
+                    "dtype": possible_tasks[task]["dtype"],
+                    "channels": possible_tasks[task]["channels"],
                     "activation": "sigmoid",
                 }
                 candidates.append(head)
-        elif task == "hierarchy":
+
+        elif task == "hierarchy" and wished["hierarchy"]:
             for hierarchy, concepts in categorical.items():
                 head = {
                     "name": hierarchy,
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
+                    "dtype": possible_tasks[task]["dtype"],
                     "channels": len(concepts),
                     "concepts": concepts,
                     "activation": "softmax",
                 }
                 candidates.append(head)
 
-        elif task == "encoder":
+        elif task == "encoder" and wished["encoder"]:
             for concept in encoders:
                 head = {
                     "name": concept,
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
+                    "dtype": possible_tasks[task]["dtype"],
                     "channels": 1 if "bw" in concept else 3,
                     "activation": "sigmoid",
                 }
                 candidates.append(head)
 
-        elif task == "keypoint":
-            print(task)
+        elif task == "keypoint" and wished["keypoints"]:
             for concept in keypoints:
                 # heatmap and offsets for every type of point
-                print(f"concept {concept}")
                 head = {
                     "name": concept,
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
-                    "channels": tasks[task]["channels"],
+                    "dtype": possible_tasks[task]["dtype"],
+                    "channels": possible_tasks[task]["channels"],
                     "activation": "sigmoid",
                 }
                 candidates.append(head)
 
-        elif task in ["keypoints_regression", "keypoints_classification"]:
+        elif task in ["keypoints_regression", "keypoints_classification"] and wished["keypoints"]:
             for k in keypoints_global_classification:
                 head = {
                     "name": f"task_{k}",
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
+                    "dtype": possible_tasks[task]["dtype"],
                     "channels": len(keypoints),
                     "concepts": keypoints,
-                    "activation": tasks[task]["activation"],
+                    "activation": possible_tasks[task]["activation"],
                 }
                 candidates.append(head)
 
-        elif task == "classification":
+        elif task == "classification" and wished["classification"]:
             for classification, concepts in classifications.items():
                 head = {
                     "name": classification,
                     "task": task,
-                    "dtype": tasks[task]["dtype"],
+                    "dtype": possible_tasks[task]["dtype"],
                     "channels": len(concepts),
                     "concepts": concepts,
                     "activation": "softmax",
                 }
                 candidates.append(head)
 
-        elif task in ["crystal_area", "crystal_position"]:
+        elif task in ["crystal_area", "crystal_position"] and wished["classification"]:
             head = {
                 "name": task,
                 "task": "classification",
-                "dtype": tasks[task]["dtype"],
-                "channels": tasks[task]["channels"],
+                "dtype": possible_tasks[task]["dtype"],
+                "channels": possible_tasks[task]["channels"],
                 "activation": "softmax",
             }
             candidates.append(head)
 
-    return candidates, task_concepts
+    return candidates, [item for item in wished if wished[item]]
 
 
 if __name__ == "__main__":
-    c = get_candidates()
-    print(c)
+    c, tc = get_candidates()
+
+    print(f'\ncandidates ({len(c)}):')
+    for can in c:
+        print(can)
+    print()
+    print(f"task_concepts ({len(tc)}):")
+    for task_concept in tc:
+        print(task_concept)
+    print()
+
+
+
