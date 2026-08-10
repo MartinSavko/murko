@@ -473,6 +473,9 @@ class Sample:
         masks = self._get_maps(points, image_shape, kind="mask", method="logical_or")
         return masks
 
+    def get_binary_segment(self, points=None, image_shape=None):
+        return self.get_masks(points, image_shape)
+
     def get_hierarchy(
         self,
         points=None,
