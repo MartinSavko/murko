@@ -186,9 +186,9 @@ line_styles = {
 # }
 
 
-regionprops = (["area", "perimeter", "aspect", "extent", "solidity"],)
+regionprops = ["area", "perimeter", "aspect", "extent", "solidity"],
 
-encoders = (["identity", "identity_bw"],)
+encoders = ["identity", "identity_bw"]
 
 keypoints = [
     "origin",
@@ -324,6 +324,7 @@ instance_tasks = {
     # may make it a variable + centerness ?
     "encoded_shape": {"channels": 1 + 20, "dtype": "float32"},
 }
+
 global_tasks = {
     # voronoi diagram around crystal inner centers, order according to crystal area or position (V*H) 
     "crystal_area": {"channels": 100, "dtype": "int8", "activation": "softmax"},
