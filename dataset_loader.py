@@ -38,8 +38,12 @@ def get_img_size_as_scale_of_pixel_budget(
     img_size -= np.mod(img_size, modulo)
     return tuple(img_size)
 
-def _pre_compute(concept):
-    return "binary_segment" in concept or "distance_transform" in concept or "centerness" in concept
+from show_annotations import timeit
+
+@timeit
+def load_samples_from_annotations(annotations):
+    samples = [Sample(item) for item in annotations]
+    return samples
 
 class JsonDataset(Sequence):
     
@@ -90,14 +94,19 @@ class JsonDataset(Sequence):
         if artificial_size_increase > 1:
             annotations = annotations * int(artificial_size_increase)
 
-        self.samples = [Sample(item) for item in annotations]
+        self.samples = load_samples_from_annotations(annotations)
         self.nsamples = len(self.samples)
 
         if self.swap_backgrounds:
+            # self.backgrounds = [
+            #     sample
+            #     for sample in self.samples
+            #     if "background" in sample.image_path.lower()
+            # ]
             self.backgrounds = [
                 sample
                 for sample in self.samples
-                if "background" in sample.image_path.lower()
+                if "foreground" not in sample.labels
             ]
 
         self.shuffle_at_0 = shuffle_at_0
@@ -183,34 +192,57 @@ class JsonDataset(Sequence):
         img, points = sample.get_image_and_points(
             img_size=img_size, augment=self.augment, new_background=new_background
         )
-        
-        targets = None
-        if self.target:
 
-            pre_computed = {}
-            for concept in self.task_concepts:
-                if _pre_compute(concept):
-                    pre_computed[concept] = getattr(sample, f"get_{concept}")(points=points, image_shape=img_size)
+        if not self.target: return img
 
-            targets = []
-            for tc in self.targets_config:
-                if tc["task"] in pre_computed:
-                    target = pre_computed[tc["name"]]
-                elif tc["task"] == "encoder":
-                    if tc["name"] == "identity":
-                        target = img.copy()
-                    elif tc["name"] == "identity_bw":
-                        target = img.mean(axis=2)
-                elif tc["task"] == "hierarchy":
-                    target = sample.get_hierarchy(points=points, notions=tc["concepts"])
+        targets = get_targets(sample, img, points, self.task_concepts, self.targets_config, self.augment, new_background=new_background)
 
-                else:
-                    target = getattr(sample, f'get_{tc["name"]}')(points=points)
-        
         return img, targets
-    
 
-def main():
+def pre_computable(concept):
+    return "binary_segment" in concept or "distance_transform" in concept or "centerness" in concept
+
+@timeit
+def pre_compute(sample, img, points, task_concepts):
+    pre_computed = {}
+    for concept in task_concepts:
+        if pre_computable(concept):
+            pre_computed[concept] = getattr(sample, f"get_{concept}")(points=points, image_shape=img.shape[:2])
+
+    return pre_computed
+
+@timeit
+def get_targets(sample, img, points, task_concepts, targets_config, augment=False, new_background=None):
+
+    pre_computed = pre_compute(sample, img, points, task_concepts)
+
+    targets = []
+    for tc in targets_config:
+        if tc["task"] in pre_computed:
+            if tc["name"] in pre_computed[tc["task"]]:
+                target = pre_computed[tc["task"]][tc["name"]]
+            else:
+                target = np.zeros(shape=img.shape[:2] + (tc["channels"],), dtype=tc["dtype"])
+        elif tc["task"] == "encoder":
+            if tc["name"] == "identity":
+                target = img.copy()
+            elif tc["name"] == "identity_bw":
+                target = img.mean(axis=2)
+        elif tc["task"] == "hierarchy":
+            target = sample.get_hierarchy(points=points, notions=tc["concepts"])
+
+        else:
+            target = getattr(sample, f'get_{tc["name"]}')(points=points)
+
+        targets.append(target)
+
+    return targets
+
+
+def main(
+    directory="/dev/shm/soleil_proxima2a",
+    # directory="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a",
+):
     import subprocess
     targets_config, task_concepts = get_candidates()
     print(f'targets_config ({len(targets_config)}):')
@@ -222,7 +254,7 @@ def main():
         print(task_concept)
     print()
 
-    annotations = subprocess.getoutput(f'find /nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a/ -iname "*.json"').split("\n")
+    annotations = subprocess.getoutput(f'find {directory} -iname "*.json"').split("\n")
 
     print(f"number of annotations {len(annotations)}")
     dl = JsonDataset(
@@ -234,4 +266,25 @@ def main():
     return dl
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-d",
+        "--directory",
+        # default="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a",
+        default="/dev/shm/soleil_proxima2a",
+        type=str,
+        help="directory",
+    )
+    args = parser.parse_args()
+    print(args)
+    main(directory=args.directory)

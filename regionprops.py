@@ -20,8 +20,14 @@ def get_rps(mask):
     return rps
 
 class Regionprops(object):
-    def __init__(self, points, image_shape=None, distance_transform_pad=2):
+    def __init__(self, points, image_shape=None, distance_transform_pad=2, negative_points=None):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
+        if negative_points is not None:
+            print("negative points")
+            print(negative_points)
+            self.negative_points = negative_points[:, ::-1]
+        else:
+            self.negative_points = negative_points
         self.image_shape = tuple(image_shape)
         self.bbox = None
         self.bbox_mask = None
@@ -78,8 +84,18 @@ class Regionprops(object):
     # @saver
     def get_mask(self, points=None, image_shape=None, pad=0):
         points, image_shape = self._check_points_and_shape(points, image_shape)
-        self.mask = self._get_mask(self.points, image_shape, pad=pad)
-        return self.mask
+        # try:
+        mask = self._get_mask(points, image_shape, pad=pad)
+        # except:
+        #     traceback.print_exc()
+        #     print("points", points)
+        #     print("image_shape", image_shape)
+        #     print("pad", pad)
+        if self.negative_points is not None:
+            print("applying negative mask")
+            negative_mask = self._get_mask(self.negative_points, image_shape, pad=pad)
+            mask[negative_mask.astype(bool)] = 0
+        return mask
 
     # @saver
     def get_mask_points(self):

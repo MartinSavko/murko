@@ -411,6 +411,16 @@ class Sample:
     def get_labels(self):
         return self.labels
 
+    def get_label_points(self, label, points, image_shape):
+        label_points = None
+        idx = self.labels.index(label) if label in self.labels else None
+        if idx is not None:
+            i_start, i_end = self.indices[idx]
+            label_points = points[i_start: i_end]
+            if self.fractional:
+                label_points *= image_shape
+        return label_points
+
     def _get_properties(self, points=None, image_shape=None, exclusive_label=None):
         if points is None:
             points = self.get_points()
@@ -419,14 +429,16 @@ class Sample:
 
         properties = []
         for k, label in enumerate(self.labels):
+            print("label:", label)
             i_start, i_end = self.indices[k]
-            ps = points[i_start:i_end]
+            ps = points[i_start: i_end]
             if self.fractional:
                 ps *= image_shape
             props = Regionprops(
                 ps,
                 image_shape=image_shape,
                 distance_transform_pad=0 if label == "aether" else 2,
+                negative_points=self.get_label_points("loop_inside", points, image_shape) if label == "plastic" else None,
             )
             properties.append(props)
 
@@ -448,6 +460,8 @@ class Sample:
 
         _maps = {}
         for k, label in enumerate(self.labels):
+            if label == "plastic":
+                print("label", label)
             if exclusive_label:
                 if label != exclusive_label:
                     continue
