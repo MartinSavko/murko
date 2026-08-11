@@ -54,7 +54,7 @@ def add_ooi(ooi, label, points, indices, labels, properties, image_shape):
     points = np.vstack([points, ooi]) if len(points) else ooi
     indices.append((i_start, i_end))
     labels.append(label)
-    properties.append(Regionprops(ooi, image_shape))
+    properties.append(Regionprops(ooi, image_shape=image_shape))
 
     return points, indices, labels, properties
 
@@ -71,7 +71,7 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
         if fractional:
             ps *= image_shape
 
-        mask = properties[k].get_mask(image_shape)
+        mask = properties[k].get_mask(image_shape=image_shape)
         masks = update_maps(masks, label, mask)
         if label != "background":
             masks = update_maps(masks, "foreground", mask)
@@ -83,7 +83,7 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
             masks = update_maps(masks, "support", mask)
 
         if label in ["crystal", "loop", "stem"]:
-            mask = update_maps(masks, "explorable", mask)
+            masks = update_maps(masks, "explorable", mask)
 
     if "support" in masks and "pin" in masks:
         masks["support"][masks["pin"].astype(bool)] = 0
