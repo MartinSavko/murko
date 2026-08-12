@@ -23,8 +23,8 @@ class Regionprops(object):
     def __init__(self, points, image_shape=None, distance_transform_pad=2, negative_points=None):
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
         if negative_points is not None:
-            print("negative points")
-            print(negative_points)
+            # print("negative points")
+            # print(negative_points)
             self.negative_points = negative_points[:, ::-1]
         else:
             self.negative_points = negative_points
@@ -92,7 +92,7 @@ class Regionprops(object):
         #     print("image_shape", image_shape)
         #     print("pad", pad)
         if self.negative_points is not None:
-            print("applying negative mask")
+            # print("applying negative mask")
             negative_mask = self._get_mask(self.negative_points, image_shape, pad=pad)
             mask[negative_mask.astype(bool)] = 0
         return mask
