@@ -3,6 +3,7 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+import time
 import random
 import numpy as np
 import cv2 as cv
@@ -45,7 +46,17 @@ from keypoints import (
     get_gang_of_five,
     # draw_point,
 )
+def timeit(func):
+    # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
+    def timed(*args, **kw):
+        ts = time.time()
+        result = func(*args, **kw)
+        te = time.time()
 
+        print("func:%r took: %2.8f sec" % (func.__name__, te - ts))
+        return result
+
+    return timed
 
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
@@ -78,23 +89,31 @@ def get_transposed_img_and_points(img, points):
     tpoints = points[:, ::-1]
     return timg, tpoints
 
+# @timeit
+def make_points_homogeneous(points):
+    hpoints = np.append(points, np.ones((points.shape[0], 1)), axis=1)
+    return hpoints
 
-def get_transformed_points(points, transformation_matrix):
-    points = points[:, [1, 0, 2]]
+
+def get_transformed_points(points, transformation_matrix, order=[1, 0, 2]):
+    if len(points.shape) == 2:
+        points = make_points_homogeneous(points)
+    points = points[:, order]
     transformed_points = np.dot(transformation_matrix, points.T).T
-    transformed_points = transformed_points[:, [1, 0, 2]]
-    return transformed_points
+    transformed_points = transformed_points[:, order]
+    return transformed_points[:, :2]
 
 
 def get_transformed_img_and_points(img, points):
-    transformation = get_random_transformation()
+    transformation = get_random_transformation(img_shape=img.shape[:2])
     timage = get_transformed_image(img, transformation)
     tpoints = get_transformed_points(points, transformation._inv_matrix)
     return timage, tpoints
 
 
+@timeit
 def get_transformed_image(
-    img, transformation, output_shape=None, doer="ski", cval=-1, mode="constant"
+    img, transformation, output_shape=None, doer="cv", cval=-1, mode="constant"
 ):
     if output_shape is None:
         output_shape = img.shape
@@ -110,10 +129,11 @@ def get_transformed_image(
         transformed_image = cv.warpAffine(
             img,
             transformation._inv_matrix[:2, :],
-            output_shape[::-1],
+            output_shape[:2][::-1],
             borderValue=[cval] * 3,
             borderMode=borderMode,
         )
+    print(f"tranformed image shape {transformed_image.shape}, input_shape {img.shape}")
     return transformed_image
 
 
@@ -148,18 +168,19 @@ def get_resized_image(
 # shift_factor=0.25,
 # shear_factor=45,
 # default_transform_gang=[0, 0, 0, 0, 1, 1],
+@timeit
 def get_random_transformation(
-    rotation_range=np.pi,
+    rotation_range=np.pi/4,
     scale_range=0.5,
     translation_range=0.25,
-    shear_range=0.5 * np.pi,
+    shear_range=np.pi/6,
     img_shape=np.array((1200, 1600)),
-    rotation_center="random",
+    rotation_center="center",
 ):
     if rotation_center == "random":
         r_center = np.random.random(size=2) * img_shape
     else:
-        r_center = img_shape / 2
+        r_center = np.array(img_shape) / 2
 
     shift_c = ski.transform.AffineTransform(translation=-r_center)
     shift_invc = ski.transform.AffineTransform(translation=+r_center)
@@ -387,9 +408,11 @@ class Sample:
     def get_target(self, head, img, points):
         pass
 
-    def get_blank_hierarchy(self, notions):
+    def get_blank_hierarchy(self, notions, image_shape=None):
+        if image_shape is None:
+            image_shape = self.get_image_shape()
         blank_hierarchy = np.zeros(
-            self.get_image_shape() + (len(notions),), dtype=np.int8
+            image_shape + (len(notions),), dtype=np.int8
         )
         return blank_hierarchy
 
@@ -429,7 +452,6 @@ class Sample:
 
         properties = []
         for k, label in enumerate(self.labels):
-            print("label:", label)
             i_start, i_end = self.indices[k]
             ps = points[i_start: i_end]
             if self.fractional:
@@ -460,8 +482,6 @@ class Sample:
 
         _maps = {}
         for k, label in enumerate(self.labels):
-            if label == "plastic":
-                print("label", label)
             if exclusive_label:
                 if label != exclusive_label:
                     continue
@@ -493,6 +513,7 @@ class Sample:
     def get_hierarchy(
         self,
         points=None,
+        image_shape=None,
         notions=[
             "crystal",
             "loop_inside",
@@ -505,8 +526,8 @@ class Sample:
     ):
         notions.sort(key=lambda x: -self.notion_importance[x])
         values = dict((notion, k) for k, notion in enumerate(notions))
-        hierarchy = self.get_blank_hierarchy(notions)
-        masks = self.get_masks(points)
+        hierarchy = self.get_blank_hierarchy(notions, image_shape=image_shape)
+        masks = self.get_masks(points=points, image_shape=image_shape)
         for notion in notions:
             if notion in masks:
                 hierarchy[:, :, values[notion]] = (
@@ -765,11 +786,19 @@ class Sample:
         self, 
         img_size=None, 
         augment=False, 
-        new_background=None
+        new_background=None,
+        require_transpose=False,
+        disallow_transpose=False,
     ):
     
         img = self.get_image()
         points = self.get_points()
+
+        already_transposed = False
+        if require_transpose and not disallow_transpose:
+            img, points = get_transposed_img_and_points(img, points)
+            already_transposed = True
+
         img_shape = img.shape[:2]
 
         if img_size is not None and size_differs(img_size, img_shape):
@@ -794,15 +823,16 @@ class Sample:
             if do_flip is True:
                 img, points = get_flipped_img_and_points(img, points)
 
-            if do_transpose is True:
+            if do_transpose is True and not already_transposed and not disallow_transpose:
+                print(f"transposing the image {already_transposed} {require_transpose} {disallow_transpose}")
                 img, points = get_transposed_img_and_points(img, points)
+                img_shape = img.shape[:2]
 
-            if do_transform is True:
-                img, points = get_transformed_img_and_points(img, points)
+            # if do_transform is True:
+            #     img, points = get_transformed_img_and_points(img, points)
 
             if (
                 do_swap_backgrounds
-                and "background" not in self.image_path
                 and "foreground" in self.labels
                 and new_background is not None
             ):
@@ -811,14 +841,14 @@ class Sample:
                     img, foreground, new_background, img_shape,
                 )
 
-            if do_random_brightness or do_random_contrast:
-                # https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html
-                alpha, beta = 1.0, 0.0
-                if do_random_brightness:
-                    beta = 100 * (random.random())
-                if do_random_contrast:
-                    alpha += random.random() * 2
-                img = cv.convertScaleAbs(img, alpha=alpha, beta=beta)
+            # if do_random_brightness or do_random_contrast:
+            #     # https://docs.opencv.org/4.x/d3/dc1/tutorial_basic_linear_transform.html
+            #     alpha, beta = 1.0, 0.0
+            #     if do_random_brightness:
+            #         beta = 50 * (random.random())
+            #     if do_random_contrast:
+            #         alpha += random.random()
+            #     img = cv.convertScaleAbs(img, alpha=alpha, beta=beta)
 
             if do_random_channel_shift and not do_black_and_white:
                 channel_order = [0, 1, 2]
