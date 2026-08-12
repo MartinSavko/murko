@@ -3,16 +3,30 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+import time
 import copy
 import copy
 import math
 import random
 import numpy as np
+import traceback
+import pylab
 
 from keras.utils import Sequence
 from sample import Sample
 from candidates import get_candidates
 
+def timeit(func):
+    # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
+    def timed(*args, **kw):
+        ts = time.time()
+        result = func(*args, **kw)
+        te = time.time()
+
+        print("func:%r took: %2.8f sec" % (func.__name__, te - ts))
+        return result
+
+    return timed
 # from config import targets_config
 
 def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
@@ -38,7 +52,6 @@ def get_img_size_as_scale_of_pixel_budget(
     img_size -= np.mod(img_size, modulo)
     return tuple(img_size)
 
-from show_annotations import timeit
 
 @timeit
 def load_samples_from_annotations(annotations):
@@ -112,6 +125,8 @@ class JsonDataset(Sequence):
         self.shuffle_at_0 = shuffle_at_0
         self.target = target
 
+        self.require_transpose = False
+        self.disallow_transpose = True
         self.verbose = verbose
 
         super().__init__(
@@ -158,6 +173,15 @@ class JsonDataset(Sequence):
             end_index = start_index + batch_size
             batch = self.samples[start_index: end_index]
 
+        # transpose should probably better be decided on the batch level
+        if self.augment and random.random() < 0.5:
+            self.require_transpose = True
+            self.disallow_transpose = False
+            img_size = img_size[::-1]
+        else:
+            self.require_transpose = False
+            self.disallow_transpose = True
+
         return img_size, batch
 
     def __getitem__(self, idx):
@@ -177,20 +201,25 @@ class JsonDataset(Sequence):
             x[j] = img
             if self.target:
                 for k, target in enumerate(targets):
-                    y[k][j] = target[k]
+                    y[k][j] = target
 
         if self.target and len(y) == 1:
             y = y[0]
 
         return x, y if self.target else x
 
+    @timeit
     def get_image_and_targets(self, sample, img_size, new_background=None):
 
         if self.augment and self.swap_backgrounds:
-            new_background = random.choice(self.backgrounds)["image"]
+            new_background = random.choice(self.backgrounds).get_image()
         
         img, points = sample.get_image_and_points(
-            img_size=img_size, augment=self.augment, new_background=new_background
+            img_size=img_size,
+            augment=self.augment,
+            new_background=new_background,
+            require_transpose=self.require_transpose,
+            disallow_transpose=self.disallow_transpose,
         )
 
         if not self.target: return img
@@ -202,7 +231,7 @@ class JsonDataset(Sequence):
 def pre_computable(concept):
     return "binary_segment" in concept or "distance_transform" in concept or "centerness" in concept
 
-@timeit
+# @timeit
 def pre_compute(sample, img, points, task_concepts):
     pre_computed = {}
     for concept in task_concepts:
@@ -211,7 +240,7 @@ def pre_compute(sample, img, points, task_concepts):
 
     return pre_computed
 
-@timeit
+# @timeit
 def get_targets(sample, img, points, task_concepts, targets_config, augment=False, new_background=None):
 
     pre_computed = pre_compute(sample, img, points, task_concepts)
@@ -225,18 +254,45 @@ def get_targets(sample, img, points, task_concepts, targets_config, augment=Fals
                 target = np.zeros(shape=img.shape[:2] + (tc["channels"],), dtype=tc["dtype"])
         elif tc["task"] == "encoder":
             if tc["name"] == "identity":
-                target = img.copy()
+                target = img
             elif tc["name"] == "identity_bw":
-                target = img.mean(axis=2)
+                target = img.mean(axis=2, keepdims=True)
         elif tc["task"] == "hierarchy":
-            target = sample.get_hierarchy(points=points, notions=tc["concepts"])
-
+            target = sample.get_hierarchy(points=points, image_shape=img.shape[:2], notions=tc["concepts"])
         else:
             target = getattr(sample, f'get_{tc["name"]}')(points=points)
+
+        if target.shape != img.shape[:2] + (tc["channels"],):
+            try:
+                target = np.reshape(target, img.shape[:2] + (tc["channels"],))
+            except:
+                traceback.print_exc()
 
         targets.append(target)
 
     return targets
+
+def plot_image_and_targets(image, targets, targets_config, figsize=(24, 16)):
+
+    N = 1 + len(targets)
+    rows = np.floor(np.sqrt(N))
+    cols = np.ceil(N/rows)
+    assert rows * cols >= N
+    fig, axes = pylab.subplots(int(rows), int(cols), figsize=figsize)
+    axs = axes.flatten()
+    axs[0].imshow(image[0])
+    axs[0].set_title("Input image")
+    axs[0].set_axis_off()
+
+    for k, (target, config) in enumerate(zip(targets, targets_config)):
+        if config["channels"] in [1, 3]:
+            axs[k+1].imshow(target[0])
+        else:
+            axs[k+1].imshow(np.argmax(target[0], axis=2))
+        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "")
+        axs[k+1].set_title(title)
+        axs[k+1].set_axis_off()
+
 
 
 def main(
