@@ -33,6 +33,7 @@ from sample import (
     get_random_transformation,
     get_transformed_image,
     get_transformed_points,
+    make_points_homogeneous,
 )
 from config import (
     colors_for_labels,
@@ -42,6 +43,17 @@ from config import (
     line_styles,
 )
 
+def timeit(func):
+    # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
+    def timed(*args, **kw):
+        ts = time.time()
+        result = func(*args, **kw)
+        te = time.time()
+
+        print("func:%r took: %2.8f sec" % (func.__name__, te - ts))
+        return result
+
+    return timed
 
 # 8 + 1 + 2 + 8 + 8 + 4 = 31
 targets = {
@@ -116,19 +128,6 @@ targets = {
 # "not_background": 11,
 # "background": 100.0,
 # },
-
-
-def timeit(func):
-    # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
-    def timed(*args, **kw):
-        ts = time.time()
-        result = func(*args, **kw)
-        te = time.time()
-
-        print("func:%r took: %2.8f sec" % (func.__name__, te - ts))
-        return result
-
-    return timed
 
 
 def saver(func, force=False):
@@ -837,12 +836,6 @@ def get_aoi_mask(oois):
         oois, ["crystal", "loop_inside", "loop", "cd_loop", "cd_stem"]
     )
     return aoi_mask
-
-
-# @timeit
-def make_points_homogeneous(points):
-    hpoints = np.append(points, np.ones((points.shape[0], 1)), axis=1)
-    return hpoints
 
 
 def get_corners():
