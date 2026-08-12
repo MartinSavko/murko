@@ -71,6 +71,7 @@ concepts = [
     "foreground",
     "area_of_interest",
     "support",
+    "plastic",
     "explorable",
     "aether",
 ]
