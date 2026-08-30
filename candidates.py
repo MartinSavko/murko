@@ -13,6 +13,7 @@ from config import (
     class_tasks,
     instance_tasks,
     global_tasks,
+    keypoints_global_singletons,
     keypoints_global_classification,
 )
 
@@ -63,6 +64,7 @@ a) 2 layer output
 
 concepts = [
     "crystal",
+    "crystal_aether",
     "loop_inside",
     "loop",
     "stem",
@@ -70,7 +72,7 @@ concepts = [
     "ice",
     "foreground",
     "area_of_interest",
-    "support",
+    # "support",
     "plastic",
     "explorable",
     "aether",
@@ -85,10 +87,10 @@ def get_candidates(
         "sqrt_distance_transform": False,
         "sqrt_inverse_distance_transform": False,
         "bounding_box": False,
-        "keypoints": False,
+        "keypoints": True,
         "encoder": True,
         "hierarchy": True,
-        "classification": False,
+        "classification": True,
     },
 
 ):
@@ -120,6 +122,7 @@ def get_candidates(
                 del bounding_box_concepts[bounding_box_concepts.index(concept)]
         task_concepts["bounding_box"] = bounding_box_concepts
 
+    
     # for it in instance_tasks:
     #     if it != "encoded_shape":
     #         task_concepts[it] = bounding_box_concepts
@@ -161,7 +164,7 @@ def get_candidates(
                     "task": task,
                     "dtype": possible_tasks[task]["dtype"],
                     "channels": possible_tasks[task]["channels"],
-                    "activation": "sigmoid",
+                    "activation": possible_tasks[task]["activation"],
                 }
                 candidates.append(head)
 
@@ -173,7 +176,7 @@ def get_candidates(
                     "dtype": possible_tasks[task]["dtype"],
                     "channels": len(concepts),
                     "concepts": concepts,
-                    "activation": "softmax",
+                    "activation": possible_tasks[task]["activation"],
                 }
                 candidates.append(head)
 
@@ -184,26 +187,26 @@ def get_candidates(
                     "task": task,
                     "dtype": possible_tasks[task]["dtype"],
                     "channels": 1 if "bw" in concept else 3,
-                    "activation": "sigmoid",
+                    "activation": possible_tasks[task]["activation"],
                 }
                 candidates.append(head)
 
-        elif task == "keypoint" and wished["keypoints"]:
-            for concept in keypoints:
+        elif task in ["keypoints_centerness", "keypoints_voffsets", "keypoints_hoffsets"] and wished["keypoints"]:
+            for concept in keypoints_global_singletons:
                 # heatmap and offsets for every type of point
                 head = {
-                    "name": concept,
+                    "name": f'{keypoints_global_singletons[concept][0]}_{task}',
                     "task": task,
                     "dtype": possible_tasks[task]["dtype"],
                     "channels": possible_tasks[task]["channels"],
-                    "activation": "sigmoid",
+                    "activation": possible_tasks[task]["activation"],
                 }
                 candidates.append(head)
 
-        elif task in ["keypoints_regression", "keypoints_classification"] and wished["keypoints"]:
             for k in keypoints_global_classification:
+                keypoints = keypoints_global_classification[k]
                 head = {
-                    "name": f"task_{k}",
+                    "name": f"global_{task}_{k}",
                     "task": task,
                     "dtype": possible_tasks[task]["dtype"],
                     "channels": len(keypoints),
@@ -224,15 +227,15 @@ def get_candidates(
                 }
                 candidates.append(head)
 
-        elif task in ["crystal_area", "crystal_position"] and wished["classification"]:
-            head = {
-                "name": task,
-                "task": "classification",
-                "dtype": possible_tasks[task]["dtype"],
-                "channels": possible_tasks[task]["channels"],
-                "activation": "softmax",
-            }
-            candidates.append(head)
+        # elif task in ["crystal_area", "crystal_position"] and wished["classification"]:
+        #     head = {
+        #         "name": task,
+        #         "task": "classification",
+        #         "dtype": possible_tasks[task]["dtype"],
+        #         "channels": possible_tasks[task]["channels"],
+        #         "activation": "softmax",
+        #     }
+        #     candidates.append(head)
 
     return candidates, [item for item in wished if wished[item]]
 
