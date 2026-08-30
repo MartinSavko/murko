@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from skimage.morphology import remove_small_objects
-from skimage.measure import regionprops
-from skimage.transform import resize
-
 import os
 import time
 import traceback
+import pickle
+
+from skimage.morphology import remove_small_objects
+from skimage.measure import regionprops
+from skimage.transform import resize
 
 import matplotlib.pyplot as plt
 import pylab
@@ -16,13 +17,107 @@ from keras.preprocessing.image import save_img, load_img, img_to_array, array_to
 import scipy.ndimage as ndi
 import numpy as np
 import random
-from dataset_loader import (
-    get_hierarchical_mask_from_target,
-    get_transposed_img_and_target,
-    get_transformed_img_and_target,
-    get_flipped_img_and_target,
-)
+import cv2 as cv
+import seaborn as sns
+
 from keypoints import principal_axes
+
+def hex_to_rgb(_hex):
+    if _hex.startswith("#"):
+        _hex = _hex[1:]
+    return tuple(int(_hex[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(_rgb):
+    return ("{:02X}" * 3).format(*_rgb)
+
+
+def get_color(colorin):
+    if type(colorin) is str:
+        color = hex_to_rgb(sns.xkcd_rgb[colorin])
+    else:
+        color = [int(255 * item) for item in colorin]
+    return color
+
+
+black = (0, 0, 0)
+white = (1, 1, 1)
+yellow = (1, 0.706, 0)
+blue = (0, 0.706, 1)
+green = (0.706, 1, 0)
+magenta = (0.706, 0, 1)
+cyan = (0, 1, 0.706)
+purpre = (1, 0, 0.706)
+
+
+def get_lut(
+    negative=False,
+    notions=[
+        "background",
+        "foreground",
+        "pin",
+        "stem",
+        "loop",
+        "loop_inside",
+        "crystal",
+    ],
+    colors_for_labels= {
+        "crystal": green,
+        "crystal_aether": "pale sky blue",
+        "loop": purpre,
+        "loop_inside": blue,
+        "stem": cyan,
+        "pin": magenta,
+        "foreground": white,
+        "background": black,
+        "area_of_interest": "crimson",
+        "support": cyan,
+        "plastic": cyan,
+        "aether" : blue,
+        "explorable": "light blue",
+        "ice": "ice",
+        "capillary": "faded blue",
+        "drop": "orangeish",
+        "diffracting_area": "fire engine red",
+        "standard": "canary",
+        "mitegen": "booger green",
+        "crystal_direct": "muted pink",
+        "void": "cool grey",
+    },
+    verbose=True,
+):
+    lut = np.zeros((256, 1, 3))
+    for k, notion in enumerate(notions):
+        if negative and notion in ["foreground", "not_background"]:
+            colorin = colors_for_labels["background"]
+        elif negative and notion in ["background"]:
+            colorin = colors_for_labels["foreground"]
+        else:
+            colorin = colors_for_labels[notion]
+
+        color = get_color(colorin)
+        if verbose:
+            print(f"transform {colorin} to {color}")
+        lut[k] = color
+
+    for k in range(len(notions), len(lut)):
+        if negative:
+            lut[k] = (1, 1, 1)
+        else:
+            lut[k] = (0, 0, 0)
+
+    lut = lut.astype("uint8")
+
+    return lut
+
+
+def label2rgb(label, lut=None):
+    if len(label.shape) == 2:
+        label = cv.cvtColor(label, cv.COLOR_GRAY2RGB)
+    if lut is None:
+        lut = get_lut()
+    rgb = cv.LUT(label, lut)
+    return rgb
 
 
 def generate_click_loss_and_metric_figures(
@@ -132,7 +227,7 @@ class ClickLoss(keras.losses.MeanSquaredError):
 
 def gauss2d(x=0, y=0, mx=0, my=0, sx=1, sy=1):
     return np.exp(
-        -((x - mx) ** 2.0 / (2.0 * sx ** 2.0) + (y - my) ** 2.0 / (2.0 * sy ** 2.0))
+        -((x - mx) ** 2.0 / (2.0 * sx**2.0) + (y - my) ** 2.0 / (2.0 * sy**2.0))
     )
 
 
@@ -470,15 +565,20 @@ def plot_history(
     history,
     h=None,
     notions=[
-        "crystal",
-        "loop_inside",
-        "loop",
-        "stem",
-        "pin",
-        "capillary",
-        "ice",
-        "foreground",
+        "crystal_binary_segment",
+        "area_of_interest_binary_segment",
+        "plastic_binary_segment",
+        "explorable_binary_segment",
+        "loop_inside_binary_segment",
+        "stem_binary_segment",
+        "pin_binary_segment",
+        "ice_binary_segment",
+        "foreground_binary_segment",
+        "aether_binary_segment",
     ],
+    bottom=-0.05,
+    top=1.05,
+    display=False,
 ):
 
     template = history.replace(".history", "")
@@ -493,22 +593,37 @@ def plot_history(
     plt.figure(figsize=(16, 9))
     plt.plot(epochs, loss, "bo-", label="Training loss")
     plt.plot(epochs, val_loss, "ro-", label="Validation loss")
-    plt.title("Training and validation loss")
+    plt.title(f"Training and validation loss {os.path.basename(template)}")
+    plt.xlim((1 - 0.75, len(h["loss"]) + 0.75))
+    plt.ylim(bottom=bottom)
+    ticks = np.linspace(1, len(h["loss"]), 6)
+    labels = [str(item) for item in ticks.astype(int)]
+    plt.xticks(ticks, labels)
+    plt.grid(True)
     plt.legend()
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
     plt.savefig(f"{template}_losses.png")
 
     plt.figure(figsize=(16, 9))
-    plt.title(template)
+    plt.title(f"Validation metrics {os.path.basename(template)}")
     for notion in notions:
         key = "val_%s_BIoU_1" % notion
         if key in h:
-            plt.plot(h[key], "o-", label=notion)
+            plt.plot(epochs, h[key], "o-", label=notion)
         else:
             continue
-    plt.ylim([-0.1, 1.1])
+    plt.xlim((1 - 0.75, len(h["loss"]) + 0.75))
+    plt.ylim((bottom, top))
+    plt.xticks(ticks, labels)
+    plt.xlabel("Epoch")
+    plt.ylabel("Metrics")
     plt.grid(True)
     plt.legend()
     plt.savefig(f"{template}_metrics.png")
+
+    if display:
+        plt.show()
 
 
 def get_generator(
@@ -1530,3 +1645,31 @@ def get_flops(model_h5_path):
             )
 
             return flops.total_float_ops
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "-H",
+        "--history",
+        type=str,
+        default="results/fcdn103_pc4_fixed_64x64_fs_3.history",
+        help="history",
+    )
+    parser.add_argument(
+        "-D",
+        "--display",
+        action="store_true",
+        help="display",
+    )
+
+    args = parser.parse_args()
+
+    print(args)
+
+    plot_history(args.history, display=args.display)
