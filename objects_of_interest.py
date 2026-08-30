@@ -10,6 +10,8 @@ import json
 import traceback
 import numpy as np
 import cv2 as cv
+import imageio
+
 from labelme import utils
 from config import additional_labels, notion_importance, keypoints, keypoint_labels
 from regionprops import Regionprops
@@ -21,13 +23,27 @@ def load_json(
     return f
 
 
-def get_image(json_file):
+def get_image(json_file, json_path=None):
     imageData = json_file.get("imageData")
     if imageData is not None:
         image = utils.img_b64_to_arr(imageData) / 255.0
     else:
-        image = imageio.imread(json_file.get("imagePath"))
-    return image
+        if json_path is not None:
+            image_path = os.path.join(os.path.dirname(json_path), json_file.get("imagePath"))
+        else:
+            image_path = json_file.get("imagePath")
+        image = imageio.imread(image_path)
+
+        if image.dtype == "uint8":
+            image = image / 255.0
+        
+    if image.shape[0] == 3:
+        image = np.moveaxis(image, 0, -1)
+    
+    if len(image.shape) == 2:
+        image = np.stack([image] * 3, axis=2)
+    
+    return image.astype("float32")
 
 
 def get_image_shape(json_file):
@@ -95,9 +111,11 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
 
     if "background" in masks:
         masks["aether"] = masks["background"].copy()
+        masks["crystal_aether"] = masks["background"].copy()
         if "foreground" in masks:
             masks["aether"][masks["foreground"].astype(bool)] = 0
-
+        if "crystal" in masks:
+            masks["crystal_aether"][masks["crystal"].astype(bool)] = 0
     return masks
 
 
@@ -140,6 +158,7 @@ def add_derived_notions(
         "explorable",
         "plastic",
         "aether",
+        "crystal_aether",
     ],
 ):
     
@@ -164,21 +183,43 @@ def add_derived_notions(
 
 
 def get_objects_of_interest(
-    json_file, fractional=False, unit_square=np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
+    json_file, 
+    fractional=False, 
+    unit_square=np.array([[0, 0], [1, 0], [1, 1], [0, 1]]), 
+    json_path=None,
 ):
     if type(json_file) is str and os.path.isfile(json_file):
+        json_path = json_file
         json_file = load_json(json_file)
-
-    image = get_image(json_file)
+        realpath = os.path.realpath(json_path)
+    else:
+        json_path = None
+        realpath = None
+    
+    image = get_image(json_file, json_path=json_path)
+    
     image_shape = get_image_shape(json_file)
     image_path = get_image_path(json_file)
 
     points, indices, labels, properties = [], [], [], []
 
+    support_type = None
+
     for shape in get_shapes(json_file):
-        label = shape["label"]
-        if label in additional_labels:
-            label = additional_labels[label]
+        raw_label = shape["label"]
+        if raw_label in additional_labels:
+            label = additional_labels[raw_label]
+        else:
+            label = raw_label
+            
+        if label == "loop":
+            if raw_label == "loop":
+                support_type = "standard"
+            elif "mt" in raw_label:
+                support_type = "mitegen"
+            elif "cd" in raw_label:
+                support_type = "crystal_direct"
+
         ooi = np.array(shape["points"])
         ooi = ooi[
             :, ::-1  # swap x and y (labelme uses [h, v] convention, we use [v, h]
@@ -204,8 +245,10 @@ def get_objects_of_interest(
     points, indices, labels, properties, masks = add_derived_notions(
         points, indices, labels, properties, image_shape, fractional=fractional
     )
-
+    
     objects_of_interest = {
+        "realpath": realpath,
+        "json_path": json_path,
         "image": image,
         "image_shape": image_shape,
         "image_path": image_path,
@@ -215,6 +258,7 @@ def get_objects_of_interest(
         "points": points,
         "properties": properties,
         "masks": masks,
+        "support_type": support_type,
     }
 
     return objects_of_interest
