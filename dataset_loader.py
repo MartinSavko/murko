@@ -12,9 +12,15 @@ import numpy as np
 import traceback
 import pylab
 
-from keras.utils import Sequence
+from keras.utils import Sequence, PyDataset, to_categorical
 from sample import Sample
 from candidates import get_candidates
+
+from utils import (
+    label2rgb,
+)
+
+from config import luts
 
 def timeit(func):
     # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
@@ -27,10 +33,9 @@ def timeit(func):
         return result
 
     return timed
-# from config import targets_config
 
-def get_dynamic_batch_size(img_size, pixel_budget=768 * 992):
-    return max(int(pixel_budget / np.prod(img_size)), 1)
+
+# from config import targets_config
 
 
 def get_batch(i, img_paths, batch_size):
@@ -54,21 +59,23 @@ def get_img_size_as_scale_of_pixel_budget(
 
 
 @timeit
-def load_samples_from_annotations(annotations):
-    samples = [Sample(item) for item in annotations]
+def load_samples_from_annotations(annotations, preferred_image_size=None):
+    samples = [
+        Sample(item, preferred_image_size=preferred_image_size) for item in annotations
+    ]
     return samples
 
-class JsonDataset(Sequence):
-    
+
+class JsonDataset(PyDataset):
+
     def __init__(
         self,
         annotations,
         targets_config,
-        task_concepts,
         batch_size=1,
         dynamic_batch_size=False,
         number_batch_size_scales=32,
-        img_size=(256, 320),
+        img_size=(256, 256),
         possible_ratios=[0.75, 1.0],
         augment=False,
         swap_backgrounds=True,
@@ -79,14 +86,14 @@ class JsonDataset(Sequence):
         shuffle_at_0=False,
         target=True,
         verbose=False,
-        workers=10,
-        use_multiprocessing=True,
-        max_queue_size=10,
+        workers=32,
+        use_multiprocessing=False,
+        max_queue_size=128,
     ):
 
         self.annotations = annotations
         self.targets_config = targets_config
-        self.task_concepts = task_concepts
+        self.task_concepts = list(set([item["task"] for item in self.targets_config]))
 
         self.batch_size = batch_size
         self.dynamic_batch_size = dynamic_batch_size
@@ -102,12 +109,13 @@ class JsonDataset(Sequence):
         self.augment = augment
         self.swap_backgrounds = swap_backgrounds
         self.pixel_budget = pixel_budget
-        
-        self.artificial_size_increase = artificial_size_increase
-        if artificial_size_increase > 1:
-            annotations = annotations * int(artificial_size_increase)
 
-        self.samples = load_samples_from_annotations(annotations)
+        self.load_samples(self.img_size)
+
+        self.artificial_size_increase = artificial_size_increase
+        if self.artificial_size_increase > 1:
+            self.samples *= self.artificial_size_increase
+
         self.nsamples = len(self.samples)
 
         if self.swap_backgrounds:
@@ -117,9 +125,7 @@ class JsonDataset(Sequence):
             #     if "background" in sample.image_path.lower()
             # ]
             self.backgrounds = [
-                sample
-                for sample in self.samples
-                if "foreground" not in sample.labels
+                sample for sample in self.samples if "foreground" not in sample.labels
             ]
 
         self.shuffle_at_0 = shuffle_at_0
@@ -133,6 +139,11 @@ class JsonDataset(Sequence):
             workers=workers,
             use_multiprocessing=use_multiprocessing,
             max_queue_size=max_queue_size,
+        )
+
+    def load_samples(self, preferred_image_size=None):
+        self.samples = load_samples_from_annotations(
+            self.annotations, preferred_image_size=preferred_image_size
         )
 
     def __len__(self):
@@ -171,7 +182,7 @@ class JsonDataset(Sequence):
             batch_size = self.batch_size
             start_index = idx * self.batch_size
             end_index = start_index + batch_size
-            batch = self.samples[start_index: end_index]
+            batch = self.samples[start_index:end_index]
 
         # transpose should probably better be decided on the batch level
         if self.augment and random.random() < 0.5:
@@ -189,7 +200,7 @@ class JsonDataset(Sequence):
             random.shuffle(self.samples)
 
         img_size, batch = self.get_img_size_and_batch(idx)
-        
+
         batch_size = len(batch)
 
         x = np.zeros((batch_size,) + img_size + (3,), dtype="float32")
@@ -203,47 +214,82 @@ class JsonDataset(Sequence):
                 for k, target in enumerate(targets):
                     y[k][j] = target
 
-        if self.target and len(y) == 1:
-            y = y[0]
+        if self.target:
+            if len(y) == 1:
+                y = y[0]
+            item = x, tuple(y)
+        else:
+            item = x
 
-        return x, y if self.target else x
+        return item
 
-    @timeit
+    # @timeit
     def get_image_and_targets(self, sample, img_size, new_background=None):
 
         if self.augment and self.swap_backgrounds:
             new_background = random.choice(self.backgrounds).get_image()
-        
+
         img, points = sample.get_image_and_points(
             img_size=img_size,
             augment=self.augment,
             new_background=new_background,
             require_transpose=self.require_transpose,
             disallow_transpose=self.disallow_transpose,
+            verbose=self.verbose,
         )
 
-        if not self.target: return img
+        if not self.target:
+            return img, None
 
-        targets = get_targets(sample, img, points, self.task_concepts, self.targets_config, self.augment, new_background=new_background)
+        targets = get_targets(
+            sample,
+            img,
+            points,
+            self.task_concepts,
+            self.targets_config,
+            self.augment,
+            new_background=new_background,
+        )
 
         return img, targets
 
+
 def pre_computable(concept):
-    return "binary_segment" in concept or "distance_transform" in concept or "centerness" in concept
+    return (
+        "binary_segment" in concept
+        or "distance_transform" in concept
+        or "centerness" in concept
+    )
+
 
 # @timeit
 def pre_compute(sample, img, points, task_concepts):
     pre_computed = {}
     for concept in task_concepts:
         if pre_computable(concept):
-            pre_computed[concept] = getattr(sample, f"get_{concept}")(points=points, image_shape=img.shape[:2])
+            pre_computed[concept] = getattr(sample, f"get_{concept}")(
+                points=points, image_shape=img.shape[:2]
+            )
 
     return pre_computed
 
+
 # @timeit
-def get_targets(sample, img, points, task_concepts, targets_config, augment=False, new_background=None):
+def get_targets(
+    sample,
+    img,
+    points,
+    task_concepts,
+    targets_config,
+    augment=False,
+    new_background=None,
+):
 
     pre_computed = pre_compute(sample, img, points, task_concepts)
+
+    masks = None
+    if "binary_segment" in pre_computed:
+        masks = pre_computed["binary_segment"]
 
     targets = []
     for tc in targets_config:
@@ -251,20 +297,40 @@ def get_targets(sample, img, points, task_concepts, targets_config, augment=Fals
             if tc["name"] in pre_computed[tc["task"]]:
                 target = pre_computed[tc["task"]][tc["name"]]
             else:
-                target = np.zeros(shape=img.shape[:2] + (tc["channels"],), dtype=tc["dtype"])
+                target = np.zeros(
+                    shape=img.shape[:2] + (tc["channels"],), dtype=tc["dtype"]
+                )
         elif tc["task"] == "encoder":
             if tc["name"] == "identity":
                 target = img
             elif tc["name"] == "identity_bw":
                 target = img.mean(axis=2, keepdims=True)
         elif tc["task"] == "hierarchy":
-            target = sample.get_hierarchy(points=points, image_shape=img.shape[:2], notions=tc["concepts"])
+            flat_hierarchy = sample.get_flat_hierarchy(
+                points=points,
+                image_shape=img.shape[:2],
+                masks=masks,
+                notions=tc["concepts"],
+            )
+            target = to_categorical(flat_hierarchy, num_classes=len(tc["concepts"]))
+        elif tc["task"] == "global_classification":
+            target = sample.get_global_classification_target(
+                points=points,
+                image_shape=img.shape[:2],
+                masks=masks,
+                notions=tc["concepts"],
+                focus=masks[tc["focus"]],
+            )
         else:
             target = getattr(sample, f'get_{tc["name"]}')(points=points)
 
         if target.shape != img.shape[:2] + (tc["channels"],):
+            target_size = np.prod(img.shape[:2]) * tc["channels"]
             try:
-                target = np.reshape(target, img.shape[:2] + (tc["channels"],))
+                if np.prod(target.shape) == target_size:
+                    target = np.reshape(target, img.shape[:2] + (tc["channels"],))
+                elif np.prod(target.shape) * tc["channels"] == target_size:
+                    target = [target] * tc["channels"]
             except:
                 traceback.print_exc()
 
@@ -272,36 +338,101 @@ def get_targets(sample, img, points, task_concepts, targets_config, augment=Fals
 
     return targets
 
-def plot_image_and_targets(image, targets, targets_config, figsize=(24, 16)):
+
+def plot_image_and_targets(
+    image,
+    targets,
+    targets_config,
+    figsize=(24, 16),
+    threshold=None,
+    verbose=False,
+    path=None,
+    original_image=None,
+    model_designation="_",
+    save=False,
+    close=False,
+):
 
     N = 1 + len(targets)
+    if original_image is not None: N += 1
     rows = np.floor(np.sqrt(N))
-    cols = np.ceil(N/rows)
+    cols = np.ceil(N / rows)
     assert rows * cols >= N
+
     fig, axes = pylab.subplots(int(rows), int(cols), figsize=figsize)
     axs = axes.flatten()
-    axs[0].imshow(image[0])
-    axs[0].set_title("Input image")
-    axs[0].set_axis_off()
+    if type(path) is str:
+        fig.suptitle(
+            path.replace(
+                "/nfs/data2/Martin/Research/murko/manually_segmented_images/json/", ""
+            ),
+            fontsize=24,
+        )
 
+    l = 0
+    if original_image is not None:
+        axs[l].imshow(original_image)
+        axs[l].set_title("pristine input")
+        l += 1
+
+    if len(image.shape) == 4:
+        image = image[0]
+
+    axs[l].imshow(image)
+    axs[l].set_title("Input image")
+    l += 1
     for k, (target, config) in enumerate(zip(targets, targets_config)):
-        if config["channels"] in [1, 3]:
-            axs[k+1].imshow(target[0])
-        else:
-            axs[k+1].imshow(np.argmax(target[0], axis=2))
-        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "")
-        axs[k+1].set_title(title)
-        axs[k+1].set_axis_off()
+        if len(target.shape) == 4:
+            target = target[0]
+        if config["channels"] in [1, 3] and config["task"] != "hierarchy":
+            if (
+                threshold is not None
+                and config["channels"] == 1
+                and config["name"] != "identity_bw"
+                and "binary_segment" in config["task"]
+            ):
+                print(f"config\n{config}")
+                print(f"target", target.shape, target.dtype)
+                target = (target >= threshold).astype("uint8")
+                target = label2rgb(target[:,:,0], luts[f'{config["name"]}_{config["task"]}'])
 
+            elif "binary_segment" in config["task"]:
+                print(f"config\n{config}")
+                print(f"target", target.shape, target.dtype)
+                target = label2rgb(target[:,:,0].astype("uint8"), luts[f'{config["name"]}_{config["task"]}'])
+
+            if config["name"] == "identity_bw":
+                axs[k + l].imshow(target, cmap="gray")
+            else:
+                axs[k + l].imshow(target)
+        elif config["task"] == "hierarchy":
+            label = np.argmax(target, axis=2).astype("uint8")
+            print(f"config\n{config}")
+            print(f"label", label.shape, label.dtype)
+            axs[k + l].imshow(label2rgb(label, luts[config["name"]]))
+
+        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "")
+        axs[k + l].set_title(title)
+
+    for ax in axs:
+        ax.set_axis_off()
+
+    if save and path is not None:
+        report_png = path.replace(".json", f"{model_designation}_results.png")
+        if verbose:
+            print(f"saving report {report_png}")
+        pylab.savefig(report_png)
+    if close:
+        pylab.close(fig)
 
 
 def main(
-    directory="/dev/shm/soleil_proxima2a",
-    # directory="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a",
+    directory="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a",
 ):
     import subprocess
+
     targets_config, task_concepts = get_candidates()
-    print(f'targets_config ({len(targets_config)}):')
+    print(f"targets_config ({len(targets_config)}):")
     for tc in targets_config:
         print(tc)
     print()
@@ -315,11 +446,11 @@ def main(
     print(f"number of annotations {len(annotations)}")
     dl = JsonDataset(
         annotations,
-        targets_config=targets_config,
-        task_concepts=task_concepts,
+        targets_config,
     )
-    
+
     return dl
+
 
 if __name__ == "__main__":
     import argparse
@@ -328,11 +459,6 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
     parser.add_argument(
         "-d",
         "--directory",
