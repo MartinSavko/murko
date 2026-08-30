@@ -10,12 +10,12 @@
 # arXiv:1903.10520v2)
 
 from dataset_loader import (
-    MultiTargetDataset,
+    JsonDataset,
     get_dynamic_batch_size,
+)
+
+from sample import (
     size_differs,
-    get_transposed_img_and_target,
-    get_transformed_img_and_target,
-    get_hierarchical_mask_from_target,
 )
 
 from utils import efficient_resize
@@ -95,17 +95,17 @@ total foreground 319001744 (0.319G, 0.1766 of all)
 """
 
 params = {
-    "binary_segmentation": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
+    "binary_segment": {"loss": "binary_focal_crossentropy", "metrics": "BIoU"},
     "distance_transform": {
         "loss": "mean_squared_error",
-        "metrics": "mean_absolute_error",
+        "metrics": "BIoU",
     },
     "bounding_box": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "inner_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "extreme_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "eigen_points": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "encoded_shape": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
-    "categorical_segmentation": {
+    "hierarchy": {
         "loss": "categorical_focal_crossentropy",
         "metrics": "MeanIoU",
     },
@@ -300,12 +300,19 @@ def get_convolutional_layer(
     use_bias=False,
     weight_standardization=True,
 ):
+
     kwargs = {
         "kernel_initializer": get_kernel_initializer(kernel_initializer),
         "kernel_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
     }
     if weight_standardization:
         if convolution_type == "SeparableConv2D":
+            kwargs = {
+                "depthwise_initializer": get_kernel_initializer(kernel_initializer),
+                "pointwise_initializer": get_kernel_initializer(kernel_initializer),
+                "depthwise_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
+                "pointwise_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
+            }
             x = WSSeparableConv2D(
                 filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
             )(x)
@@ -314,6 +321,13 @@ def get_convolutional_layer(
                 filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
             )(x)
     else:
+        if convolution_type == "SeparableConv2D":
+            kwargs = {
+                "depthwise_initializer": get_kernel_initializer(kernel_initializer),
+                "pointwise_initializer": get_kernel_initializer(kernel_initializer),
+                "depthwise_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
+                "pointwise_regularizer": get_kernel_regularizer(kernel_regularizer, weight_decay),
+            }
         x = getattr(keras.layers, convolution_type)(
             filters, filter_size, padding=padding, use_bias=use_bias, **kwargs
         )(x)
@@ -344,7 +358,7 @@ def get_tiramisu_layer(
             x,
             convolution_type,
             filters,
-            filter_size,
+            filter_size=filter_size,
             padding=padding,
             use_bias=use_bias,
             kernel_initializer=kernel_initializer,
@@ -373,7 +387,7 @@ def get_tiramisu_layer(
             x,
             convolution_type,
             filters,
-            filter_size,
+            filter_size=filter_size,
             padding=padding,
             use_bias=use_bias,
             kernel_initializer=kernel_initializer,
@@ -391,6 +405,7 @@ def get_dense_block(
     x,
     filters,
     number_of_layers,
+    filter_size=3,
     padding="same",
     activation="relu",
     convolution_type="Conv2D",
@@ -410,6 +425,7 @@ def get_dense_block(
         la = get_tiramisu_layer(
             x,
             filters,
+            filter_size=filter_size,
             padding=padding,
             activation=activation,
             convolution_type=convolution_type,
@@ -475,6 +491,7 @@ def get_transition_up(
     skip_connection,
     block_to_upsample,
     filters,
+    kernel_size=3,
     padding="same",
     activation="relu",
     kernel_initializer="he_normal",
@@ -512,16 +529,16 @@ def get_normalization_layer(
     return x
 
 
-def get_num_segmentation_classes(heads):
+def get_num_segmentation_classes(target_config):
     num_segmentation_classes = 0
-    for head in heads:
-        if head["type"] == "binary_segmentation":
-            num_segmentation_classes += 1
+    if target_config["type"] == "hierarchy":
+        num_segmentation_classes = len(target_config["notions"])
     return num_segmentation_classes
 
 
 def get_uncompiled_tiramisu(
     nfilters=48,
+    filter_size=3,
     growth_rate=16,
     layers_scheme=[4, 5, 7, 10, 12],
     bottleneck=15,
@@ -537,13 +554,34 @@ def get_uncompiled_tiramisu(
     kernel_initializer="he_normal",
     kernel_regularizer="l2",
     weight_decay=1e-4,
-    heads=[
-        {"name": "crystal", "type": "binary_segmentation"},
-        {"name": "loop_inside", "type": "binary_segmentation"},
-        {"name": "loop", "type": "binary_segmentation"},
-        {"name": "stem", "type": "binary_segmentation"},
-        {"name": "pin", "type": "binary_segmentation"},
-        {"name": "foreground", "type": "binary_segmentation"},
+    targets_config=[
+        {'name': 'crystal', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'ice', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'crystal', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'identity', 'task': 'encoder', 'dtype': 'float32', 'channels': 3, 'activation': 'sigmoid'},
+        {'name': 'identity_bw', 'task': 'encoder', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'hierarchy_detailed', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 7, 'concepts': ['background', 'foreground', 'pin', 'stem', 'loop', 'loop_inside', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal_aoi_support_pin', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 6, 'concepts': ['background', 'foreground', 'pin', 'support', 'area_of_interest', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_aoi', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'area_of_interest'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'crystal'], 'activation': 'softmax'}
     ],
     verbose=False,
     name="model",
@@ -553,7 +591,8 @@ def get_uncompiled_tiramisu(
     bn_epsilon=1.1e-5,
     input_dropout=0.0,
 ):
-    print("get_uncompiled_tiramisu heads", heads)
+    tasks = [f'{tc["name"]}_{tc["task"]}' for tc in targets_config]
+    print("get_uncompiled_tiramisu tasks", tasks)
     boilerplate = {
         "activation": activation,
         "convolution_type": convolution_type,
@@ -579,7 +618,7 @@ def get_uncompiled_tiramisu(
     x = get_tiramisu_layer(
         x,
         nfilters,
-        filter_size=3,
+        filter_size=filter_size,
         padding=padding,
         activation=activation,
         convolution_type="Conv2D",
@@ -598,7 +637,7 @@ def get_uncompiled_tiramisu(
     # DOWN
     for l, number_of_layers in enumerate(layers_scheme):
         x, block_to_upsample = get_dense_block(
-            x, growth_rate, number_of_layers, **boilerplate
+            x, growth_rate, number_of_layers, filter_size=filter_size, **boilerplate
         )
         _skips.append(x)
         nfilters += number_of_layers * growth_rate
@@ -607,7 +646,7 @@ def get_uncompiled_tiramisu(
             print("layer:", l, number_of_layers, "shape:", x.shape)
 
     # BOTTLENECK
-    x, block_to_upsample = get_dense_block(x, growth_rate, bottleneck, **boilerplate)
+    x, block_to_upsample = get_dense_block(x, growth_rate, bottleneck, filter_size=filter_size, **boilerplate)
     if verbose:
         print("bottleneck:", l, number_of_layers, "shape:", x.shape)
     _skips = _skips[::-1]
@@ -619,9 +658,9 @@ def get_uncompiled_tiramisu(
         n_filters_keep = growth_rate * extended_layers_scheme[l]
         if verbose:
             print("n_filters_keep", n_filters_keep)
-        x = get_transition_up(_skips[l], block_to_upsample, n_filters_keep)
+        x = get_transition_up(_skips[l], block_to_upsample, n_filters_keep, kernel_size=filter_size)
         x_up, block_to_upsample = get_dense_block(
-            x, growth_rate, number_of_layers, **boilerplate
+            x, growth_rate, number_of_layers, filter_size=filter_size, **boilerplate
         )
         if verbose:
             print(
@@ -637,38 +676,29 @@ def get_uncompiled_tiramisu(
     # OUTPUTS
     outputs = []
     regression_neck = None
-    num_segmentation_classes = get_num_segmentation_classes(heads)
-    for head in heads:
+
+    for target_config in targets_config:
         if (
-            head["type"] == "binary_segmentation"
-            or head["type"] == "click_segmentation"
-            or head["name"] == "encoder"
+            target_config["task"] == "binary_segment"
+            or target_config["task"] == "point"
+            or target_config["task"] == "encoder"
+            or "distance_transform" in target_config["task"]
+            or target_config["task"] == "hierarchy"
         ):
             output = keras.layers.Conv2D(
+                target_config["channels"],
                 1,
-                1,
-                activation="sigmoid",
+                activation=target_config["activation"],
                 padding="same",
                 dtype="float32",
-                name=head["name"],
-            )(x_up)
-        elif (
-            head["type"] == "categorical_segmentation" and num_segmentation_classes > 0
-        ):
-            output = keras.layers.Conv2D(
-                num_segmentation_classes + 1,
-                1,
-                activation="softmax",
-                padding="same",
-                dtype="float32",
-                name=head["name"],
+                name=f'{target_config["name"]}_{target_config["task"]}',
             )(x_up)
 
-            # output = get_convolutional_layer(x_up, 'Conv2D', 1, filter_size=1, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization, activation="sigmoid", dtype="float32", name=head['name'])
+            # output = get_convolutional_layer(x_up, 'Conv2D', 1, filter_size=1, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization, activation="sigmoid", dtype="float32", name=target_config['name'])
 
-        elif head["type"] == "regression":
+        elif target_config["task"] == "regression":
             if regression_neck is None:
-                # regression_neck = keras.layers.Conv2D(1, 1, activation="sigmoid", padding="same", dtype="float32", name=head['name'])(x_up)
+                # regression_neck = keras.layers.Conv2D(1, 1, activation="sigmoid", padding="same", dtype="float32", name=target_config['name'])(x_up)
                 regression_neck = get_tiramisu_layer(
                     x_up, 1, 1, activation="sigmoid", convolution_type="Conv2D"
                 )
@@ -686,14 +716,14 @@ def get_uncompiled_tiramisu(
                 # regression_neck = keras.layers.GlobalMaxPool2D()(regression_neck)
                 # regression_neck = keras.layers.Flatten()(regression_neck)
             output = keras.layers.Dense(
-                3, activation="sigmoid", dtype="float32", name=head["name"]
+                3, activation="sigmoid", dtype="float32", name=target_config["name"]
             )(regression_neck)
         outputs.append(output)
     model = keras.Model(inputs=inputs, outputs=outputs, name=name)
     return model
 
 
-def predict_multihead(
+def predict_multitarget_config(
     to_predict=None,
     image_paths=None,
     base="/nfs/data2/Martin/Research/murko",
@@ -803,7 +833,7 @@ def predict_multihead(
     elif isinstance(to_predict, list):
         if batch_size == -1:
             batch_size = get_dynamic_batch_size(model_img_size)
-        gen = MultiTargetDataset(
+        gen = JsonDataset(
             batch_size,
             model_img_size,
             to_predict,
