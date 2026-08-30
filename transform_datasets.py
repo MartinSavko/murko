@@ -15,6 +15,7 @@ from labelme import utils
 import traceback
 import pickle
 from pprint import pprint
+import imageio
 
 from regionprops import get_mask_boundary
 
@@ -109,7 +110,7 @@ def transform_ADE_dataset(source="/nfs/data4/Martin/Research/ADE20K_2021_17_01/i
             continue
         
         shapes = get_labelme_shapes_from_ade_annotation(annotation)
-        jf = get_njf = get_new_json_file(
+        jf = get_new_json_file(
             shapes,
             image_path,
             imageHeight=image_height,
@@ -315,11 +316,52 @@ def save_json_file(content, path):
     json.dump(content, fp)
     fp.close()
 
+def get_empty_shape(label=None, points=[], shape_type=""):
+    shape = {}
+    shape["label"] = label
+    shape["group_id"] = None
+    shape["description"] = ""
+    shape["flags"] = {}
+    shape["mask"] = None
+    shape["shape_type"] = shape_type
+    shape["points"] = points
+    return shape
+
+def generate_json_files_for_backgrounds(
+    directory="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/backgrounds",
+    template="*.jpg",
+    unit_square=np.array([[0, 0], [0, 1], [1, 1], [1, 0]]),
+):
+    bfs = glob.glob(os.path.join(directory, template))
+    print("background files")
+    print(bfs)
+    for bf in bfs:
+        print(bf)
+        image = imageio.imread(bf)
+        image_shape = np.array(image.shape[:2])
+        polygon = image_shape[::-1] * unit_square
+        points = [[int(item[0]), int(item[1])] for item in polygon]
+        shape = get_empty_shape(label="background", points=points, shape_type="polygon")
+
+        json_path = bf.replace(".jpg", ".json")
+        json_file = get_new_json_file(
+            [shape],
+            os.path.basename(bf),
+            imageWidth=int(image_shape[1]),
+            imageHeight=int(image_shape[0]),
+
+        )
+        print("json_file")
+        print(json_file)
+        save_json_file(json_file, json_path)
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    
 
     parser.add_argument(
         "-s", "--source", default="pcs_validation.json", type=str, help="source"
