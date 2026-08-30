@@ -6,7 +6,10 @@
 
 import os
 import sys
+import subprocess
+import re
 import pickle
+import random
 import tensorflow as tf
 from tensorflow import keras
 import copy
@@ -18,18 +21,17 @@ from murko import (
     networks,
     loss_weights_from_stats,
     get_uncompiled_tiramisu,
-    get_num_segmentation_classes,
     WSConv2D,
     WSSeparableConv2D,
 )
 
 from dataset_loader import (
     get_dynamic_batch_size,
-    get_img_size,
-    get_training_and_validation_datasets,
-    MultiTargetDataset,
+    get_img_size_as_scale_of_pixel_budget,
+    JsonDataset,
 )
 
+from candidates import get_candidates
 
 def get_paths(directory="images_and_labels", seed=1337):
     input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
@@ -57,7 +59,8 @@ def get_validation_dataset(seed=1337, num_val_samples=150):
 
 def get_family(name):
     fname = os.path.realpath(name)
-    search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_zoom.*|.*/(.*)_auto_omega.*"
+    # search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_zoom.*|.*/(.*)_auto_omega.*"
+    search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_.*|.*/(.*)_auto_omega.*|.*/(.*)_click_.*"
     match = re.findall(search_string, fname)
     print("match", match)
     if match:
@@ -68,15 +71,19 @@ def get_family(name):
         return os.path.basename(os.path.dirname(fname))
 
 
-def get_sample_families(directory="images_and_labels", subset_designation="*"):
-    search_string = "{directory:s}/double_clicks_(.*)_double_click.*|{directory:s}/(.*)_manual_omega.*|{directory:s}/(.*)_color_zoom.*|{directory:s}/(.*)_auto_omega.*".format(
-        directory=directory
-    )
-    individuals = glob.glob("%s/%s" % (directory, subset_designation))
+def get_individuals(directories):
+    line = f'find {" ".join(directories)} -iname "*.json"'
+    individuals = subprocess.getoutput(line).split("\n")
+
+    return individuals
+
+def get_sample_families(directories=["/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a"]):
+
+    search_string = ".*/double_clicks_(.*)_double_click.*|.*/(.*)_manual_omega.*|.*/(.*)_color_.*|.*/(.*)_auto_omega.*|.*/(.*)_click_.*"
+    individuals = get_individuals(directories)
     sample_families = {}
     for individual in individuals:
         matches = re.findall(search_string, individual)
-        individual = individual.replace("%s/" % directory, "")
         if matches:
             for match in matches[0]:
                 if match != "":
@@ -89,18 +96,18 @@ def get_sample_families(directory="images_and_labels", subset_designation="*"):
     return sample_families
 
 
-def get_paths_for_families(families_subset_list, sample_families, directory):
+def get_paths_for_families(families_subset_list, sample_families):
     paths = []
     for family in families_subset_list:
         for individual in sample_families[family]:
-            paths.append(os.path.join(directory, individual, "img.jpg"))
+            paths.append(individual)
     return paths
 
 
 def get_training_and_validation_datasets(
-    directory="images_and_labels", seed=12345, split=0.2
+    directories, seed=12345, split=0.2
 ):
-    sample_families = get_sample_families(directory=directory)
+    sample_families = get_sample_families(directories)
     sample_families_names = sorted(sample_families.keys())
     random.Random(seed).shuffle(sample_families_names)
     total = len(sample_families_names)
@@ -113,9 +120,9 @@ def get_training_and_validation_datasets(
     print("train_families: %d" % len(train_families))
     print("valid_families: %d" % len(valid_families))
 
-    train_paths = get_paths_for_families(train_families, sample_families, directory)
+    train_paths = get_paths_for_families(train_families, sample_families)
     random.Random(seed).shuffle(train_paths)
-    val_paths = get_paths_for_families(valid_families, sample_families, directory)
+    val_paths = get_paths_for_families(valid_families, sample_families)
     random.Random(seed).shuffle(val_paths)
 
     return train_paths, val_paths
@@ -123,6 +130,7 @@ def get_training_and_validation_datasets(
 
 def get_model(
     nfilters=48,
+    filter_size=3,
     growth_rate=16,
     layers_scheme=[4, 5, 7, 10, 12],
     bottleneck=15,
@@ -136,25 +144,44 @@ def get_model(
     learning_rate=0.001,
     finetune=False,
     finetune_model=None,
-    heads=[
-        {"name": "crystal", "type": "binary_segmentation"},
-        {"name": "loop_inside", "type": "binary_segmentation"},
-        {"name": "loop", "type": "binary_segmentation"},
-        {"name": "stem", "type": "binary_segmentation"},
-        {"name": "pin", "type": "binary_segmentation"},
-        {"name": "capillary", "type": "binary_segmentation"},
-        {"name": "ice", "type": "binary_segmentation"},
-        {"name": "foreground", "type": "binary_segmentation"},
-        {"name": "click", "type": "click_segmentation"},
+    targets_config=[
+        {'name': 'crystal', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'ice', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'crystal', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'identity', 'task': 'encoder', 'dtype': 'float32', 'channels': 3, 'activation': 'sigmoid'},
+        {'name': 'identity_bw', 'task': 'encoder', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'hierarchy_detailed', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 7, 'concepts': ['background', 'foreground', 'pin', 'stem', 'loop', 'loop_inside', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal_aoi_support_pin', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 6, 'concepts': ['background', 'foreground', 'pin', 'support', 'area_of_interest', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_aoi', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'area_of_interest'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'crystal'], 'activation': 'softmax'}
     ],
     name="model",
     normalization_type="GroupNormalization",
     limit_loss=True,
     weight_decay=1.0e-4,
 ):
-    print("get_model heads", heads)
+    print("get_model targets_config", targets_config)
     model = get_uncompiled_tiramisu(
         nfilters=nfilters,
+        filter_size=filter_size,
         growth_rate=growth_rate,
         layers_scheme=layers_scheme,
         bottleneck=bottleneck,
@@ -164,7 +191,35 @@ def get_model(
         dropout_rate=dropout_rate,
         weight_standardization=weight_standardization,
         model_img_size=model_img_size,
-        heads=heads,
+        targets_config=[
+            {'name': 'crystal', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'loop_inside', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'loop', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'stem', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'pin', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'ice', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'foreground', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'area_of_interest', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'plastic', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'explorable', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'aether', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'crystal', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'loop_inside', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'loop', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'stem', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'pin', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'foreground', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'area_of_interest', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'plastic', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'explorable', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'aether', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'identity', 'task': 'encoder', 'dtype': 'float32', 'channels': 3, 'activation': 'sigmoid'},
+            {'name': 'identity_bw', 'task': 'encoder', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+            {'name': 'hierarchy_detailed', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 7, 'concepts': ['background', 'foreground', 'pin', 'stem', 'loop', 'loop_inside', 'crystal'], 'activation': 'softmax'},
+            {'name': 'hierarchy_crystal_aoi_support_pin', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 6, 'concepts': ['background', 'foreground', 'pin', 'support', 'area_of_interest', 'crystal'], 'activation': 'softmax'},
+            {'name': 'hierarchy_aoi', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'area_of_interest'], 'activation': 'softmax'},
+            {'name': 'hierarchy_crystal', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'crystal'], 'activation': 'softmax'}
+        ],
         name=name,
         normalization_type=normalization_type,
         weight_decay=weight_decay,
@@ -176,12 +231,13 @@ def get_model(
         print("not finetune")
     losses = {}
     metrics = {}
-    num_segmentation_classes = get_num_segmentation_classes(heads)
-    for head in heads:
-        losses[head["name"]] = params[head["type"]]["loss"]
-        print("head name and type", head["name"], head["type"])
-        if params[head["type"]]["metrics"] == "BIoU":
-            metrics[head["name"]] = [
+
+    for head in targets_config:
+        head_name = f'{head["name"]}_{head["task"]}'
+        losses[head_name] = params[head["task"]]["loss"]
+        print("head name and type", head["name"], head["task"])
+        if params[head["task"]]["metrics"] == "BIoU":
+            metrics[head_name] = [
                 keras.metrics.BinaryIoU(
                     target_class_ids=[1], threshold=0.5, name="BIoU_1"
                 ),
@@ -192,8 +248,8 @@ def get_model(
                     target_class_ids=[0, 1], threshold=0.5, name="BIoU_both"
                 ),
             ]
-        elif params[head["type"]]["metrics"] == "BIoUm":
-            metrics[head["name"]] = [
+        elif params[head["task"]]["metrics"] == "BIoUm":
+            metrics[head_name] = [
                 keras.metrics.BinaryIoUm(
                     target_class_ids=[1], threshold=0.5, name="BIoUm_1"
                 ),
@@ -204,25 +260,26 @@ def get_model(
                     target_class_ids=[0, 1], threshold=0.5, name="BIoUm_both"
                 ),
             ]
-        elif params[head["type"]]["metrics"] == "mean_absolute_error":
-            metrics[head["name"]] = keras.metrics.MeanAbsoluteError(name="MAE")
-        elif head["type"] == "categorical_segmentation":
-            metrics[head["name"]] = getattr(
-                keras.metrics, params[head["type"]]["metrics"]
-            )(num_segmentation_classes + 1)
+        elif params[head["task"]]["metrics"] == "mean_absolute_error":
+            metrics[head_name] = keras.metrics.MeanAbsoluteError(name="MAE")
+        elif head["task"] == "hierarchy":
+            metrics[head_name] = getattr(
+                keras.metrics, params[head["task"]]["metrics"]
+            )(head["channels"])
 
             # , sparse_y_true=True, sparse_y_pred=True)
-            # losses[head["name"]] = keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
-            # getattr(keras.losses, params[head["type"]]["loss"])(from_logits=True)
+            # losses[head_name] = keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
+            # getattr(keras.losses, params[head["task"]]["loss"])(from_logits=True)
         else:
-            metrics[head["name"]] = getattr(
-                keras.metrics, params[head["type"]]["metrics"]
+            metrics[head_name] = getattr(
+                keras.metrics, params[head["task"]]["metrics"]
             )()
 
     print("losses", len(losses), losses)
     print("metrics", len(metrics), metrics)
     loss_weights = {}
-    for head in heads:
+    for head in targets_config:
+        head_name = f'{head["name"]}_{head["task"]}'
         if head["name"] in loss_weights_from_stats:
             lw = loss_weights_from_stats[head["name"]]
             if limit_loss:
@@ -230,9 +287,9 @@ def get_model(
                     lw = loss_weights_from_stats["crystal"]
         else:
             lw = 1.0
-        loss_weights[head["name"]] = lw
+        loss_weights[head_name] = lw
 
-    print("loss weights", loss_weights)
+    #print("loss weights", loss_weights)
     lrs = learning_rate
     # lrs = keras.optimizers.schedules.ExponentialDecay(lrs, decay_steps=1e4, decay_rate=0.96, minimum_value=1e-7, staircase=True)
     optimizer = keras.optimizers.RMSprop(learning_rate=lrs)
@@ -251,26 +308,46 @@ def get_model(
 
 
 def train(
-    base="/nfs/data2/Martin/Research/murko",
+    dataset=["/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a"],
+    base="./",
     epochs=25,
     patience=3,
     mixed_precision=False,
     name="start",
     source_weights=None,
+    filter_size=3,
     batch_size=16,
     model_img_size=(512, 512),
     network="fcdn103",
     convolution_type="SeparableConv2D",
-    heads=[
-        {"name": "crystal", "type": "binary_segmentation"},
-        {"name": "loop_inside", "type": "binary_segmentation"},
-        {"name": "loop", "type": "binary_segmentation"},
-        {"name": "stem", "type": "binary_segmentation"},
-        {"name": "pin", "type": "binary_segmentation"},
-        {"name": "capillary", "type": "binary_segmentation"},
-        {"name": "ice", "type": "binary_segmentation"},
-        {"name": "foreground", "type": "binary_segmentation"},
-        {"name": "click", "type": "click_segmentation"},
+    targets_config=[
+        {'name': 'crystal', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'ice', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'crystal', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop_inside', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'loop', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'stem', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'pin', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'foreground', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'area_of_interest', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'plastic', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'explorable', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'aether', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'identity', 'task': 'encoder', 'dtype': 'float32', 'channels': 3, 'activation': 'sigmoid'},
+        {'name': 'identity_bw', 'task': 'encoder', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
+        {'name': 'hierarchy_detailed', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 7, 'concepts': ['background', 'foreground', 'pin', 'stem', 'loop', 'loop_inside', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal_aoi_support_pin', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 6, 'concepts': ['background', 'foreground', 'pin', 'support', 'area_of_interest', 'crystal'], 'activation': 'softmax'},
+        {'name': 'hierarchy_aoi', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'area_of_interest'], 'activation': 'softmax'},
+        {'name': 'hierarchy_crystal', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'crystal'], 'activation': 'softmax'}
     ],
     last_convolution=False,
     augment=True,
@@ -294,7 +371,10 @@ def train(
     weight_decay=1.0e-4,
     activation="relu",
     train_dev_split=0.2,
-    val_model_img_size=(256, 320),
+    val_model_img_size=(320, 320),
+    max_queue_size=128,
+    workers=32,
+    use_multiprocessing=True,
 ):
     if mixed_precision:
         print("setting mixed_precision")
@@ -304,33 +384,34 @@ def train(
         print("setting memory_growth on", gpu)
         tf.config.experimental.set_memory_growth(gpu, True)
 
-    notions = [head["name"] for head in heads]
+    tasks = [tc["name"] for tc in targets_config]
     distinguished_name = "%s_%s" % (network, name)
     model_name = os.path.join(base, "results", "%s.keras" % distinguished_name)
     history_name = os.path.join(base, "results", "%s.history" % distinguished_name)
     checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
+    tensorboard_dir = os.path.join(base, "results", "%s_logs" % distinguished_name)
     # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
     # data genrators
     train_paths, val_paths = get_training_and_validation_datasets(
-        directory=os.path.join(base, "images_and_labels"), split=train_dev_split
+        dataset, split=train_dev_split
     )
-    if include_plate_images:
-        train_paths_plate, val_paths_plate = get_training_and_validation_datasets(
-            directory=os.path.join(base, "images_and_labels_plate"), split=0
-        )
-        # val_paths += val_paths_plate
-        train_paths += train_paths_plate
-    if include_capillary_images:
-        (
-            train_paths_capillary,
-            val_paths_capillary,
-        ) = get_training_and_validation_datasets(
-            directory=os.path.join(base, "images_and_labels_capillary"), split=0
-        )
-        # val_paths += val_paths_plate
-        train_paths += train_paths_capillary
-        val_paths += val_paths_capillary
+    # if include_plate_images:
+    #     train_paths_plate, val_paths_plate = get_training_and_validation_datasets(
+    #         dataset, split=0
+    #     )
+    #     # val_paths += val_paths_plate
+    #     train_paths += train_paths_plate
+    # if include_capillary_images:
+    #     (
+    #         train_paths_capillary,
+    #         val_paths_capillary,
+    #     ) = get_training_and_validation_datasets(
+    #         dataset, split=0
+    #     )
+    #     # val_paths += val_paths_plate
+    #     train_paths += train_paths_capillary
+    #     val_paths += val_paths_capillary
     full_size = len(train_paths)
     if train_images != -1:
         train_paths = train_paths[:train_images]
@@ -346,37 +427,36 @@ def train(
         % (len(train_paths), len(val_paths))
     )
     # train_gen = CrystalClickDataset(batch_size, model_img_size, train_paths, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, shuffle_at_0=True)
-    print("notions in train", notions)
-    train_gen = MultiTargetDataset(
-        batch_size,
-        model_img_size,
+    print("tasks in train", tasks)
+    train_gen = JsonDataset(
         train_paths,
-        notions=notions,
+        targets_config,
+        batch_size=batch_size,
+        img_size=model_img_size,
         augment=augment,
-        transform=True,
-        flip=True,
-        transpose=True,
-        scale_click=scale_click,
-        click_radius=click_radius,
         dynamic_batch_size=dynamic_batch_size,
         pixel_budget=pixel_budget,
         artificial_size_increase=artificial_size_increase,
         shuffle_at_0=True,
-        black_and_white=True,
+        max_queue_size=max_queue_size,
+        workers=workers,
+        use_multiprocessing=use_multiprocessing,
     )
     if val_model_img_size is None:
         val_model_img_size = get_img_size_as_scale_of_pixel_budget(validation_scale)
     val_batch_size = get_dynamic_batch_size(val_model_img_size)
     print("validation model_img_size will be", val_model_img_size)
     # val_gen = CrystalClickDataset(val_batch_size, val_model_img_size, val_paths, augment=False, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=False)
-    val_gen = MultiTargetDataset(
-        val_batch_size,
-        val_model_img_size,
+    val_gen = JsonDataset(
         val_paths,
+        targets_config,
+        batch_size=val_batch_size,
+        img_size=val_model_img_size,
         augment=False,
-        transform=False,
-        notions=notions,
         pixel_budget=pixel_budget,
+        max_queue_size=max_queue_size,
+        workers=workers,
+        use_multiprocessing=use_multiprocessing,
     )
     # callbacks
     checkpointer = keras.callbacks.ModelCheckpoint(
@@ -396,7 +476,9 @@ def train(
             verbose=1,
         ),
     )
-    callbacks = [checkpointer, nanterminator, lrreducer]
+    tensorboard = keras.callbacks.TensorBoard(log_dir=tensorboard_dir, histogram_freq=1)
+    
+    callbacks = [checkpointer, nanterminator, lrreducer, tensorboard]
     network_parameters = networks[network]
 
     if os.path.isdir(model_name) or os.path.isfile(model_name):
@@ -404,8 +486,9 @@ def train(
         # model = keras.models.load_model(model_name)
         model = get_model(
             convolution_type=convolution_type,
+            filter_size=filter_size,
             model_img_size=(None, None),
-            heads=heads,
+            targets_config=targets_config,
             last_convolution=last_convolution,
             name=network,
             learning_rate=learning_rate,
@@ -437,8 +520,9 @@ def train(
         # with keras.utils.custom_object_scope(custom_objects):
         model = get_model(
             convolution_type=convolution_type,
+            filter_size=filter_size,
             model_img_size=(None, None),
-            heads=heads,
+            targets_config=targets_config,
             last_convolution=last_convolution,
             name=network,
             learning_rate=learning_rate,
@@ -451,6 +535,7 @@ def train(
             **network_parameters,
         )
 
+    print("model.summary()")
     print(model.summary())
 
     print(f"train_gen: {train_gen}")
@@ -462,9 +547,6 @@ def train(
         epochs=epochs,
         validation_data=val_gen,
         callbacks=callbacks,
-        use_multiprocessing=True,
-        workers=32,
-        max_queue_size=128,
     )
 
     f = open(history_name, "wb")
@@ -496,18 +578,30 @@ def main():
 
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
+    parser.add_argument(
+        # https://stackoverflow.com/questions/36166225/using-the-same-option-multiple-times-in-pythons-argparse
+        "-d",
+        "--dataset",
+        default=["/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a"],
+        nargs="+",
+        # action="append",
+        # type=str,
+        help="dataset",
+    )
     parser.add_argument("--backend", default="tensorflow", type=str, help="backend")
 
-    candidates = get_candidates()
+    targets_config, task_concepts = get_candidates()
 
-    for candidate in candidates:
+    for candidate in targets_config:
         parser.add_argument(
-            "--%s" % candidate,
+            f'--{candidate["name"]}_{candidate["task"]}',
             default=1 if candidate in default_active else 0,
             type=int,
-            help=f"learn {candidate} ({candidates[candidate]})",
+            help=f"learn {candidate}",
         )
 
     parser.add_argument(
@@ -537,6 +631,13 @@ def main():
     parser.add_argument(
         "-m", "--mixed_precision", default=1, type=int, help="use mixed_precision"
     )
+
+    parser.add_argument(
+        "--filter_size",
+        default=3,
+        type=int,
+        help="filter_size",
+    )
     parser.add_argument(
         "-b",
         "--batch_size",
@@ -550,7 +651,7 @@ def main():
     parser.add_argument(
         "-a", "--augment", default=1, type=int, help="augment during training"
     )
-    parser.add_argument("-e", "--epochs", default=1, type=int, help="numbers of epochs")
+    parser.add_argument("-e", "--epochs", default=3, type=int, help="numbers of epochs")
     parser.add_argument(
         "-l", "--learning_rate", default=0.001, type=float, help="initial learning rate"
     )
@@ -623,11 +724,19 @@ def main():
     parser.add_argument(
         "--train_dev_split", default=0.2, type=float, help="train dev split"
     )
+
+    parser.add_argument(
+        "--model_img_size",
+        default="(320, 320)",
+        type=str,
+        help="train model_img_size",
+    )
+
     parser.add_argument(
         "--val_model_img_size",
-        default=(256, 320),
-        type=tuple,
-        help="validation img_model_size",
+        default="(320, 320)",
+        type=str,
+        help="validation model_img_size",
     )
     parser.add_argument(
         "--base",
@@ -635,20 +744,34 @@ def main():
         type=str,
         help="path to the directory where results will be saved",
     )
+    
+    parser.add_argument(
+        "--workers",
+        default=32,
+        type=int,
+        help="workers",
+    )
+    parser.add_argument(
+        "--max_queue_size",
+        default=128,
+        type=int,
+        help="max_queue_size",
+    )
+    parser.add_argument(
+        "--not_multiprocessing",
+        action="store_true",
+        help="do not use multiprocessing",
+    )
+        
 
     args = parser.parse_args()
     print("args", args)
 
-    heads = []
-    for candidate in candidates:
-        if bool(getattr(args, candidate)):
-            heads.append({"name": candidate, "type": candidates[candidate]})
-
-    print("heads", heads)
-
     pixel_budget = int(args.pixel_budget * args.pixel_budget_modifier)
+    model_img_size = get_img_size_as_scale_of_pixel_budget(args.resize_factor)
+    val_model_img_size = eval(args.val_model_img_size)
     if args.batch_size == -1 and args.resize_factor != -1:
-        model_img_size = get_img_size(args.resize_factor)
+        model_img_size = get_img_size_as_scale_of_pixel_budget(args.resize_factor)
         if args.ratio == 1.0:
             model_img_size = (model_img_size[0], model_img_size[0])
         batch_size = get_dynamic_batch_size(model_img_size, pixel_budget)
@@ -658,11 +781,15 @@ def main():
         model_img_size = -1
         batch_size = args.batch_size
     else:
+        model_img_size = eval(args.model_img_size)
+        val_model_img_size = model_img_size
+        batch_size = min(args.batch_size, get_dynamic_batch_size(model_img_size, pixel_budget))
         dynamic_batch_size = False
     print("model_img_size", model_img_size)
+    print("val model_img_size", val_model_img_size)
     print("batch_size", batch_size)
     print("name: %s" % args.name)
-
+    #sys.exit()
     # save the current version of the murko under a name corresponding to the
     # output model name
     for tool in ["murko", "train", "dataset_loader"]:
@@ -673,13 +800,15 @@ def main():
     f.close()
 
     train(
+        dataset=args.dataset,
         base=args.base,
         model_img_size=model_img_size,
         network=args.network,
         epochs=args.epochs,
         patience=args.patience,
+        filter_size=args.filter_size,
         batch_size=batch_size,
-        heads=heads,
+        targets_config=targets_config,
         name=args.name,
         mixed_precision=args.mixed_precision,
         augment=bool(args.augment),
@@ -702,7 +831,10 @@ def main():
         weight_decay=args.weight_decay,
         activation=args.activation,
         train_dev_split=args.train_dev_split,
-        val_model_img_size=args.val_model_img_size,
+        val_model_img_size=val_model_img_size,
+        max_queue_size=args.max_queue_size,
+        workers=args.workers,
+        use_multiprocessing=not args.not_multiprocessing,
     )
 
 
