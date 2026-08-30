@@ -797,16 +797,22 @@ def get_distance_transform(
     exagerate=False,
     mini=0,
     maxi=1,
+    poetic=True,
 ):
     dt = cv.distanceTransform(mask, distanceType, maskSize)
     cv.normalize(dt, dt, mini, maxi, cv.NORM_MINMAX)
     if invert:
         dt = 1 - dt
-        # dt[mask == 0] = 0
     if exagerate:
         dt = dt ** power
-    # if normalize:
-    # cv.normalize(dt, dt, 0, 1, cv.NORM_MINMAX)
+    if poetic:
+        # imask = np.logical_not(mask)
+        # idt = -1 * get_distance_transform(imask.astype("uint8"), poetic=False)
+        # dt[mask] = dt[mask]**0.5
+        # dt[imask] = idt[imask]
+        dt *= dt
+        dt -= get_distance_transform(np.logical_not(mask).astype("uint8"), poetic=False) ** 0.5
+        cv.normalize(dt, dt, mini, maxi, cv.NORM_MINMAX)
     return dt
 
 
