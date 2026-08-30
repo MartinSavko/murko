@@ -2,6 +2,7 @@ soleil_proxima_dataset/
 soleil_proxima_dataset_v0.1/
 experiments/
 results/
+legacy/
 images_and_labels/
 __pycache__
 *.prof
