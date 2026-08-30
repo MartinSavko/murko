@@ -13,8 +13,7 @@ from config import (
     class_tasks,
     instance_tasks,
     global_tasks,
-    keypoints_global_singletons,
-    keypoints_global_classification,
+    global_keypoints,
 )
 
 a = """How to represent and learn points ?
@@ -191,25 +190,22 @@ def get_candidates(
                 }
                 candidates.append(head)
 
-        elif task in ["keypoints_centerness", "keypoints_voffsets", "keypoints_hoffsets"] and wished["keypoints"]:
-            for concept in keypoints_global_singletons:
-                # heatmap and offsets for every type of point
+        elif task in ["keypoints_centerness", "keypoints_voffsets", "keypoints_hoffsets", "keypoints_classification"] and wished["keypoints"]:
+            for k in global_keypoints:
+                keypoints = global_keypoints[k]
+                if len(keypoints) <= 3:
+                    designation = "_".join(keypoints)
+                else:
+                    designation = f"keypoints_{k}_{len(keypoints)}"
+                if task == "keypoints_classification":
+                    channels = len(keypoints) + 1
+                else:
+                    channels = 1
                 head = {
-                    "name": f'{keypoints_global_singletons[concept][0]}_{task}',
+                    "name": f"{designation}_{task}",
                     "task": task,
                     "dtype": possible_tasks[task]["dtype"],
-                    "channels": possible_tasks[task]["channels"],
-                    "activation": possible_tasks[task]["activation"],
-                }
-                candidates.append(head)
-
-            for k in keypoints_global_classification:
-                keypoints = keypoints_global_classification[k]
-                head = {
-                    "name": f"global_{task}_{k}",
-                    "task": task,
-                    "dtype": possible_tasks[task]["dtype"],
-                    "channels": len(keypoints),
+                    "channels": channels,
                     "concepts": keypoints,
                     "activation": possible_tasks[task]["activation"],
                 }

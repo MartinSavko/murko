@@ -268,32 +268,29 @@ named_points_colors = {
     
 }
 
-keypoints_global_singletons = {
+global_keypoints = {
     0: ["most_likely_click"],
     1: ["extreme"],
     2: ["origin"],
-}
-
-keypoints_global_classification = {
-    0: ["origin", "extreme"],
-    1: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",], #gang of five
-    2: [
-        "aoi_left",
-        "aoi_top",
-        "aoi_right",
-        "aoi_bottom",
-        "aoi_center",
-
-        "stem_center",
-
-        "start_possible",
-
-        "pin_left",
-        "pin_center",
-        "pin_right",
-        "pin_bottom",
-        #"pin_top",
-    ],
+    3: ["origin", "extreme"],
+    # 4: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",], #gang of five
+    # 5: [
+    #     "aoi_left",
+    #     "aoi_top",
+    #     "aoi_right",
+    #     "aoi_bottom",
+    #     "aoi_center",
+    #
+    #     "stem_center",
+    #
+    #     "start_possible",
+    #
+    #     "pin_left",
+    #     "pin_center",
+    #     "pin_right",
+    #     "pin_bottom",
+    #     #"pin_top",
+    # ],
 }
 
 classifications = {
@@ -321,8 +318,16 @@ categorical = {
         "foreground",
         "background",
     ],
-    "hierarchy_aoi": ["area_of_interest", "foreground", "background"],
-    "hierarchy_crystal": ["crystal", "foreground", "background"],
+    "hierarchy_aoi": [
+        "area_of_interest",
+        "foreground",
+        "background"
+    ],
+    "hierarchy_crystal": [
+        "crystal",
+        "foreground",
+        "background"
+    ],
     #"hierarchy_support_type": ["standard", "mitegen", "crystal_direct", "foreground", "background"],
 }
 
@@ -355,31 +360,15 @@ global_tasks = {
     # voronoi diagram around crystal inner centers, order according to crystal area or position (V*H) 
     "crystal_area": {
         "channels": 100, 
-        "dtype": "int8", 
+        "dtype": "float32",
         "activation": "softmax"
     },
     "crystal_position": {
         "channels": 100, 
-        "dtype": "int8", 
+        "dtype": "uint8",
         "activation": "softmax"
     },
-    # centerness + offsets
-    # "keypoint_centerness": {
-    #     "channels": 1,
-    #     "dtype": "float32",
-    #     "activation": "sigmoid"
-    # },
-    # "keypoint_hoffset": {
-    #     "channels": 1,
-    #     "dtype": "float32",
-    #     "activation": "sigmoid"
-    # },
-    # "keypoint_voffset": {
-    #     "channels": 1,
-    #     "dtype": "float32",
-    #     "activation": "sigmoid"
-    # },
-    # all keypoints together
+    # keypoints centerness and offsets
     "keypoints_centerness": {
         "channels": 1,
         "dtype": "float32",
@@ -395,7 +384,7 @@ global_tasks = {
         "dtype": "float32",
         "activation": "sigmoid",
     },
-    # voronoi diagram
+    # keypoints voronoi diagram
     "keypoints_classification": {
         "channels": None,
         "dtype": "uint8",
