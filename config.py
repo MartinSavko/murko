@@ -3,6 +3,10 @@
 # author: Martin Savko (martin.savko@synchrotron-soleil.fr)
 # part of the MURKO project
 
+from utils import (
+    get_lut,
+)
+
 notion_importance = {
     "user_click": 0.5,
     "crystal": 1,
@@ -13,6 +17,7 @@ notion_importance = {
     "support": 6,
     "support_filled": 7,
     "explorable": 7.5,
+    "plastic": 7.7,
     "pin": 8,
     "capillary": 9,
     "ice": 10,
@@ -35,6 +40,11 @@ additional_labels = {
     "mt_stem": "stem",
 }
 
+support_types = {
+    "standard": 1,
+    "mitegen": 2,
+    "crystal_direct": 3,
+}
 
 xkcd_colors_that_i_like = [
     "pale purple",
@@ -63,6 +73,11 @@ xkcd_colors_that_i_like = [
 ]
 
 colors_for_labels = {
+    "foreground": "pale yellow",
+    "explorable": "light blue",
+    "plastic": "dark aquamarine",
+    "area_of_interest": "lilac",
+        
     "background": "dark green",
     "aether": "light blue",
     "degraded_protein": "chartreuse",
@@ -253,16 +268,26 @@ named_points_colors = {
     
 }
 
+keypoints_global_singletons = {
+    0: ["most_likely_click"],
+    1: ["extreme"],
+    2: ["origin"],
+}
+
 keypoints_global_classification = {
-    1: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",],
+    0: ["origin", "extreme"],
+    1: ["origin", "extreme", "most_likely_click", "start_likely", "start_possible",], #gang of five
     2: [
         "aoi_left",
         "aoi_top",
         "aoi_right",
         "aoi_bottom",
         "aoi_center",
+
         "stem_center",
+
         "start_possible",
+
         "pin_left",
         "pin_center",
         "pin_right",
@@ -272,10 +297,10 @@ keypoints_global_classification = {
 }
 
 classifications = {
-    "anything": ["foreground"],
-    "plate_content": ["crystals", "precipitate", "other", "clear"],
-    "ice": ["ice"],
-    "loop_type": ["standard", "mitegen", "crystal_direct", "void"],
+    # "anything": ["foreground", "void"],
+    # "plate_content": ["crystals", "precipitate", "other", "clear"],
+    # "ice": ["ice", "void"],
+    "support_type": ["standard", "mitegen", "crystal_direct", "void"],
 }
 
 categorical = {
@@ -298,14 +323,15 @@ categorical = {
     ],
     "hierarchy_aoi": ["area_of_interest", "foreground", "background"],
     "hierarchy_crystal": ["crystal", "foreground", "background"],
+    #"hierarchy_support_type": ["standard", "mitegen", "crystal_direct", "foreground", "background"],
 }
 
 class_tasks = {
-    "binary_segment": {"channels": 1, "dtype": "int8"},
-    "distance_transform": {"channels": 1, "dtype": "float32"},
-    "inverse_distance_transform": {"channels": 1, "dtype": "float32"},
-    "sqrt_distance_transform": {"channels": 1, "dtype": "float32"},
-    "sqrt_inverse_distance_transform": {"channels": 1, "dtype": "float32"},
+    "binary_segment": {"channels": 1, "dtype": "uint8", "activation": "sigmoid"},
+    "distance_transform": {"channels": 1, "dtype": "float32", "activation": "sigmoid"},
+    "inverse_distance_transform": {"channels": 1, "dtype": "float32", "activation": "sigmoid"},
+    "sqrt_distance_transform": {"channels": 1, "dtype": "float32", "activation": "sigmoid"},
+    "sqrt_inverse_distance_transform": {"channels": 1, "dtype": "float32", "activation": "sigmoid"},
 }
 
 instance_tasks = {
@@ -327,30 +353,79 @@ instance_tasks = {
 
 global_tasks = {
     # voronoi diagram around crystal inner centers, order according to crystal area or position (V*H) 
-    "crystal_area": {"channels": 100, "dtype": "int8", "activation": "softmax"},
-    "crystal_position": {"channels": 100, "dtype": "int8", "activation": "softmax"},
+    "crystal_area": {
+        "channels": 100, 
+        "dtype": "int8", 
+        "activation": "softmax"
+    },
+    "crystal_position": {
+        "channels": 100, 
+        "dtype": "int8", 
+        "activation": "softmax"
+    },
     # centerness + offsets
-    "keypoint": {"channels": 1 + 2, "dtype": "float32"},
+    # "keypoint_centerness": {
+    #     "channels": 1,
+    #     "dtype": "float32",
+    #     "activation": "sigmoid"
+    # },
+    # "keypoint_hoffset": {
+    #     "channels": 1,
+    #     "dtype": "float32",
+    #     "activation": "sigmoid"
+    # },
+    # "keypoint_voffset": {
+    #     "channels": 1,
+    #     "dtype": "float32",
+    #     "activation": "sigmoid"
+    # },
     # all keypoints together
-    "keypoints_regression": {
-        "channels": 1 + 2,
+    "keypoints_centerness": {
+        "channels": 1,
+        "dtype": "float32",
+        "activation": "sigmoid",
+    },
+    "keypoints_voffsets": {
+        "channels": 1,
+        "dtype": "float32",
+        "activation": "sigmoid",
+    },
+    "keypoints_hoffsets": {
+        "channels": 1,
         "dtype": "float32",
         "activation": "sigmoid",
     },
     # voronoi diagram
     "keypoints_classification": {
-        "channels": len(keypoints),
-        "dtype": "int8",
+        "channels": None,
+        "dtype": "uint8",
         "activation": "softmax",
     },
-    "classification": {"channels": None, "dtype": "int8", "activation": "softmax"},
-    "encoder": {"channels": None, "dtype": "float32"},
-    "hierarchy": {"channels": None, "dtype": "float32"},
-    "moments": {"channels": 7, "dtype": "float32"},
+    "classification": {
+        "channels": None, 
+        "dtype": "uint8",
+        "activation": "softmax"
+    },
+    "encoder": {
+        "channels": None, 
+        "dtype": "float32", 
+        "activation": "sigmoid"
+    },
+    "hierarchy": {
+        "channels": None, 
+        "dtype": "float32", 
+        "activation": "softmax"
+    },
+    "moments": {
+        "channels": 7, 
+        "dtype": "float32",
+        "activation": "sigmoid",
+    },
 }
 
 concepts = [
     "crystal",
+    "crystal_aether",
     "area_of_interest",
     "loop_inside",
     "loop",
@@ -360,8 +435,20 @@ concepts = [
     "capillary",
     "foreground",
     "aether",
+    "plastic",
     "explorable",
     "support",
     "drop",
     "diffracting_area",  # from raster scans
 ]
+
+luts = {}
+for h in categorical:
+    luts[h] = get_lut(notions=categorical[h][::-1])
+
+for h in concepts:
+    luts[f'{h}_binary_segment'] = get_lut(notions=["background", f"{h}"])
+
+for h in classifications:
+    luts[f'{h}_cliassification'] = get_lut(notions=classifications[h])
+
