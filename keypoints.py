@@ -5,7 +5,10 @@
 
 import numpy as np
 from scipy.spatial import distance_matrix
-import peakutils
+try:
+    import peakutils
+except:
+    peakutils = None
 import time
 
 def principal_axes(array, verbose=False):
@@ -80,7 +83,7 @@ def get_origin(labels, indices, points, properties):
         points = np.array(list(minmax.values()))
         distances = np.linalg.norm(points - origin, axis=1)
         origin = points[np.argmin(distances)]
-    print(f"origing {origin}")
+    print(f"origin {origin}")
     return origin
 
 
