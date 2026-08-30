@@ -31,9 +31,11 @@ from keypoints import (
 from sample import (
     get_label_mask_from_points,
     get_random_transformation,
+    get_transformed_img_and_points,
     get_transformed_image,
     get_transformed_points,
     make_points_homogeneous,
+    resize_img_and_points,
 )
 from config import (
     colors_for_labels,
@@ -859,7 +861,8 @@ def get_output_shape(input_shape, transformation_matrix):
     print(f"tcorners {tcorners}")
     # distances = np.abs(tcorners[:-1, :2] - tcorners[-1, :2])
     # print(f'distances {distances}')
-    output_shape = np.max(tcorners[:, :2], axis=0)
+    #output_shape = np.max(tcorners[:, :2], axis=0)
+    output_shape = np.min(tcorners[:, :2], axis=0)
     print(f"output_shape {output_shape}")
     return output_shape.astype(int)
 
@@ -878,37 +881,38 @@ def plot_keypoints(keypoints, radius=1, colors=xkcd_colors_that_i_like, ax=None)
         c = pylab.Circle(p[:2][::-1], radius=radius, color=sns.xkcd_rgb[colors[k]])
         ax.add_patch(c)
 
-def get_polygon_patch(points, color="green", lw=2, fill=False, ls=1):
+def get_polygon_patch(points, color="green", lw=2, fill=False, ls="solid"):
     matlab_ps = points[:, ::-1]
     patch = pylab.Polygon(
         matlab_ps, color=color, lw=lw, fill=fill, ls=ls,
     )
     return patch
 
-def get_rectangle_patch(points, color="green", lw=2, fill=False, ls=1):
+def get_rectangle_patch(points, color="green", lw=2, fill=False, ls="solid"):
     x, y, width, height = get_rectangle_from_polygon(points, encoding="matplotlib")
     patch = pylab.Rectangle(
         (x, y), width, height, color=color, lw=lw, fill=fill, ls=ls,
     )
     return patch
 
-def plot_oois(points, labels, radius=7, ax=None):
+def plot_oois(points, labels, indices, radius=7, ax=None):
     if ax is None:
         ax = pylab.gca()
     print(f"points {len(points)}")
     print(f"labels {labels}")
-    for label, i_start, i_end in labels:
+    for label, (i_start, i_end) in zip(labels, indices):
         # if label not in ['crystal']: #'user_click', 'pin', 'stem']:
         # continue
-        print(f"label {label}, i_start {i_start}, i_end {i_end}")
+        #print(f"label {label}, i_start {i_start}, i_end {i_end}")
         color = sns.xkcd_rgb[colors_for_labels[label]]
         ps = points[i_start:i_end, :]
         matlab_ps = ps[:, ::-1]
         if len(ps) >= 3:
+            #print("rectangle or polygon!", ps)
             polygon_patch = get_polygon_patch(ps, color=color, lw=2, fill=False)
             ax.add_patch(polygon_patch)
-            rectangle_patch = get_rectangle_patch(ps, color=color, lw=2, fill=False)
-            ax.add_patch(rectangle_patch)
+            #rectangle_patch = get_rectangle_patch(ps, color=color, lw=2, fill=False)
+            #ax.add_patch(rectangle_patch)
         elif len(ps) == 1:
             print("point!")
             print(matlab_ps)
@@ -917,16 +921,25 @@ def plot_oois(points, labels, radius=7, ax=None):
 
 
 def plot_transformed_image_and_keypoints(
-    json_file=None, keypoints=None, transformation=None, doer="cv", display=False
+    json_file=None, img_shape=None, keypoints=None, transformation=None, doer="cv", display=False, method=2,
 ):
-    if json_file is None:
+    if type(json_file) is str and os.path.isfile(json_file):
+        json_file = load_json(json_file)
+    elif json_file is None:
         json_file = load_test_json_file()
-
+        
     img = get_image(json_file)
     oois = get_objects_of_interest(json_file)
+
+    oois_points = oois["points"]
+    oois_labels = oois["labels"]
+    oois_indices= oois["indices"]
+
+    if img_shape is not None:
+        img, oois_points = resize_img_and_points(img, oois_points, img_shape, fractional=oois["fractional"])
+
+    oois_points = make_points_homogeneous(oois_points)
     img_shape = np.array(img.shape[:2])
-    oois_points = make_points_homogeneous(oois["points"])
-    oois_labels_and_indices = oois["labels_and_indices"]
 
     if keypoints is None:
         keypoints = get_corners() * img_shape
@@ -937,55 +950,100 @@ def plot_transformed_image_and_keypoints(
 
     print("transformation")
     print(transformation)
-    # output_shape = get_output_shape(img_shape, transformation.params)
-    transformed_keypoints = get_transformed_points(
-        keypoints, transformation._inv_matrix
-    )
-    print(f"transformed_keypoints {(transformed_keypoints).astype(int)}")
-    bbox = get_rectangle_from_polygon(
-        transformed_keypoints[:, :2], encoding="preferred"
-    )
-    print(f"bbox {bbox}")
+    if method == 1:
+        # output_shape = get_output_shape(img_shape, transformation.params)
+        transformed_keypoints = get_transformed_points(
+            keypoints, transformation._inv_matrix
+        )
+        print(f"transformed_keypoints {(transformed_keypoints).astype(int)}")
+        bbox = get_rectangle_from_polygon(
+            transformed_keypoints[:, :2], encoding="preferred"
+        )
+        print(f"bbox {bbox}")
 
-    output_shape = np.ceil(bbox[2:]).astype(int)
+        output_shape = np.ceil(bbox[2:]).astype(int)
+        #output_shape = get_output_shape(img_shape, transformation.params)
+        print(f"output_shape {output_shape}")
+        center = np.array(bbox[:2])
+        center_shift = transformed_keypoints[-1, :2] - output_shape / 2
 
-    print(f"output_shape {output_shape}")
-    center = np.array(bbox[:2])
-    center_shift = transformed_keypoints[-1, :2] - output_shape / 2
+        print(f"center_shift {center_shift}")
 
-    print(f"center_shift {center_shift}")
+        shift = ski.transform.AffineTransform(translation=center_shift[::-1])
+        print(f"shift {shift}")
 
-    shift = ski.transform.AffineTransform(translation=center_shift[::-1])
-    print(f"shift {shift}")
+        final_transformation = shift + transformation
+        print(f"final_transformation {final_transformation}")
 
-    final_transformation = shift + transformation
-    print(f"final_transformation {final_transformation}")
+        transformed_keypoints[:, :2] -= center_shift
 
-    transformed_keypoints[:, :2] -= center_shift
+        #output_shape = np.min(transformed_keypoints[:, :2].astype(int), axis=0)
 
-    oois_points[:, :2] *= img_shape
-    transformed_oois_points = get_transformed_points(
-        oois_points, final_transformation._inv_matrix
-    )
-    # print(f'transformed_oois_points {transformed_oois_points}')
-    transformed_image = get_transformed_image(
-        img, final_transformation, output_shape=output_shape, doer=doer
-    )
+        horizontal_order = np.argsort(transformed_keypoints[:, 1])
+        vertical_order = np.argsort(transformed_keypoints[:, 0])
 
-    fig, axes = pylab.subplots(1, 2)
+        # two points: upper_left and lower_right
+        ul = np.zeros((2,))
+        lr = np.zeros((2,))
 
+        ul[0] = transformed_keypoints[:, 0][vertical_order[1]]
+        lr[0] = transformed_keypoints[:, 0][vertical_order[3]]
+        ul[1] = transformed_keypoints[:, 1][horizontal_order[1]]
+        lr[1] = transformed_keypoints[:, 1][horizontal_order[3]]
+
+        ullr = np.reshape([ul, lr], (2, 2)).astype(int)
+        print(f"ullr {ullr}")
+        bbox2 = get_rectangle_from_polygon(
+            ullr, encoding="preferred"
+        )
+        print(f"bbox2 {bbox2}")
+
+
+        output_shape = np.ceil(bbox2[2:])
+
+
+        #oois_points[:, :2] *= img_shape
+        transformed_oois_points = get_transformed_points(
+            oois_points, final_transformation._inv_matrix
+        )
+        # print(f'transformed_oois_points {transformed_oois_points}')
+        transformed_image = get_transformed_image(
+            img, final_transformation, output_shape=output_shape, doer=doer
+        )
+
+    else:
+        transformed_image, transformed_oois_points, otimage, valid_shift = get_transformed_img_and_points(
+            img, oois_points, transformation=transformation
+        )
+        transformed_keypoints = get_transformed_points(
+            keypoints, transformation._inv_matrix
+        )
+
+    fig, axes = pylab.subplots(1, 3)
+
+    
     axes[0].imshow(img)
     axes[0].set_title("Original image")
     axes[0].set_axis_off()
-    # plot_keypoints(keypoints, radius=7, ax=axes[0])
-    plot_oois(oois_points[:, :2], oois_labels_and_indices, ax=axes[0])
+    plot_keypoints(keypoints, radius=17, ax=axes[0])
+    plot_oois(oois_points[:, :2], oois_labels, oois_indices, ax=axes[0])
 
     axes[1].imshow(transformed_image)
     axes[1].set_title("Transformed image")
     axes[1].set_axis_off()
-    # plot_keypoints(transformed_keypoints, radius=7, ax=axes[1])
-    plot_oois(transformed_oois_points[:, :2], oois_labels_and_indices, ax=axes[1])
+    plot_keypoints(transformed_keypoints - transformed_keypoints.min(axis=0) - valid_shift, radius=17, ax=axes[1])
+    plot_oois(transformed_oois_points[:, :2], oois_labels, oois_indices, ax=axes[1])
+    if method == 1:
+        plot_keypoints(ullr, radius=27, ax=axes[1])
+
+    axes[2].imshow(otimage)
+    axes[2].set_title("Transformed image without concerns")
+    axes[2].set_axis_off()
+    plot_keypoints(transformed_keypoints-transformed_keypoints.min(axis=0), radius=17, ax=axes[2])
+    plot_oois(transformed_oois_points[:, :2]+valid_shift, oois_labels, oois_indices, ax=axes[2])
     pylab.savefig("transform_%.1f.jpg" % time.time())
+    
+    
     if display:
         pylab.show()
 
@@ -1014,7 +1072,7 @@ def plot_transformed_image_and_keypoints(
 
 
 def save_annotation_figure(
-    annotation, alpha=0.25, dpi=192, factor=1.299, lw=1, masks=False
+    annotation, alpha=0.25, dpi=192, factor=1.299, lw=1, fill=False, masks=False
 ):
     json_file = load_json(annotation)
     image = get_image(json_file)
@@ -1035,6 +1093,7 @@ def save_annotation_figure(
                 continue
             ls = "solid"
             if label in line_styles:
+                print(f"line_styles {label}, {line_styles[label]}")
                 ls = line_styles[label]
             if label in colors_for_labels:
                 color = sns.xkcd_rgb[colors_for_labels[label]]
@@ -1050,6 +1109,8 @@ def save_annotation_figure(
             if fractional:
                 points = points * image_shape
 
+            if ls == 1:
+                ls = "solid"
             matlab_points = points[:, ::-1]
             if len(points) >= 3:
                 patch = get_polygon_patch(points, color=color, lw=lw, fill=fill, ls=ls)
@@ -1339,6 +1400,58 @@ def main():
 
     save_annotation_figure(args.json)
 
+from dataset_loader import JsonDataset, plot_image_and_targets
+from train import get_training_and_validation_datasets
+from candidates import get_candidates
+
+def test_dataset_loader(
+    base="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine",
+    directories=[
+        "soleil_proxima2a",
+        "arthur_validated",
+        "als_bl8.3.1",
+        "bessy_bl14.1",
+        "c3d",
+        "desy_p11",
+        "dls_i04",
+        "elettra_xrd2",
+        "esrf_id30a",
+        "sls",
+        "xrec",
+    ],
+    img_size=(128, 128),
+    augment=True, 
+    verbose=True,
+    shuffle_at_zero=False,
+    batch_size=1,
+):
+    traina, vala = get_training_and_validation_datasets([os.path.join(base, dire) for dire in directories], split=0.2)
+    targets_config, task_concepts = get_candidates()
+    dl = JsonDataset(
+        vala,
+        targets_config,
+        img_size=img_size,
+        augment=augment,
+        verbose=verbose,
+        shuffle_at_0=shuffle_at_zero,
+        batch_size=batch_size,
+    )
+    
+    return dl
+
+import pylab
+import random
+def plot_random_sample_and_targets(dl, idx=None):
+    if idx is None:
+        idx = int(random.random()*len(dl)-1)
+    json_path = dl.samples[idx].json_path
+    print(f"chosen index {idx} {json_path}")
+    plot_image_and_targets(
+        *dl[idx], 
+        dl.targets_config, 
+        path=json_path, 
+        original_image=dl.samples[idx].get_image(),
+    )
 
 if __name__ == "__main__":
     # main()
