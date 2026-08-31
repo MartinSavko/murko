@@ -62,6 +62,10 @@ a) 2 layer output
 """
 
 concepts = [
+    "foreground",
+    "aether",
+    "area_of_interest",
+    "area_of_interest_aether",
     "crystal",
     "crystal_aether",
     "loop_inside",
@@ -69,12 +73,9 @@ concepts = [
     "stem",
     "pin",
     "ice",
-    "foreground",
-    "area_of_interest",
     # "support",
     "plastic",
     "explorable",
-    "aether",
 ]
 
 def get_candidates(
