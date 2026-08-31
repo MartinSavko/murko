@@ -793,19 +793,17 @@ class Sample:
             if self.fractional:
                 ps *= image_shape
             negative_points = None
-            if label == "plastic":
+            if label in ["plastic", "crystal_aether", "area_of_interest_aether"]:
+                complement = "loop_inside" if label=="plastic" else label.replace("_aether", "")
                 negative_points = self.get_label_points(
-                    "loop_inside", points, image_shape
+                    complement, points, image_shape
                 )
-            elif label == "crystal_aether":
-                negative_points = self.get_label_points(
-                    "crystal", points, image_shape
-                )
+
             props = Regionprops(
                 ps,
                 image_shape=image_shape,
-                distance_transform_pad=0 if label in ["aether", "crystal_aether"] else 2,
-                negative_points=negative_points
+                distance_transform_pad=0 if "aether" in label else 2,
+                negative_points=negative_points,
             )
             properties.append(props)
 

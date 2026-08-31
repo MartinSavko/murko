@@ -71,6 +71,7 @@ def get_lut(
         "foreground": white,
         "background": black,
         "area_of_interest": "crimson",
+        "area_of_interest_aether": "pale yellow",
         "support": cyan,
         "plastic": cyan,
         "aether" : blue,

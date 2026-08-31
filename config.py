@@ -416,6 +416,7 @@ concepts = [
     "crystal",
     "crystal_aether",
     "area_of_interest",
+    "area_of_interest_aether",
     "loop_inside",
     "loop",
     "stem",

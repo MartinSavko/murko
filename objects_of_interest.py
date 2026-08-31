@@ -110,12 +110,12 @@ def get_masks(points, indices, labels, properties, image_shape, fractional=False
             masks["plastic"][masks["loop_inside"].astype(bool)] = 0
 
     if "background" in masks:
-        masks["aether"] = masks["background"].copy()
-        masks["crystal_aether"] = masks["background"].copy()
-        if "foreground" in masks:
-            masks["aether"][masks["foreground"].astype(bool)] = 0
-        if "crystal" in masks:
-            masks["crystal_aether"][masks["crystal"].astype(bool)] = 0
+        for body in ["foreground", "crystal", "area_of_interest"]:
+            aether = "aether" if body == "foreground" else f'{body}_aether'
+            masks[aether] = masks["background"].copy()
+            if body in masks:
+                masks[aether][masks[body].astype(bool)] = 0
+
     return masks
 
 
@@ -159,6 +159,7 @@ def add_derived_notions(
         "plastic",
         "aether",
         "crystal_aether",
+        "area_of_interest_aether",
     ],
 ):
     
