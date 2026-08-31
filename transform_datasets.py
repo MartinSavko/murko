@@ -331,11 +331,14 @@ def generate_json_files_for_backgrounds(
     directory="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/backgrounds",
     template="*.jpg",
     unit_square=np.array([[0, 0], [0, 1], [1, 1], [1, 0]]),
+    force=False,
 ):
     bfs = glob.glob(os.path.join(directory, template))
     print("background files")
     print(bfs)
     for bf in bfs:
+        json_path = bf.replace(".jpg", ".json")
+        if os.path.isfile(json_path) and not force: continue
         print(bf)
         image = imageio.imread(bf)
         image_shape = np.array(image.shape[:2])
@@ -343,7 +346,7 @@ def generate_json_files_for_backgrounds(
         points = [[int(item[0]), int(item[1])] for item in polygon]
         shape = get_empty_shape(label="background", points=points, shape_type="polygon")
 
-        json_path = bf.replace(".jpg", ".json")
+
         json_file = get_new_json_file(
             [shape],
             os.path.basename(bf),
