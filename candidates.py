@@ -86,10 +86,10 @@ def get_candidates(
         "sqrt_distance_transform": False,
         "sqrt_inverse_distance_transform": False,
         "bounding_box": False,
-        "keypoints": True,
+        "keypoints": False,
         "encoder": True,
         "hierarchy": True,
-        "classification": True,
+        "classification": False,
     },
 
 ):

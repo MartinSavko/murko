@@ -810,8 +810,9 @@ def get_distance_transform(
         # idt = -1 * get_distance_transform(imask.astype("uint8"), poetic=False)
         # dt[mask] = dt[mask]**0.5
         # dt[imask] = idt[imask]
-        dt *= dt
-        dt -= get_distance_transform(np.logical_not(mask).astype("uint8"), poetic=False) ** 0.5
+        # dt *= dt
+        dt -= get_distance_transform(np.logical_not(mask).astype("uint8"), poetic=False)
+        # dt = dt**0.5
         cv.normalize(dt, dt, mini, maxi, cv.NORM_MINMAX)
     return dt
 
