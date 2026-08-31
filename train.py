@@ -13,6 +13,7 @@ import random
 import tensorflow as tf
 from tensorflow import keras
 import copy
+import pprint
 
 from utils import plot_history
 
@@ -191,35 +192,7 @@ def get_model(
         dropout_rate=dropout_rate,
         weight_standardization=weight_standardization,
         model_img_size=model_img_size,
-        targets_config=[
-            {'name': 'crystal', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'loop_inside', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'loop', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'stem', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'pin', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'ice', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'foreground', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'area_of_interest', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'plastic', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'explorable', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'aether', 'task': 'binary_segment', 'dtype': 'int8', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'crystal', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'loop_inside', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'loop', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'stem', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'pin', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'foreground', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'area_of_interest', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'plastic', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'explorable', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'aether', 'task': 'distance_transform', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'identity', 'task': 'encoder', 'dtype': 'float32', 'channels': 3, 'activation': 'sigmoid'},
-            {'name': 'identity_bw', 'task': 'encoder', 'dtype': 'float32', 'channels': 1, 'activation': 'sigmoid'},
-            {'name': 'hierarchy_detailed', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 7, 'concepts': ['background', 'foreground', 'pin', 'stem', 'loop', 'loop_inside', 'crystal'], 'activation': 'softmax'},
-            {'name': 'hierarchy_crystal_aoi_support_pin', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 6, 'concepts': ['background', 'foreground', 'pin', 'support', 'area_of_interest', 'crystal'], 'activation': 'softmax'},
-            {'name': 'hierarchy_aoi', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'area_of_interest'], 'activation': 'softmax'},
-            {'name': 'hierarchy_crystal', 'task': 'hierarchy', 'dtype': 'float32', 'channels': 3, 'concepts': ['background', 'foreground', 'crystal'], 'activation': 'softmax'}
-        ],
+        targets_config=targets_config,
         name=name,
         normalization_type=normalization_type,
         weight_decay=weight_decay,
@@ -275,8 +248,9 @@ def get_model(
                 keras.metrics, params[head["task"]]["metrics"]
             )()
 
-    print("losses", len(losses), losses)
-    print("metrics", len(metrics), metrics)
+    pprint.pprint(f"losses {len(losses)}\n{losses}")
+    pprint.pprint(f"metrics {len(metrics)}\n{metrics}")
+
     loss_weights = {}
     for head in targets_config:
         head_name = f'{head["name"]}_{head["task"]}'
@@ -302,8 +276,8 @@ def get_model(
         optimizer=optimizer, loss=losses, loss_weights=loss_weights, metrics=metrics
     )
 
-    print("model.losses", len(model.losses), model.losses)
-    print("model.metrics", len(model.metrics), model.metrics)
+    pprint.pprint(f"model.losses {len(model.losses)}\n{model.losses}\n")
+    pprint.pprint(f"model.metrics {len(model.metrics)}\n{model.metrics}\n")
     return model
 
 
@@ -371,7 +345,7 @@ def train(
     weight_decay=1.0e-4,
     activation="relu",
     train_dev_split=0.2,
-    val_model_img_size=(320, 320),
+    val_model_img_size=(256, 256),
     max_queue_size=128,
     workers=32,
     use_multiprocessing=True,
@@ -427,7 +401,7 @@ def train(
         % (len(train_paths), len(val_paths))
     )
     # train_gen = CrystalClickDataset(batch_size, model_img_size, train_paths, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, shuffle_at_0=True)
-    print("tasks in train", tasks)
+    pprint.pprint(f"tasks in train\n{tasks}")
     train_gen = JsonDataset(
         train_paths,
         targets_config,
@@ -508,6 +482,7 @@ def train(
             except:
                 model = keras.models.load_model(
                     model_name,
+                    # targets_config=targets_config,
                     custom_objects={
                         "WSConv2D": WSConv2D,
                         "WSSeparableConv2D": WSSeparableConv2D,
@@ -536,8 +511,9 @@ def train(
         )
 
     print("model.summary()")
-    print(model.summary())
+    # print(model.summary())
 
+    pprint.pprint(f"targets_config\n{targets_config}")
     print(f"train_gen: {train_gen}")
     print(f"epochs: {epochs}")
     print(f"val_gen: {val_gen}")
@@ -727,14 +703,14 @@ def main():
 
     parser.add_argument(
         "--model_img_size",
-        default="(320, 320)",
+        default="(256, 256)",
         type=str,
         help="train model_img_size",
     )
 
     parser.add_argument(
         "--val_model_img_size",
-        default="(320, 320)",
+        default="(256, 256)",
         type=str,
         help="validation model_img_size",
     )
@@ -792,10 +768,10 @@ def main():
     #sys.exit()
     # save the current version of the murko under a name corresponding to the
     # output model name
-    for tool in ["murko", "train", "dataset_loader"]:
-        os.system("cp %s.py %s_%s_%s.py" % (tool, args.network, args.name, tool))
+    for tool in ["murko", "train", "sample", "objects_of_interest", "regionprops", "dataset_loader"]:
+        os.system("cp %s.py experiments/%s_%s_%s.py" % (tool, args.network, args.name, tool))
 
-    f = open("%s_%s.args" % (args.network, args.name), "wb")
+    f = open("experiments/%s_%s.args" % (args.network, args.name), "wb")
     pickle.dump(args, f)
     f.close()
 
