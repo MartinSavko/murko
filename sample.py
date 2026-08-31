@@ -22,6 +22,8 @@ from objects_of_interest import (
     get_objects_of_interest,
     update_maps,
     merge_maps,
+    get_label_points,
+    adjust_points,
 )
 
 from regionprops import (
@@ -37,7 +39,7 @@ from config import (
     notion_importance,
     keypoints,
     keypoint_labels,
-    keypoints_global_classification,
+    global_keypoints,
     named_points_colors,
     classifications,
 )
@@ -101,7 +103,7 @@ def get_transposed_img_and_points(img, points):
     return timg, tpoints
 
 
-@timeit
+#@timeit
 def make_points_homogeneous(points):
     hpoints = np.append(points, np.ones((points.shape[0], 1)), axis=1)
     return hpoints
@@ -138,7 +140,7 @@ def get_output_shape(input_shape, transformation_matrix):
     return output_shape.astype(int)
 
 
-@timeit
+#@timeit
 def estimate_transformation(src, dst):
     # https://docs.opencv.org/3.4.8/d4/d61/tutorial_warp_affine.html
     srcTri = src[:3, ::-1].astype("float32")
@@ -147,9 +149,15 @@ def estimate_transformation(src, dst):
     return transformation
 
 
-@timeit
+#@timeit
 def get_transformed_img_and_points(
-    img, points, transformation=None, valid=True, verbose=False, return_optional=False, preserve_shape=True,
+    img,
+    points,
+    transformation=None,
+    valid=True,
+    verbose=False,
+    return_optional=False,
+    preserve_shape=True,
 ):
 
     if transformation is None:
@@ -173,12 +181,14 @@ def get_transformed_img_and_points(
     tcorners = tcorners - tc_min
     tc_min = tcorners.min(axis=0)
     tc_max = tcorners.max(axis=0)
-    output_shape = tc_max - tc_min
+    output_shape = np.floor(tc_max - tc_min)[:2]
+    # output_shape -= np.array([10, 10])
+    # output_shape = cv.boundingRect(tcorners)[2:]
     warp_mat = estimate_transformation(corners, tcorners)
     timage = cv.warpAffine(
         img,
         warp_mat,
-        output_shape[:2][::-1],
+        output_shape, #[:2][::-1],
     )
     # timage = get_transformed_image(
     #     img, transformation, output_shape=output_shape2
@@ -223,7 +233,7 @@ def get_transformed_img_and_points(
     return return_value
 
 
-@timeit
+#@timeit
 def get_largest_inscribed_rectangle(polygon):
     rectangle = lir.lir(polygon)
     return rectangle
@@ -252,7 +262,7 @@ def get_corners():
     return corners
 
 
-@timeit
+#@timeit
 def get_shifted_img_and_points(
     img, points, max_shift=0.33, valid=True, preserve_shape=True, verbose=False
 ):
@@ -381,7 +391,7 @@ def get_gamma_image(image, gamma=None, gamma_min=0.2, gamma_max=5.0, verbose=Fal
     return gamma_image
 
 
-@timeit
+#@timeit
 def get_transformed_image(
     img, transformation, output_shape=None, doer="cv", cval=0, mode="constant"
 ):
@@ -447,7 +457,8 @@ def get_resized_image(
 # shear_factor=45,
 # default_transform_gang=[0, 0, 0, 0, 1, 1],
 
-@timeit
+
+#@timeit
 def get_random_transformation(
     rotation_range=np.pi / 4,
     scale_range=0.5,
@@ -491,9 +502,7 @@ def get_random_transformation(
     #     t_rotation + t_scale + t_shear
     # )
 
-    random_transformation = (
-        shift_c + t_rotation + shift_invc + t_scale + t_shear
-    )
+    random_transformation = shift_c + t_rotation + shift_invc + t_scale + t_shear
     return random_transformation
 
 
@@ -630,7 +639,6 @@ def get_augment_control(
         if flip and random.random() < threshold:
             do_flip = True
 
-
     if transform and random.random() < threshold:
         do_transform = True
     # do_transform = True
@@ -700,7 +708,6 @@ def draw_point(point, ax=None, radius=3, color="red"):
     p = pylab.Circle(point, radius=radius, color=color)
     ax.add_patch(p)
 
-
 class Sample:
     def __init__(
         self,
@@ -724,7 +731,7 @@ class Sample:
         if self.preferred_image_size is not None and size_differs(
             self.preferred_image_size, self.image_shape
         ):
-            self.image_at_preferred_resolution, self.points_at_preferred_resolution = (
+            self.image_at_preferred_resolution, points = (
                 resize_img_and_points(
                     self.get_image(preferred=False),
                     self.get_points(preferred=False),
@@ -732,6 +739,19 @@ class Sample:
                     fractional=self.fractional,
                 )
             )
+
+            # if "autocenter_100161_Thu_Jan__6_14:25:41_2022_bright_failed.json" in self.json_path:
+            #     print("points before\n", points)
+
+            points = adjust_points(points, self.preferred_image_size)
+
+            # if "autocenter_100161_Thu_Jan__6_14:25:41_2022_bright_failed.json" in self.json_path:
+            #     print("points after\n", points)
+            self.points_at_preferred_resolution = points
+
+        else:
+            self.image_at_preferred_resolution = self.image
+            self.points_at_preferred_resolution = self.points
 
         for key in not_to_keep:
             if key in self.oois:
@@ -771,13 +791,17 @@ class Sample:
         return self.labels
 
     def get_label_points(self, label, points, image_shape):
-        label_points = None
-        idx = self.labels.index(label) if label in self.labels else None
-        if idx is not None:
+        label_points = []
+        # https://stackoverflow.com/questions/6294179/how-to-find-all-occurrences-of-an-element-in-a-list
+        indices = [i for i, x in enumerate(self.labels) if x == label]
+        # idx = self.labels.index(label) if label in self.labels else None
+        for idx in indices:
             i_start, i_end = self.indices[idx]
-            label_points = points[i_start:i_end]
+            lps = points[i_start: i_end]
             if self.fractional:
-                label_points *= image_shape
+                lps *= image_shape
+            label_points.append(lps)
+
         return label_points
 
     def _get_properties(self, points=None, image_shape=None, exclusive_label=None):
@@ -792,12 +816,21 @@ class Sample:
             ps = points[i_start:i_end]
             if self.fractional:
                 ps *= image_shape
-            negative_points = None
-            if label in ["plastic", "crystal_aether", "area_of_interest_aether"]:
-                complement = "loop_inside" if label=="plastic" else label.replace("_aether", "")
-                negative_points = self.get_label_points(
-                    complement, points, image_shape
-                )
+            negative_points = []
+            if label in [
+                "plastic",
+                "aether",
+                "area_of_interest_aether",
+                "crystal_aether",
+            ]:
+                if label == "plastic":
+                    complement = "loop_inside"
+                elif label == "aether":
+                    complement = "foreground"
+                else:
+                    complement = label.replace("_aether", "")
+
+                negative_points = self.get_label_points(complement, points, image_shape)
 
             props = Regionprops(
                 ps,
@@ -1280,7 +1313,9 @@ class Sample:
                 img_shape = img.shape[:2]
 
             if do_transform is True:
-                img, points = get_transformed_img_and_points(img, points, verbose=verbose)
+                img, points = get_transformed_img_and_points(
+                    img, points, verbose=verbose
+                )
 
             if do_shift is True:
                 img, points = get_shifted_img_and_points(img, points, verbose=verbose)
@@ -1361,10 +1396,10 @@ def plot_targets(s, target="crystal"):
 
     image = s.get_image()
     masks = s.get_masks()
-    kp1 = s.get_keypoints(keypoints_global_classification[1])
+    kp1 = s.get_keypoints(global_keypoints[1])
     voronoi1 = s.get_voronoi(kp1)
     kpcentr1 = s.get_keypoint_centerness(list(kp1.values()))
-    # kp2 = s.get_keypoints(keypoints_global_classification[2])
+    # kp2 = s.get_keypoints(global_keypoints[2])
     # voronoi2 = s.get_voronoi(kp2)
     # kpcentr2 = s.get_keypoint_centerness(list(kp2.values()))
 
@@ -1506,7 +1541,7 @@ def plot_targets(s, target="crystal"):
 
 def plot_voronoi(s):
     image = s.get_image()
-    kps = [s.get_keypoints(keypoints_global_classification[k]) for k in [1, 2]]
+    kps = [s.get_keypoints(global_keypoints[k]) for k in [1, 2]]
     kps.append(s.get_gang_of_five())
     for k, kp in enumerate(kps):
         pylab.figure()
