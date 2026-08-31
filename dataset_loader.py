@@ -110,7 +110,7 @@ class JsonDataset(PyDataset):
         self.swap_backgrounds = swap_backgrounds
         self.pixel_budget = pixel_budget
 
-        self.load_samples(self.img_size)
+        self.load_samples(preferred_image_size=self.img_size)
 
         self.artificial_size_increase = artificial_size_increase
         if self.artificial_size_increase > 1:
@@ -241,6 +241,7 @@ class JsonDataset(PyDataset):
         if not self.target:
             return img, None
 
+        # print("points\n", points)
         targets = get_targets(
             sample,
             img,
@@ -391,14 +392,16 @@ def plot_image_and_targets(
                 and config["name"] != "identity_bw"
                 and "binary_segment" in config["task"]
             ):
-                print(f"config\n{config}")
-                print(f"target", target.shape, target.dtype)
+                if verbose:
+                    print(f"config\n{config}")
+                    print(f"target", target.shape, target.dtype)
                 target = (target >= threshold).astype("uint8")
                 target = label2rgb(target[:,:,0], luts[f'{config["name"]}_{config["task"]}'])
 
             elif "binary_segment" in config["task"]:
-                print(f"config\n{config}")
-                print(f"target", target.shape, target.dtype)
+                if verbose:
+                    print(f"config\n{config}")
+                    print(f"target", target.shape, target.dtype)
                 target = label2rgb(target[:,:,0].astype("uint8"), luts[f'{config["name"]}_{config["task"]}'])
 
             if config["name"] == "identity_bw":
@@ -407,11 +410,12 @@ def plot_image_and_targets(
                 axs[k + l].imshow(target)
         elif config["task"] == "hierarchy":
             label = np.argmax(target, axis=2).astype("uint8")
-            print(f"config\n{config}")
-            print(f"label", label.shape, label.dtype)
+            if verbose:
+                print(f"config\n{config}")
+                print(f"label", label.shape, label.dtype)
             axs[k + l].imshow(label2rgb(label, luts[config["name"]]))
 
-        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "")
+        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "").replace("area_of_interest", "aoi").replace("distance_transform", "dt").replace("binary_segment", "")
         axs[k + l].set_title(title)
 
     for ax in axs:
