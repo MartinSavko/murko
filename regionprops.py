@@ -14,21 +14,34 @@ from scipy.interpolate import CubicSpline, RBFInterpolator, interp1d
 
 import traceback
 
+def adjust_points(points, img_size, atol=4):
+    indices = np.argwhere(np.abs(points[:, 0] - 0.) < atol)
+    points[indices] = points[indices] - np.array([atol, 0])
+    indices = np.argwhere(np.abs(points[:, 0] - img_size[0]) < atol)
+    points[indices] = points[indices] + np.array([atol, 0])
+    indices = np.argwhere(np.abs(points[:, 1] - 0.) < atol)
+    points[indices] = points[indices] - np.array([0, atol])
+    indices = np.argwhere(np.abs(points[:, 1] - img_size[1]) < atol)
+    points[indices] = points[indices] + np.array([0, atol])
+    return points
+
 # @timeit
 def get_rps(mask):
     rps = ski.measure.regionprops(ski.measure.label(mask))[0]
     return rps
 
 class Regionprops(object):
-    def __init__(self, points, image_shape=None, distance_transform_pad=2, negative_points=None):
+    def __init__(self, points, image_shape=None, distance_transform_pad=2, negative_points=[]):
+        points = adjust_points(points, image_shape)
         self.points = points[:, ::-1]  # assuming input is vxh, cv works in hxv
-        if negative_points is not None:
+        self.image_shape = tuple(image_shape)
+        if negative_points != []:
             # print("negative points")
             # print(negative_points)
-            self.negative_points = negative_points[:, ::-1]
+            self.negative_points = [item[:, ::-1] for item in negative_points]
         else:
             self.negative_points = negative_points
-        self.image_shape = tuple(image_shape)
+
         self.bbox = None
         self.bbox_mask = None
         self.bbox_points = None
@@ -91,10 +104,13 @@ class Regionprops(object):
         #     print("points", points)
         #     print("image_shape", image_shape)
         #     print("pad", pad)
-        if self.negative_points is not None:
+        if self.negative_points != []:
             # print("applying negative mask")
-            negative_mask = self._get_mask(self.negative_points, image_shape, pad=pad)
-            mask[negative_mask.astype(bool)] = 0
+            for item in self.negative_points:
+                negative_mask = self._get_mask(
+                    item, image_shape, pad=pad
+                )
+                mask[negative_mask.astype(bool)] = 0
         return mask
 
     # @saver
