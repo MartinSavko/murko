@@ -13,11 +13,6 @@ import skimage as ski
 import pylab
 import seaborn as sns
 
-try:
-    import largestinteriorrectangle as lir
-except:
-    lir = None
-
 from objects_of_interest import (
     get_objects_of_interest,
     update_maps,
@@ -57,6 +52,7 @@ from keypoints import (
     # draw_point,
 )
 
+from utils import get_valid_image_and_points
 
 def timeit(func):
     # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
@@ -204,23 +200,8 @@ def get_transformed_img_and_points(
     otimage = timage.copy()
     valid_shift = np.array([0, 0])
 
-    if valid and lir is not None:
-
-        rectangle = get_largest_inscribed_rectangle(
-            np.array([tcorners[:, ::-1]], dtype="int32")
-        )
-        x, y, w, h = rectangle
-        x, y = max(x, 0), max(y, 0)
-        valid_shift = np.array([y, x])
-        if verbose:
-            pt1 = lir.pt1(rectangle)
-            pt2 = lir.pt2(rectangle)
-            print("lir", rectangle)
-            print(f"pt1 {pt1} pt2 {pt2}")
-            print(f"valid_shift {valid_shift}")
-
-        timage = timage[y : y + h, x : x + w]
-        tpoints = tpoints - valid_shift
+    if valid:
+        timage, tpoints, valid_shift = get_valid_image_and_points(tcorners, timage, tpoints, verbose=verbose)
 
     if preserve_shape and size_differs(img.shape[:2], timage.shape[:2]):
         timage, tpoints = resize_img_and_points(
@@ -231,12 +212,6 @@ def get_transformed_img_and_points(
     if return_optional:
         return_value += otimage, valid_shift
     return return_value
-
-
-#@timeit
-def get_largest_inscribed_rectangle(polygon):
-    rectangle = lir.lir(polygon)
-    return rectangle
 
 
 def get_shifted_image(image, tx=None, ty=None, max_shift=0.25, valid=True):

@@ -20,7 +20,33 @@ import random
 import cv2 as cv
 import seaborn as sns
 
+import largestinteriorrectangle as lir
+
 from keypoints import principal_axes
+
+
+#@timeit
+def get_largest_inscribed_rectangle(polygon):
+    rectangle = lir.lir(polygon)
+    return rectangle
+
+def get_valid_image_and_points(polygon, timage, tpoints, verbose=False):
+    rectangle = get_largest_inscribed_rectangle(
+        np.array([polygon[:, ::-1]], dtype="int32")
+    )
+    x, y, w, h = rectangle
+    x, y = max(x, 0), max(y, 0)
+    valid_shift = np.array([y, x])
+    if verbose:
+        pt1 = lir.pt1(rectangle)
+        pt2 = lir.pt2(rectangle)
+        print("lir", rectangle)
+        print(f"pt1 {pt1} pt2 {pt2}")
+        print(f"valid_shift {valid_shift}")
+
+    timage = timage[y : y + h, x : x + w]
+    tpoints = tpoints - valid_shift
+    return timage, tpoints, valid_shift
 
 def hex_to_rgb(_hex):
     if _hex.startswith("#"):
