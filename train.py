@@ -283,6 +283,7 @@ def get_model(
 
 def train(
     dataset=["/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a"],
+    train_dataset=[],
     base="./",
     epochs=25,
     patience=3,
@@ -386,6 +387,11 @@ def train(
     #     # val_paths += val_paths_plate
     #     train_paths += train_paths_capillary
     #     val_paths += val_paths_capillary
+    if train_dataset != []:
+        train_paths +=  get_training_and_validation_datasets(
+        train_dataset, split=0.
+    )[0]
+
     full_size = len(train_paths)
     if train_images != -1:
         train_paths = train_paths[:train_images]
@@ -568,6 +574,16 @@ def main():
         # type=str,
         help="dataset",
     )
+    parser.add_argument(
+        # https://stackoverflow.com/questions/36166225/using-the-same-option-multiple-times-in-pythons-argparse
+        "--train_dataset",
+        default=[],
+        nargs="*",
+        # action="append",
+        # type=str,
+        help="additional datasets for training",
+    )
+
     parser.add_argument("--backend", default="tensorflow", type=str, help="backend")
 
     targets_config, task_concepts = get_candidates()
@@ -777,6 +793,7 @@ def main():
 
     train(
         dataset=args.dataset,
+        train_dataset=args.train_dataset,
         base=args.base,
         model_img_size=model_img_size,
         network=args.network,
