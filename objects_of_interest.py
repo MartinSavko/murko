@@ -19,6 +19,8 @@ from regionprops import (
     adjust_points,
 )
 
+from utils import get_valid_image_and_points
+
 
 def load_json(
     fname="/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/dls_i04/6116020_fullscreen-30086648_201.40800000000002.json",
@@ -67,7 +69,7 @@ def get_shapes(json_file):
     return shapes
 
 
-def get_label_points(label, labels, indices, points, properties, image_shape):
+def get_label_points(label, labels, indices, points, fractional, image_shape):
     label_points = None
     idx = labels.index(label) if label in labels else None
     if idx is not None:
@@ -285,14 +287,11 @@ def get_objects_of_interest(
         labels, indices, points, properties, image_shape, fractional=fractional
     )
 
-    # extend extreme points
-    # if verbose:
-    #     print("points\n", points, points.dtype)
-    # points[points[:, 0] == 0.] -= np.array([1, 0])
-    # points[points[:, 0] == image_shape[0]-1] += np.array([1, 0])
-    # points[points[:, 1] == 0.] -= np.array([0, 1])
-    # points[points[:, 1] == image_shape[1]-1] += np.array([0, 1])
+    background_points = get_label_points("background", labels, indices, points, fractional, image_shape)
 
+    image, points, valid_shift = get_valid_image_and_points(background_points, image, points)
+
+    image_shape = image.shape
     points = adjust_points(points, image_shape)
 
     objects_of_interest = {
