@@ -5,6 +5,7 @@ import os
 import time
 import traceback
 import pickle
+import re
 
 from skimage.morphology import remove_small_objects
 from skimage.measure import regionprops
@@ -20,10 +21,16 @@ import random
 import cv2 as cv
 import seaborn as sns
 
-import largestinteriorrectangle as lir
-
+try:
+    import largestinteriorrectangle as lir
+except:
+    lir = None
 from keypoints import principal_axes
 
+
+def guess_model_img_size(model_name):
+    model_img_size = tuple(map(int, re.findall(".*_(\d+x\d+)_.*", model_name)[0].split("x")))
+    return model_img_size
 
 #@timeit
 def get_largest_inscribed_rectangle(polygon):

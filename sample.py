@@ -1227,6 +1227,7 @@ class Sample:
         self,
         img_size=None,
         augment=False,
+        do_transform=False,
         new_background=None,
         require_transpose=False,
         disallow_transpose=False,
@@ -1250,7 +1251,7 @@ class Sample:
             do_random_gamma,
             do_random_blur,
             do_random_noise,
-        ) = get_augment_control(verbose=verbose)
+        ) = get_augment_control(verbose=verbose, transform=do_transform)
 
         already_transposed = False
         if require_transpose and not disallow_transpose:

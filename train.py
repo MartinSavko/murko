@@ -285,6 +285,8 @@ def train(
     dataset=["/nfs/data2/Martin/Research/murko/manually_segmented_images/json/spine/soleil_proxima2a"],
     train_dataset=[],
     base="./",
+    experiments_dir="./experiments",
+    results_dir="./results",
     epochs=25,
     patience=3,
     mixed_precision=False,
@@ -350,6 +352,8 @@ def train(
     max_queue_size=128,
     workers=32,
     use_multiprocessing=True,
+    do_transform=False,
+    save_paths=True,
 ):
     if mixed_precision:
         print("setting mixed_precision")
@@ -361,10 +365,10 @@ def train(
 
     tasks = [tc["name"] for tc in targets_config]
     distinguished_name = "%s_%s" % (network, name)
-    model_name = os.path.join(base, "results", "%s.keras" % distinguished_name)
-    history_name = os.path.join(base, "results", "%s.history" % distinguished_name)
+    model_name = os.path.join(results_dir, "%s.keras" % distinguished_name)
+    history_name = os.path.join(results_dir, "%s.history" % distinguished_name)
     checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
-    tensorboard_dir = os.path.join(base, "results", "%s_logs" % distinguished_name)
+    tensorboard_dir = os.path.join(results_dir, "%s_logs" % distinguished_name)
     # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
     # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
     # data genrators
@@ -388,9 +392,16 @@ def train(
     #     train_paths += train_paths_capillary
     #     val_paths += val_paths_capillary
     if train_dataset != []:
-        train_paths +=  get_training_and_validation_datasets(
-        train_dataset, split=0.
-    )[0]
+        train_paths += get_training_and_validation_datasets(
+            train_dataset, split=0.
+        )[0]
+
+
+    if save_paths:
+        for p, n in zip([train_paths, val_paths], ["train_paths", "val_paths"]):
+            f = open(f"{experiments_dir}/{distinguished_name}_{n}.pickle", "wb")
+            pickle.dump(p, f)
+            f.close()
 
     full_size = len(train_paths)
     if train_images != -1:
@@ -414,6 +425,7 @@ def train(
         batch_size=batch_size,
         img_size=model_img_size,
         augment=augment,
+        do_transform=do_transform,
         dynamic_batch_size=dynamic_batch_size,
         pixel_budget=pixel_budget,
         artificial_size_increase=artificial_size_increase,
@@ -755,6 +767,11 @@ def main():
         help="do not use multiprocessing",
     )
         
+    parser.add_argument(
+        "--dont_transform",
+        action="store_true",
+        help="do not do random transform as part of data augmentation.",
+    )
 
     args = parser.parse_args()
     print("args", args)
@@ -784,10 +801,16 @@ def main():
     #sys.exit()
     # save the current version of the murko under a name corresponding to the
     # output model name
-    for tool in ["murko", "train", "sample", "objects_of_interest", "regionprops", "dataset_loader"]:
-        os.system("cp %s.py experiments/%s_%s_%s.py" % (tool, args.network, args.name, tool))
+    experiments_dir = os.path.join(args.base, "experiments")
+    results_dir = os.path.join(args.base, "results")
+    for d in [experiments_dir, results_dir]:
+        if not os.path.isdir(d):
+            os.makedirs(d)
 
-    f = open("experiments/%s_%s.args" % (args.network, args.name), "wb")
+    for tool in ["murko", "train", "sample", "objects_of_interest", "regionprops", "dataset_loader"]:
+        os.system(f"cp {tool}.py {experiments_dir}/{args.network}_{args.name}_{tool}.py")
+
+    f = open(f"{experiments_dir}/{args.network}_{args.name}.args", "wb")
     pickle.dump(args, f)
     f.close()
 
@@ -795,6 +818,8 @@ def main():
         dataset=args.dataset,
         train_dataset=args.train_dataset,
         base=args.base,
+        experiments_dir=experiments_dir,
+        results_dir=results_dir,
         model_img_size=model_img_size,
         network=args.network,
         epochs=args.epochs,
@@ -828,6 +853,7 @@ def main():
         max_queue_size=args.max_queue_size,
         workers=args.workers,
         use_multiprocessing=not args.not_multiprocessing,
+        do_transform=not args.dont_transform,
     )
 
 
