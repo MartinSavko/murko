@@ -12,7 +12,13 @@ import numpy as np
 import traceback
 import pylab
 
-from keras.utils import Sequence, PyDataset, to_categorical
+try:
+    from keras.utils import PyDataset
+except:
+    from keras.utils import Sequence as PyDataset
+    
+from keras.utils import to_categorical
+
 from sample import Sample
 from candidates import get_candidates
 
@@ -78,6 +84,7 @@ class JsonDataset(PyDataset):
         img_size=(256, 256),
         possible_ratios=[0.75, 1.0],
         augment=False,
+        do_transform=True,
         swap_backgrounds=True,
         min_scale=0.15,
         max_scale=1.0,
@@ -107,6 +114,7 @@ class JsonDataset(PyDataset):
 
         # augmentation parameters
         self.augment = augment
+        self.do_transform = do_transform
         self.swap_backgrounds = swap_backgrounds
         self.pixel_budget = pixel_budget
 
@@ -232,6 +240,7 @@ class JsonDataset(PyDataset):
         img, points = sample.get_image_and_points(
             img_size=img_size,
             augment=self.augment,
+            do_transform=self.do_transform,
             new_background=new_background,
             require_transpose=self.require_transpose,
             disallow_transpose=self.disallow_transpose,
