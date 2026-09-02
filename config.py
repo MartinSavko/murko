@@ -38,6 +38,7 @@ additional_labels = {
     "stem_mt": "stem",
     "mt_loop": "loop",
     "mt_stem": "stem",
+    "dried_drop": "drop",
 }
 
 support_types = {
