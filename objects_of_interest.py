@@ -12,7 +12,11 @@ import numpy as np
 import cv2 as cv
 import imageio
 
-from labelme import utils
+try:
+    import labelme
+except:
+    labelme = None
+    
 from config import additional_labels, notion_importance, keypoints, keypoint_labels
 from regionprops import (
     Regionprops,
@@ -32,7 +36,7 @@ def load_json(
 def get_image(json_file, json_path=None):
     imageData = json_file.get("imageData")
     if imageData is not None:
-        image = utils.img_b64_to_arr(imageData) / 255.0
+        image = labelme.utils.img_b64_to_arr(imageData) / 255.0
     else:
         if json_path is not None:
             image_path = os.path.join(
