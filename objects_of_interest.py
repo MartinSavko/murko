@@ -12,11 +12,7 @@ import numpy as np
 import cv2 as cv
 import imageio
 
-try:
-    import labelme
-except:
-    labelme = None
-    
+from labelme import utils
 from config import additional_labels, notion_importance, keypoints, keypoint_labels
 from regionprops import (
     Regionprops,
@@ -36,7 +32,7 @@ def load_json(
 def get_image(json_file, json_path=None):
     imageData = json_file.get("imageData")
     if imageData is not None:
-        image = labelme.utils.img_b64_to_arr(imageData) / 255.0
+        image = utils.img_b64_to_arr(imageData) / 255.0
     else:
         if json_path is not None:
             image_path = os.path.join(
@@ -126,13 +122,13 @@ def get_masks(labels, indices, points, properties, image_shape, fractional=False
         if label != "background":
             masks = update_maps(masks, "foreground", mask)
 
-        if label in ["crystal", "loop"]:
+        if label in ["crystal", "loop", "drop"]:
             masks = update_maps(masks, "area_of_interest", mask)
 
         if label in ["loop", "stem"]:
             masks = update_maps(masks, "support", mask)
 
-        if label in ["crystal", "loop", "stem"]:
+        if label in ["crystal", "loop", "stem", "drop"]:
             masks = update_maps(masks, "explorable", mask)
 
     if "pin" in masks:
