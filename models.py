@@ -4,7 +4,11 @@
 # part of the MURKO project
 
 
-from murko import get_tiramisu_layer, get_dense_block, get_num_segmentation_classes
+from murko import (
+    get_tiramisu_layer,
+    get_dense_block,
+    get_num_segmentation_classes,
+)
 
 
 def tiramisu(
