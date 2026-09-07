@@ -5,7 +5,6 @@ import os
 import time
 import traceback
 import pickle
-import re
 
 from skimage.morphology import remove_small_objects
 from skimage.measure import regionprops
@@ -21,16 +20,12 @@ import random
 import cv2 as cv
 import seaborn as sns
 
-try:
-    import largestinteriorrectangle as lir
-except:
-    lir = None
-from keypoints import principal_axes
+import largestinteriorrectangle as lir
 
-
-def guess_model_img_size(model_name):
-    model_img_size = tuple(map(int, re.findall(".*_(\d+x\d+)_.*", model_name)[0].split("x")))
-    return model_img_size
+from keypoints import (
+    get_orientation_and_direction,
+    principal_axes,
+)
 
 #@timeit
 def get_largest_inscribed_rectangle(polygon):
@@ -405,8 +400,8 @@ def augment_sample(
         new_background = random.choice(candidate_backgrounds[zoom])
         if size_differs(img.shape[:2], new_background.shape[:2]):
             new_background = resize(new_background, img.shape[:2], anti_aliasing=True)
-        img[target[:, :, notions.index("foreground")] == 0] = new_background[
-            target[:, :, notions.index("foreground")] == 0
+        img[target[:, :, notions.index("foreground_binary_segment")] == 0] = new_background[
+            target[:, :, notions.index("foreground_binary_segment")] == 0
         ]
 
     if self.augment and do_transpose is True:
@@ -505,14 +500,14 @@ def plot(
     title="",
     k=0,
     notions=[
-        "crystal",
+        "crystal_binary_segment",
         "loop_inside",
         "loop",
         "stem",
         "pin",
         "capillary",
         "ice",
-        "foreground",
+        "foreground_binary_segment",
         "click",
     ],
 ):
@@ -542,14 +537,14 @@ def plot_batch(
     model_img_size=(256, 320),
     figsize=(24, 16),
     notions=[
-        "crystal",
+        "crystal_binary_segment",
         "loop_inside",
         "loop",
         "stem",
         "pin",
         "capillary",
         "ice",
-        "foreground",
+        "foreground_binary_segment",
         "hierarchy",
         "identity",
     ],
@@ -668,14 +663,14 @@ def get_generator(
     batch_size=16,
     model_img_size=(320, 256),
     notions=[
-        "crystal",
+        "crystal_binary_segment",
         "loop_inside",
         "loop",
         "stem",
         "pin",
         "capillary",
         "ice",
-        "foreground",
+        "foreground_binary_segment",
         "hierarchy",
         "identity",
     ],
@@ -801,7 +796,8 @@ def save_predictions(
             a.axis("off")
 
         original_shape = np.array(input_image.shape[:2])
-        prediction_shape = np.array(hierarchical_mask.shape)
+        prediction_shape = np.array(hierarchical_mask.shape[:2])
+        # original_shape = prediction_shape[:]
         most_likely_click = get_most_likely_click(predictions, k=k)
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
@@ -880,24 +876,24 @@ def plot_analysis(
             "input image with predicted click and loop bounding box (if any)"
         )
         axes[0].imshow(input_image)
-        axes[1].set_title("raw segmentation result with most likely click (if any)")
+        axes[1].set_title("raw segmentation result")
         axes[1].imshow(hierarchical_mask)
 
         for a in axes.flatten():
             a.axis("off")
 
-        prediction_shape = np.array(hierarchical_mask.shape)
+        prediction_shape = np.array(hierarchical_mask.shape[:2])
         most_likely_click = descriptions[k]["most_likely_click"]
-        original_shape = descriptions[k]["original_shape"]
-
+        # original_shape = descriptions[k]["original_shape"]
+        original_shape = input_images[0].shape[:2]
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
-            click_patch_ii = pylab.Circle(mlc_ii[::-1], radius=2, color="green")
+            click_patch_ii = pylab.Circle(mlc_ii[::-1], radius=7, color="cyan")
             axes[0].add_patch(click_patch_ii)
-
-            mlc_hm = most_likely_click * prediction_shape
-            click_patch_hm = pylab.Circle(mlc_hm[::-1], radius=2, color="green")
-            axes[1].add_patch(click_patch_hm)
+            #
+            # mlc_hm = most_likely_click * prediction_shape
+            # click_patch_hm = pylab.Circle(mlc_hm[::-1], radius=2, color="green")
+            # axes[1].add_patch(click_patch_hm)
 
         loop_present, r, c, h, w = descriptions[k]["aoi_bbox"]
         if loop_present != -1:
@@ -931,23 +927,23 @@ def plot_analysis(
 
 def get_hierarchical_mask_from_prediction(
     prediction,
-    notions=["crystal", "loop_inside", "loop", "stem", "pin", "foreground"],
+    notions=["crystal_binary_segment", "loop_inside", "loop", "stem", "pin", "foreground_binary_segment"],
     notion_indices={
-        "crystal": 0,
+        "crystal_binary_segment": 0,
         "loop_inside": 1,
         "loop": 2,
         "stem": 3,
         "pin": 4,
-        "foreground": 5,
+        "foreground_binary_segment": 5,
     },
     threshold=0.5,
     notion_values={
-        "crystal": 6,
+        "crystal_binary_segment": 6,
         "loop_inside": 5,
         "loop": 4,
         "stem": 3,
         "pin": 2,
-        "foreground": 1,
+        "foreground_binary_segment": 1,
     },
     min_size=32,
     massage=False,
@@ -958,7 +954,7 @@ def get_hierarchical_mask_from_prediction(
         l = notion_indices[notion]
         mask = prediction[:, :, l] > threshold
         if massage:
-            if notion in ["crystal", "loop", "loop_inside", "stem", "pin"]:
+            if notion in ["crystal_binary_segment", "loop", "loop_inside", "stem", "pin"]:
                 massager = "convex"
             else:
                 massager = "filled"
@@ -977,23 +973,23 @@ def get_hierarchical_mask_from_kth_prediction(predictions, k):
 def get_hierarchical_mask_from_predictions(
     predictions,
     k=0,
-    notions=["crystal", "loop_inside", "loop", "stem", "pin", "foreground"],
+    notions=["crystal_binary_segment", "loop_inside", "loop", "stem", "pin", "foreground_binary_segment"],
     notion_indices={
-        "crystal": 0,
+        "crystal_binary_segment": 0,
         "loop_inside": 1,
         "loop": 2,
         "stem": 3,
         "pin": 4,
-        "foreground": 5,
+        "foreground_binary_segment": 5,
     },
     threshold=0.5,
     notion_values={
-        "crystal": 6,
+        "crystal_binary_segment": 6,
         "loop_inside": 5,
         "loop": 4,
         "stem": 3,
         "pin": 2,
-        "foreground": 1,
+        "foreground_binary_segment": 1,
     },
     min_size=32,
     massage=False,
@@ -1004,7 +1000,7 @@ def get_hierarchical_mask_from_predictions(
         l = notion_indices[notion]
         mask = predictions[l][k, :, :, 0] > threshold
         if massage:
-            if notion in ["crystal", "loop", "loop_inside", "stem", "pin"]:
+            if notion in ["crystal_binary_segment", "loop", "loop_inside", "stem", "pin"]:
                 massager = "convex"
             else:
                 massager = "filled"
@@ -1035,33 +1031,139 @@ def massage_mask(mask, min_size=32, massager="convex"):
     return mask
 
 
+# @timeit
+def get_extreme_point(
+    projection,
+    pa=None,
+    global_origin=None,  # assuming origin and extreme points are in [V, H] format
+    global_extreme=None,
+    orientation=1,  # 0 or 1; 1 is for horizontal, 0 for vertical,
+    extreme_direction=+1,  # -1 or +1, direction along axis
+):
+    if global_origin is not None and global_extreme is not None:
+        orientation, extreme_direction = get_orientation_and_direction(
+            global_origin, global_extreme
+        )
+    try:
+        if pa is None:
+            xyz, inertia, e, S, center = principal_axes(projection)
+        else:
+            xyz, inertia, e, S, center = pa
+
+        xyz_O = xyz - center
+
+        xyz_S = np.dot(xyz_O, S)
+        xyz_S_on_axis = xyz_S[np.isclose(xyz_S[:, 1], 0, atol=5)]
+
+        mino = xyz_S[np.argmin(xyz_S[:, 0])]
+        try:
+            mino_on_axis = xyz_S_on_axis[np.argmin(xyz_S_on_axis[:, 0])]
+        except BaseException:
+            print(traceback.print_exc())
+            mino_on_axis = copy.copy(mino)
+
+        maxo = xyz_S[np.argmax(xyz_S[:, 0])]
+        try:
+            maxo_on_axis = xyz_S_on_axis[np.argmax(xyz_S_on_axis[:, 0])]
+        except BaseException:
+            print(traceback.print_exc())
+            maxo_on_axis = copy.copy(maxo)
+
+        mino_0_s = np.dot(mino, np.linalg.inv(S)) + center
+        maxo_0_s = np.dot(maxo, np.linalg.inv(S)) + center
+
+        mino_0_s_on_axis = np.dot(mino_on_axis, np.linalg.inv(S)) + center
+        maxo_0_s_on_axis = np.dot(maxo_on_axis, np.linalg.inv(S)) + center
+
+        if orientation == 1:
+            if extreme_direction * mino_0_s[1] > extreme_direction * maxo_0_s[1]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+        else:
+            if extreme_direction * mino_0_s[0] > extreme_direction * maxo_0_s[0]:
+                extreme_point_out = mino_0_s
+                extreme_point_out_on_axis = mino_0_s_on_axis
+                extreme_point_ini = maxo_0_s
+                extreme_point_ini_on_axis = maxo_0_s_on_axis
+            else:
+                extreme_point_out = maxo_0_s
+                extreme_point_out_on_axis = maxo_0_s_on_axis
+                extreme_point_ini = mino_0_s
+                extreme_point_ini_on_axis = mino_0_s_on_axis
+    except BaseException:
+        print(traceback.print_exc())
+        (
+            extreme_point_out,
+            extreme_point_ini,
+            extreme_point_out_on_axis,
+            extreme_point_ini_on_axis,
+        ) = [[-1, -1]] * 4
+    return (
+        extreme_point_out,
+        extreme_point_ini,
+        extreme_point_out_on_axis,
+        extreme_point_ini_on_axis,
+        pa,
+    )
+
+
+def translate_legacy_notions(notions)
+    translated_notions = []
+    for notion in notions:
+        if type(notion) is str:
+            if notion in ["foreground", "crystal", "loop_inside", "loop", "stem", "pin", "ice"]:
+                item = f'{notion}_binary_segment'
+        elif type(notion) is list:
+            item = translate_legacy_notions(notion)
+        translated_notions.append(item)
+    return translated_notions
+
 def get_descriptions(
     predictions,
     notions=[
-        "foreground",
-        "crystal",
-        "loop_inside",
-        "loop",
-        ["crystal", "loop"],
-        ["crystal", "loop", "stem"],
+        "foreground_binary_segment",
+        "crystal_binary_segment",
+        "area_of_interest_binary_segment",
+        "explorable_binary_segment",
     ],
+    notion_indices={
+        'foreground_binary_segment': 0,
+        'area_of_interest_binary_segment': 2,
+        'crystal_binary_segment': 4,
+        'explorable_binary_segment': 12,
+        'hierarchy_detailed_hierarchy': 27,
+    },
     threshold=0.5,
     min_size=32,
     original_image_shape=(1200, 1600),
+    hierarchy_output_name="hierarchy_detailed_hierarchy",
+    lut=None,
 ):
+    notions = translate_legacy_notions(notions)
     descriptions = []
-    foreground = get_notion_string("foreground")
-    crystal_loop = get_notion_string(["crystal", "loop"])
-    possible = get_notion_string(["crystal", "loop", "stem"])
+    foreground = get_notion_string("foreground_binary_segment")
+    area_of_interest = get_notion_string("area_of_interest_binary_segment")
+    explorable = get_notion_string("explorable_binary_segment")
     prediction_shape = np.array(predictions[0].shape[1:3])
     original_shape = np.array(original_image_shape[:2])
     for k in range(len(predictions[0])):
         description = {}
         description["original_shape"] = original_shape
         description["prediction_shape"] = prediction_shape
-        description["hierarchical_mask"] = get_hierarchical_mask_from_predictions(
-            predictions, k=k
-        )
+        hierarchy = np.argmax(
+            predictions[notion_indices[hierarchy_output_name]][k],
+            axis=2,
+        ).astype("uint8")
+        if lut is not None:
+            hierarchy = label2rgb(hierarchy, lut)
+        description["hierarchical_mask"] = hierarchy
         for notion in notions:
             (
                 present,
@@ -1099,27 +1201,27 @@ def get_descriptions(
             }
 
         epo_cil, epi_cil, epooa_cil, epioa_cil, pa_cil = get_extreme_point(
-            description[crystal_loop]["notion_mask"], pa=description[possible]["pa"]
+            description[area_of_interest]["notion_mask"], pa=description[explorable]["pa"]
         )
         description["present"] = description[foreground]["present"]
         description["most_likely_click"] = get_most_likely_click_from_description(
             description
         )
         description["aoi_bbox"] = get_bbox_from_description(
-            description, notions=[["crystal", "loop"], "foreground"]
+            description, notions=["area_of_interest_binary_segment", "foreground_binary_segment"]
         )
         description["crystal_bbox"] = get_bbox_from_description(
-            description, notions=["crystal"]
+            description, notions=["crystal_binary_segment"]
         )
         description["extreme"] = description[foreground]["epo"] / prediction_shape
         description["end_likely"] = (
-            description[crystal_loop]["epooa"] / prediction_shape
+            description[area_of_interest]["epooa"] / prediction_shape
         )
         description["start_likely"] = (
             epioa_cil / prediction_shape
-        )  # description[crystal_loop]['epioa']
-        description["start_possible"] = (
-            description[possible]["epioa"] / prediction_shape
+        )  # description[area_of_interest]['epioa']
+        description["start_explorable"] = (
+            description[explorable]["epioa"] / prediction_shape
         )
         descriptions.append(description)
     return descriptions
@@ -1178,12 +1280,11 @@ def get_notion_mask_from_predictions(
     notion,
     k=0,
     notion_indices={
-        "crystal": 0,
-        "loop_inside": 1,
-        "loop": 2,
-        "stem": 3,
-        "pin": 4,
-        "foreground": 5,
+        'foreground_binary_segment': 0,
+        'area_of_interest_binary_segment': 2,
+        'crystal_binary_segment': 4,
+        'explorable_binary_segment': 12,
+        'hierarchy_detailed_hierarchy': 27,
     },
     threshold=0.5,
     min_size=32,
@@ -1208,12 +1309,11 @@ def get_notion_mask_from_masks(
     masks,
     notion,
     notion_indices={
-        "crystal": 0,
-        "loop_inside": 1,
-        "loop": 2,
-        "stem": 3,
-        "pin": 4,
-        "foreground": 5,
+        'foreground_binary_segment': 0,
+        'area_of_interest_binary_segment': 2,
+        'crystal_binary_segment': 4,
+        'explorable_binary_segment': 12,
+        'hierarchy_detailed_hierarchy': 27,
     },
     min_size=32,
 ):
@@ -1235,17 +1335,17 @@ def get_notion_mask_from_masks(
 def get_notion_prediction(
     predictions,
     notion,
-    k=0,
     notion_indices={
-        "crystal": 0,
-        "loop_inside": 1,
-        "loop": 2,
-        "stem": 3,
-        "pin": 4,
-        "foreground": 5,
+        'foreground_binary_segment': 0,
+        'area_of_interest_binary_segment': 2,
+        'crystal_binary_segment': 4,
+        'explorable_binary_segment': 12,
+        'hierarchy_detailed_hierarchy': 27,
     },
+    k=0,
     threshold=0.5,
     min_size=32,
+
 ):
     if isinstance(predictions, list):
         notion_mask = get_notion_mask_from_predictions(
@@ -1277,7 +1377,7 @@ def get_notion_prediction(
     ) = get_notion_description(notion_mask, min_size=min_size)
 
     if not isinstance(properties, float):
-        if notion == "foreground" or isinstance(notion, list):
+        if notion == "foreground_binary_segment" or isinstance(notion, list):
             notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.filled_image
         else:
             notion_mask[bbox[0] : bbox[2], bbox[1] : bbox[3]] = properties.convex_image
@@ -1298,19 +1398,38 @@ def get_notion_prediction(
     )
 
 
-def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
+def get_most_likely_click(
+    predictions,
+    k=0,
+    verbose=False,
+    min_size=32,
+    relevant_notions=[
+        "crystal_binary_segment",
+        "area_of_interest_binary_segment",
+        "explorable_binary_segment",
+        "foreground_binary_segment",
+    ],
+    notion_indices={
+        "crystal_binary_segment": 0,
+        "loop_inside": 1,
+        "loop": 2,
+        "stem": 3,
+        "pin": 4,
+        "foreground_binary_segment": 5,
+    },
+):
     _start = time.time()
 
     most_likely_click = -1, -1
 
-    for notion in ["crystal", "loop_inside", "loop", "foreground"]:
+    for notion in relevant_notions:
         notion_prediction = get_notion_prediction(
-            predictions, notion, k=k, min_size=min_size
+            predictions, notion, notion_indices=notion_indices, k=k, min_size=min_size
         )
         if notion_prediction[0] == 1:
             shape = notion_prediction[-1].shape
             # if only foreground found go for the extreme point, centroid otherwise
-            if notion != "foreground":
+            if notion != "foreground_binary_segment":
                 y_clue_index, x_clue_index = 1, 2
             else:
                 y_clue_index, x_clue_index = 5, 6
@@ -1331,17 +1450,26 @@ def get_most_likely_click(predictions, k=0, verbose=False, min_size=32):
     return most_likely_click
 
 
-def get_most_likely_click_from_description(description, verbose=False):
+def get_most_likely_click_from_description(
+    description,
+    verbose=False,
+    relevant_notions=[
+        "crystal_binary_segment",
+        "area_of_interest_binary_segment",
+        "explorable_binary_segment",
+        "foreground_binary_segment",
+    ],
+):
     _start = time.time()
 
     most_likely_click = np.array([-1, -1])
 
-    shape = np.array(description["hierarchical_mask"].shape)
-    for notion in ["crystal", "loop_inside", "loop", "foreground"]:
+    shape = np.array(description["hierarchical_mask"].shape[:2])
+    for notion in relevant_notions:
         notion_description = description[get_notion_string(notion)]
         if notion_description["present"]:
             # if only foreground found go for the extreme point, centroid otherwise
-            if notion != "foreground":
+            if notion != "foreground_binary_segment":
                 r = notion_description["r"]
                 c = notion_description["c"]
             else:
@@ -1357,10 +1485,10 @@ def get_most_likely_click_from_description(description, verbose=False):
     return most_likely_click
 
 
-def get_bbox_from_description(description, notions=[["crystal", "loop"], "foreground"]):
+def get_bbox_from_description(description, notions=["area_of_interest_binary_segment", "explorable_binary_segment", "foreground_binary_segment"]):
     shape = description["hierarchical_mask"].shape
     for notion in notions:
-        notion_description = description[get_notion_string(["crystal", "loop"])]
+        notion_description = description[get_notion_string(notion)]
         present = notion_description["present"]
         if present:
             r = notion_description["r"]
@@ -1400,7 +1528,7 @@ def get_loop_bbox(predictions, k=0, min_size=32):
         area,
         notion_prediction,
     ) = get_notion_prediction(
-        predictions, ["crystal", "loop_inside", "loop"], k=k, min_size=min_size
+        predictions, ["crystal_binary_segment", "loop_inside", "loop"], k=k, min_size=min_size
     )
     shape = predictions[0].shape[1:3]
     if bbox is not np.nan:
@@ -1413,7 +1541,7 @@ def get_loop_bbox(predictions, k=0, min_size=32):
     return loop_present, r, c, h, w
 
 
-def get_raw_projections(predictions, notion="foreground", threshold=0.5, min_size=32):
+def get_raw_projections(predictions, notion="foreground_binary_segment", threshold=0.5, min_size=32):
     raw_projections = []
     for k in range(len(predictions[0])):
         (
@@ -1551,7 +1679,7 @@ def get_resize_and_rescale(model_img_size):
 
 
 def analyse_histories(
-    notions=["crystal", "loop_inside", "loop", "stem", "pin", "foreground"]
+    notions=["crystal_binary_segment", "loop_inside", "loop", "stem", "pin", "foreground_binary_segment"]
 ):
     histories = (
         glob.glob("*.history")
@@ -1595,7 +1723,7 @@ def resize_images(images, size, method="bilinear", align_corners=False):
     return tf.image.resize_images(images, size, methods[method], align_corners)
 
 
-def compare(h1, h2, what="crystal"):
+def compare(h1, h2, what="crystal_binary_segment"):
     pylab.figure(1)
     for key in h1:
         if what in key and "loss" not in key:
@@ -1612,14 +1740,14 @@ def compare(h1, h2, what="crystal"):
 def get_pixels(
     directory="/nfs/data2/Martin/Research/murko/images_and_labels",
     notions=[
-        "crystal",
+        "crystal_binary_segment",
         "loop_inside",
         "loop",
         "stem",
         "pin",
         "capillary",
         "ice",
-        "foreground",
+        "foreground_binary_segment",
     ],
     print_table=True,
 ):
@@ -1639,9 +1767,9 @@ def get_pixels(
         print(
             "total foreground %d (%.3fG, %.4f of all)".ljust(15)
             % (
-                pixel_counts["foreground"],
-                pixel_counts["foreground"] / 1e9,
-                pixel_counts["foreground"] / pixel_counts["total"],
+                pixel_counts["foreground_binary_segment"],
+                pixel_counts["foreground_binary_segment"] / 1e9,
+                pixel_counts["foreground_binary_segment"] / pixel_counts["total"],
             )
         )
         print()
@@ -1655,10 +1783,10 @@ def get_pixels(
         for key in pixel_counts:
             print(
                 key.rjust(15),
-                "%.4f".rjust(10) % (pixel_counts[key] / pixel_counts["foreground"]),
+                "%.4f".rjust(10) % (pixel_counts[key] / pixel_counts["foreground_binary_segment"]),
                 "%.4f".rjust(15) % (pixel_counts[key] / pixel_counts["total"]),
                 "%3.1f".zfill(2).rjust(20)
-                % (pixel_counts["foreground"] / pixel_counts[key]),
+                % (pixel_counts["foreground_binary_segment"] / pixel_counts[key]),
                 "%3.1f".zfill(2).rjust(20)
                 % (pixel_counts["total"] / pixel_counts[key]),
             )
