@@ -5,6 +5,7 @@ import os
 import re
 import time
 import numpy as np
+import pickle
 
 import tensorflow as tf
 from tensorflow import keras
@@ -14,7 +15,7 @@ from murko import (
     WSSeparableConv2D,
 )
 
-from dataset_loader import plot_image_and_targets
+from dataset_loader import plot_image_and_targets, JsonDataset
 from candidates import get_candidates
 from show_annotations import test_dataset_loader, plot_random_sample_and_targets
 
@@ -116,13 +117,30 @@ def main():
         
     print(f"model_img_size is {model_img_size}")
     
-    dl = test_dataset_loader(
-        img_size = model_img_size,
-        augment=args.augment,
-        verbose=args.verbose,
-        batch_size=1,
-    )
-    
+    targets_config, concepts = get_candidates()
+
+    val_paths = os.path.realpath(args.model_name).replace("results", "experiments").replace(".keras", "_val_paths.pickle")
+    print(f"val_paths filename {val_paths}")
+    if os.path.isfile(val_paths):
+        val_paths = pickle.load(open(val_paths, "rb"))
+        print(f"exists! ({len(val_paths)} annotations).")
+        dl = JsonDataset(
+                val_paths,
+                targets_config,
+                img_size=model_img_size,
+                augment=False,
+                verbose=False,
+                shuffle_at_0=False,
+                batch_size=1,
+            )
+    else:
+        dl = test_dataset_loader(
+            img_size = model_img_size,
+            augment=args.augment,
+            verbose=args.verbose,
+            batch_size=1,
+        )
+
     model = keras.models.load_model(
         args.model_name,
         custom_objects={
@@ -136,8 +154,6 @@ def main():
         warmup = model.predict((np.random.random((args.batch_size,) + model_img_size + (3,))), batch_size=args.batch_size)
         end = time.time()
         print(f"loading and warmup of {args.model_name} model took {end-start:.3f} seconds")
-    
-    targets_config, concepts = get_candidates()
     
     test(model, dl, targets_config, model_designation, batch_size=args.batch_size, verbose=args.verbose)
     
