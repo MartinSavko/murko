@@ -26,23 +26,25 @@ def get_predictions(request_arguments, host="localhost", port=89011, verbose=Fal
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     parser.add_argument(
-        "-t", "--to_predict", type=str, default="image.jpg", help="to_predict"
+        "-t", "--to_predict", type=str, default="examples/image.jpg", help="to_predict"
     )
     parser.add_argument(
-        "-H", "--prediction_heigth", default=256, type=int, help="prediction_heigth"
+        "-H", "--prediction_heigth", default=128, type=int, help="prediction_heigth"
     )
     parser.add_argument(
-        "-W", "--prediction_width", default=320, type=int, help="prediction_width"
+        "-W", "--prediction_width", default=128, type=int, help="prediction_width"
     )
     parser.add_argument("-s", "--save", action="store_true", help="save")
     parser.add_argument("-P", "--prefix", type=str, default="test", help="prefix")
     parser.add_argument("-p", "--port", type=int, default=89011, help="port")
     parser.add_argument("-o", "--host", type=str, default="localhost", help="host")
     parser.add_argument(
-        "-m", "--min_size", type=int, default=64, help="minimum object size"
+        "-m", "--min_size", type=int, default=32, help="minimum object size"
     )
 
     args = parser.parse_args()
@@ -60,13 +62,13 @@ if __name__ == "__main__":
     request_arguments["save"] = bool(args.save)
     request_arguments["min_size"] = args.min_size
     request_arguments["description"] = [
-        "foreground",
-        "crystal",
-        "loop_inside",
-        "loop",
-        ["crystal", "loop"],
-        ["crystal", "loop", "stem"],
+        "foreground_binary_segment",
+        "crystal_binary_segment",
+        "area_of_interest_binary_segment",
+        "explorable_binary_segment",
     ]
+
+    request_arguments["hierarchy_output_name"] = "hierarchy_detailed_hierarchy"
     request_arguments["prefix"] = args.prefix
 
     print("request_arguments: %s" % request_arguments)
