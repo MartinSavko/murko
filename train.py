@@ -106,7 +106,7 @@ def get_paths_for_families(families_subset_list, sample_families):
 
 
 def get_training_and_validation_datasets(
-    directories, seed=12345, split=0.2
+    directories, seed=12345, split=0.2,
 ):
     sample_families = get_sample_families(directories)
     sample_families_names = sorted(sample_families.keys())
