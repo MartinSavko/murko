@@ -34,7 +34,7 @@ from config import (
     notion_importance,
     keypoints,
     keypoint_labels,
-    global_keypoints,
+    # global_keypoints,
     named_points_colors,
     classifications,
 )
@@ -52,7 +52,10 @@ from keypoints import (
     # draw_point,
 )
 
-from utils import get_valid_image_and_points
+from utils import (
+    get_valid_image_and_points,
+    get_resized_image,
+)
 
 def timeit(func):
     # https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
@@ -391,40 +394,6 @@ def get_transformed_image(
         )
     print(f"tranformed image shape {transformed_image.shape}, input_shape {img.shape}")
     return transformed_image
-
-
-def get_resized_image(
-    img,
-    img_size,
-    anti_aliasing=True,
-    interpolation="INTER_AREA",
-    doer="cv",
-    smart_interpolation=True,
-):
-    if doer == "ski":
-        resized_image = ski.transform.resize(img, img_size, anti_aliasing=anti_aliasing)
-    elif doer == "cv":
-        # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
-        # Method	        Description	Best               Used For
-        # INTER_NEAREST	Nearest-neighbor interpolation (fastest, but low quality)
-        #                                               Simple, fast resizing (e.g.,
-        #                                               pixel art, binary images)
-        # INTER_LINEAR	Bilinear interpolation        	General-purpose
-        #                                               resizing (good balance of speed
-        #                                               & quality)
-        # INTER_CUBIC	Bicubic interpolation           High-quality upscaling,
-        #               (uses 4×4 pixel neighborhood)   smoother results
-        # INTER_AREA	    Resampling                      Best for shrinking images
-        #               using pixel area relation       (avoids aliasing)
-        # INTER_LANCZOS4	Lanczos interpolation           High-quality upscaling &
-        #               using 8×8 pixel neighborhood    downscaling (preserves fine
-        #                                               details)
-        if smart_interpolation and np.prod(img_size) > np.prod(img.shape[:2]):
-            interpolation = "INTER_LINEAR"
-        resized_image = cv.resize(
-            img, img_size[::-1], interpolation=getattr(cv, interpolation)
-        )
-    return resized_image
 
 
 # zoom_factor=0.25,

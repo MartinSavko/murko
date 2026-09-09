@@ -28,6 +28,39 @@ from keypoints import (
 )
 
 
+def get_resized_image(
+    img,
+    img_size,
+    anti_aliasing=True,
+    interpolation="INTER_AREA",
+    doer="cv",
+    smart_interpolation=True,
+):
+    if doer == "ski":
+        resized_image = ski.transform.resize(img, img_size, anti_aliasing=anti_aliasing)
+    elif doer == "cv":
+        # https://opencv.org/blog/resizing-and-rescaling-images-with-opencv/
+        # Method	        Description	Best               Used For
+        # INTER_NEAREST	Nearest-neighbor interpolation (fastest, but low quality)
+        #                                               Simple, fast resizing (e.g.,
+        #                                               pixel art, binary images)
+        # INTER_LINEAR	Bilinear interpolation        	General-purpose
+        #                                               resizing (good balance of speed
+        #                                               & quality)
+        # INTER_CUBIC	Bicubic interpolation           High-quality upscaling,
+        #               (uses 4×4 pixel neighborhood)   smoother results
+        # INTER_AREA	    Resampling                      Best for shrinking images
+        #               using pixel area relation       (avoids aliasing)
+        # INTER_LANCZOS4	Lanczos interpolation           High-quality upscaling &
+        #               using 8×8 pixel neighborhood    downscaling (preserves fine
+        #                                               details)
+        if smart_interpolation and np.prod(img_size) > np.prod(img.shape[:2]):
+            interpolation = "INTER_LINEAR"
+        resized_image = cv.resize(
+            img, img_size[::-1], interpolation=getattr(cv, interpolation)
+        )
+    return resized_image
+
 # @timeit
 def get_largest_inscribed_rectangle(polygon):
     rectangle = lir.lir(polygon)
@@ -878,8 +911,7 @@ def plot_analysis(
             "input image with predicted click and loop bounding box (if any)"
         )
         axes[0].imshow(input_image)
-        axes[1].set_title("raw segmentation result")
-        axes[1].imshow(hierarchical_mask)
+
 
         for a in axes.flatten():
             a.axis("off")
@@ -888,6 +920,8 @@ def plot_analysis(
         most_likely_click = descriptions[k]["most_likely_click"]
         # original_shape = descriptions[k]["original_shape"]
         original_shape = input_images[0].shape[:2]
+        axes[1].set_title("raw segmentation result")
+        axes[1].imshow(get_resized_image(hierarchical_mask, original_shape))
         if -1 not in most_likely_click:
             mlc_ii = most_likely_click * original_shape
             click_patch_ii = pylab.Circle(mlc_ii[::-1], radius=7, color="cyan")
@@ -1156,9 +1190,16 @@ def translate_legacy_notions(notions):
                 "ice",
             ]:
                 item = f"{notion}_binary_segment"
+            else:
+                item = notion
         elif type(notion) is list:
             item = translate_legacy_notions(notion)
+
+        else:
+            item = notion
+
         translated_notions.append(item)
+
     return translated_notions
 
 
