@@ -206,6 +206,7 @@ def serve(
             lut_hierarchy_key = hierarchy_output_name.replace("_hierarchy", "")
             lut = luts[lut_hierarchy_key]
 
+            analysis["predictions"] = all_predictions
             if "description" in request and request["description"] is not False:
                 _start_description = time.time()
                 try:
@@ -223,15 +224,13 @@ def serve(
                         "descriptions took %.3f seconds"
                         % (time.time() - _start_description)
                     )
-                    if "raw_predictions" in request and request["raw_predictions"] is True:
-                        analysis["predictions"] = all_predictions
                 except:
                     traceback.print_exc()
                     print("problem in getting descriptions, please check !")
                     analysis = all_predictions
 
-            if "save" in request and request["save"]:
-                plot_analysis(to_predict_unresized, analysis, image_paths=image_paths)
+                if "save" in request and request["save"]:
+                    plot_analysis(to_predict_unresized, analysis, image_paths=image_paths)
 
             del all_predictions
             if descriptions:
