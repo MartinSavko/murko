@@ -24,7 +24,7 @@ def test(model, dl, targets_config, model_designation, batch_size=16, verbose=Fa
     dl.target = False
     
     start = time.time()
-    ps = model.predict(dl, batch_size=batch_size)
+    ps = model.predict(dl) #, batch_size=batch_size)
     end = time.time()
     print(f"prediction of {len(dl)} samples took {end-start:.3f} seconds")
         
@@ -131,14 +131,14 @@ def main():
                 augment=False,
                 verbose=False,
                 shuffle_at_0=False,
-                batch_size=1,
+                batch_size=args.batch_size,
             )
     else:
         dl = test_dataset_loader(
             img_size = model_img_size,
             augment=args.augment,
             verbose=args.verbose,
-            batch_size=1,
+            batch_size=args.batch_size,
         )
 
     model = keras.models.load_model(
