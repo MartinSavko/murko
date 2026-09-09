@@ -369,28 +369,37 @@ def train(
     history_name = os.path.join(results_dir, "%s.history" % distinguished_name)
     checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
     tensorboard_dir = os.path.join(results_dir, "%s_logs" % distinguished_name)
-    # segment_train_paths, segment_val_paths = get_training_and_validation_datasets()
-    # print('training on %d samples, validating on %d samples' % ( len(train_paths), len(val_paths)))
-    # data genrators
+
+    network_parameters = networks[network]
+
+    model = get_model(
+        convolution_type=convolution_type,
+        filter_size=filter_size,
+        model_img_size=(None, None),
+        targets_config=targets_config,
+        last_convolution=last_convolution,
+        name=network,
+        learning_rate=learning_rate,
+        dropout_rate=dropout_rate,
+        weight_standardization=weight_standardization,
+        normalization_type=normalization_type,
+        limit_loss=limit_loss,
+        weight_decay=weight_decay,
+        activation=activation,
+        **network_parameters,
+    )
+
+    if os.path.isdir(model_name) or os.path.isfile(model_name):
+        print("model exists, loading weights ...")
+        model.load_weights(model_name)
+
+    print("model.summary()")
+
+
     train_paths, val_paths = get_training_and_validation_datasets(
         dataset, split=train_dev_split
     )
-    # if include_plate_images:
-    #     train_paths_plate, val_paths_plate = get_training_and_validation_datasets(
-    #         dataset, split=0
-    #     )
-    #     # val_paths += val_paths_plate
-    #     train_paths += train_paths_plate
-    # if include_capillary_images:
-    #     (
-    #         train_paths_capillary,
-    #         val_paths_capillary,
-    #     ) = get_training_and_validation_datasets(
-    #         dataset, split=0
-    #     )
-    #     # val_paths += val_paths_plate
-    #     train_paths += train_paths_capillary
-    #     val_paths += val_paths_capillary
+
     if train_dataset != []:
         train_paths += get_training_and_validation_datasets(
             train_dataset, split=0.
@@ -411,13 +420,13 @@ def train(
         random.Random(seed).shuffle(train_paths)
         train_paths = train_paths[:full_size]
 
-    # train_paths, val_paths = get_training_and_validation_datasets_for_clicks(basedir='/dev/shm', train_images=train_images, valid_images=valid_images, forbidden=[])
     print("\ntotal number of samples %d" % len(train_paths + val_paths))
     print(
         "training on %d samples, validating on %d samples\n"
         % (len(train_paths), len(val_paths))
     )
-    # train_gen = CrystalClickDataset(batch_size, model_img_size, train_paths, augment=augment, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=dynamic_batch_size, shuffle_at_0=True)
+
+    # data genrators
     pprint.pprint(f"tasks in train\n{tasks}")
     train_gen = JsonDataset(
         train_paths,
@@ -438,7 +447,7 @@ def train(
         val_model_img_size = get_img_size_as_scale_of_pixel_budget(validation_scale)
     val_batch_size = get_dynamic_batch_size(val_model_img_size)
     print("validation model_img_size will be", val_model_img_size)
-    # val_gen = CrystalClickDataset(val_batch_size, val_model_img_size, val_paths, augment=False, scale_click=scale_click, click_radius=click_radius, dynamic_batch_size=False)
+
     val_gen = JsonDataset(
         val_paths,
         targets_config,
@@ -450,13 +459,15 @@ def train(
         workers=workers,
         use_multiprocessing=use_multiprocessing,
     )
+
     # callbacks
     checkpointer = keras.callbacks.ModelCheckpoint(
         model_name, verbose=1, monitor="val_loss", save_best_only=True, mode="min"
     )
     # checkpointer2 = keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath, verbose=1, monitor='loss', save_freq=2000, save_best_only=False, mode='min')
+
     nanterminator = keras.callbacks.TerminateOnNaN()
-    # tensorboard = keras.callbacks.TensorBoard(log_dir=os.path.join(os.path.realpath('./'), '%s_logs' % model_name.replace('.h5', '')), update_freq='epoch', write_steps_per_second=True)
+
     # earlystopper = keras.callbacks.EarlyStopping(patience=patience, verbose=1)
     lrreducer = (
         keras.callbacks.ReduceLROnPlateau(
@@ -469,67 +480,8 @@ def train(
         ),
     )
     tensorboard = keras.callbacks.TensorBoard(log_dir=tensorboard_dir, histogram_freq=1)
-    
+
     callbacks = [checkpointer, nanterminator, lrreducer, tensorboard]
-    network_parameters = networks[network]
-
-    if os.path.isdir(model_name) or os.path.isfile(model_name):
-        print("model exists, loading weights ...")
-        # model = keras.models.load_model(model_name)
-        model = get_model(
-            convolution_type=convolution_type,
-            filter_size=filter_size,
-            model_img_size=(None, None),
-            targets_config=targets_config,
-            last_convolution=last_convolution,
-            name=network,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            weight_standardization=weight_standardization,
-            normalization_type=normalization_type,
-            finetune=finetune,
-            finetune_model=model_name,
-            limit_loss=limit_loss,
-            weight_decay=weight_decay,
-            activation=activation,
-            **network_parameters,
-        )
-        if not finetune:
-            try:
-                model.load_weights(model_name)
-            except:
-                model = keras.models.load_model(
-                    model_name,
-                    # targets_config=targets_config,
-                    custom_objects={
-                        "WSConv2D": WSConv2D,
-                        "WSSeparableConv2D": WSSeparableConv2D,
-                    },
-                )
-        history_name = history_name.replace(".history", "_next_superepoch.history")
-    else:
-        print(model_name, "does not exist")
-        # custom_objects = {"click_loss": click_loss, "ClickMetric": ClickMetric}
-        # with keras.utils.custom_object_scope(custom_objects):
-        model = get_model(
-            convolution_type=convolution_type,
-            filter_size=filter_size,
-            model_img_size=(None, None),
-            targets_config=targets_config,
-            last_convolution=last_convolution,
-            name=network,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            weight_standardization=weight_standardization,
-            normalization_type=normalization_type,
-            limit_loss=limit_loss,
-            weight_decay=weight_decay,
-            activation=activation,
-            **network_parameters,
-        )
-
-    print("model.summary()")
-    # print(model.summary())
 
     pprint.pprint(f"targets_config\n{targets_config}")
     print(f"train_gen: {train_gen}")
