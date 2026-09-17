@@ -117,7 +117,12 @@ def main():
         
     print(f"model_img_size is {model_img_size}")
     
-    targets_config, concepts = get_candidates()
+    targets_config_fname = os.path.realpath(args.model_name).replace("results", "experiments").replace(".keras", "_targets_config.pickle")
+    print(f"targets_config_fname {targets_config_fname}")
+    if os.path.isfile(targets_config_fname):
+        targets_config = pickle.load(open(targets_config_fname, "rb"))
+    else:
+        targets_config, concepts = get_candidates()
 
     val_paths = os.path.realpath(args.model_name).replace("results", "experiments").replace(".keras", "_val_paths.pickle")
     print(f"val_paths filename {val_paths}")
