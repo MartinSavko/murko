@@ -206,6 +206,7 @@ def serve(
             lut_hierarchy_key = hierarchy_output_name.replace("_hierarchy", "")
             lut = luts[lut_hierarchy_key]
 
+            analysis["descriptions"] = descriptions
             analysis["predictions"] = all_predictions
             if "description" in request and request["description"] is not False:
                 _start_description = time.time()
