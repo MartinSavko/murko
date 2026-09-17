@@ -34,6 +34,63 @@ from dataset_loader import (
 
 from candidates import get_candidates
 
+
+# from Bing 2026-09-16
+# query: masking loss function Keras
+IGNORE_LABEL = -1
+EPSILON = 1.e-7
+
+def masked_categorical_crossentropy(y_true, y_pred):
+    # Create mask for valid labels
+    mask = tf.not_equal(y_true, IGNORE_LABEL)
+    mask = tf.cast(mask, tf.float32)
+
+    # Compute normal loss
+    loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
+
+    # Apply mask
+    loss = loss * mask
+    return tf.reduce_sum(loss) / (tf.reduce_sum(mask) + EPSILON)
+
+def classification_categorical_accuracy(y_true, y_pred):
+    _t = tf.reduce_mean(y_true, axis=(0, 1))
+    _p = tf.reduce_mean(y_pred, axis=(0, 1))
+    return tf.keras.metrics.categorical_accuracy(_t, _p)
+
+# def categorical_accuracy(y_true, y_pred):
+#     keras.metrics.CategoricalAccuracy()
+#     acc = np.dot(sample_weight, np.equal(y_true, np.argmax(y_pred, axis=1))
+
+
+# # query keras loss mask decorator
+# from tensorflow.keras import backend as K
+#
+# def masked_loss(loss_fn):
+#     """
+#     Decorator to apply a mask to any loss function.
+#     Assumes y_true has shape (..., features + 1) where the last feature is the mask.
+#     """
+#     def loss_with_mask(y_true, y_pred):
+#         # Split mask from actual target
+#         y_true_values = y_true[..., :-1]  # all but last column
+#         mask = y_true[..., -1:]           # last column as mask (shape: batch, time, 1)
+#
+#         # Compute base loss
+#         loss = loss_fn(y_true_values, y_pred)
+#
+#         # Ensure mask is same shape as loss
+#         mask = tf.cast(mask, loss.dtype)
+#         loss *= mask
+#
+#         # Avoid division by zero
+#         return tf.reduce_sum(loss) / (tf.reduce_sum(mask) + K.epsilon())
+#
+#     return loss_with_mask
+#
+# # Example: wrap MSE with masking
+# masked_mse = masked_loss(keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE))
+
+
 def get_paths(directory="images_and_labels", seed=1337):
     input_img_paths = glob.glob(os.path.join(directory, "*/img.jpg"))
     target_img_paths = [
@@ -178,6 +235,9 @@ def get_model(
     normalization_type="GroupNormalization",
     limit_loss=True,
     weight_decay=1.0e-4,
+    use_necks=False,
+    neck_filters=16,
+    neck_layers=4,
 ):
     print("get_model targets_config", targets_config)
     model = get_uncompiled_tiramisu(
@@ -196,6 +256,9 @@ def get_model(
         name=name,
         normalization_type=normalization_type,
         weight_decay=weight_decay,
+        use_necks=use_necks,
+        neck_filters=neck_filters,
+        neck_layers=neck_layers,
     )
     if finetune and finetune_model is not None:
         print("loading weights to finetune")
@@ -221,24 +284,16 @@ def get_model(
                     target_class_ids=[0, 1], threshold=0.5, name="BIoU_both"
                 ),
             ]
-        elif params[head["task"]]["metrics"] == "BIoUm":
-            metrics[head_name] = [
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[1], threshold=0.5, name="BIoUm_1"
-                ),
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[0], threshold=0.5, name="BIoUm_0"
-                ),
-                keras.metrics.BinaryIoUm(
-                    target_class_ids=[0, 1], threshold=0.5, name="BIoUm_both"
-                ),
-            ]
         elif params[head["task"]]["metrics"] == "mean_absolute_error":
             metrics[head_name] = keras.metrics.MeanAbsoluteError(name="MAE")
         elif head["task"] == "hierarchy":
             metrics[head_name] = getattr(
                 keras.metrics, params[head["task"]]["metrics"]
             )(head["channels"])
+        elif head["task"] == "classification":
+            metrics[head_name] = getattr(
+                keras.metrics, params[head["task"]]["metrics"]
+            )()
 
             # , sparse_y_true=True, sparse_y_pred=True)
             # losses[head_name] = keras.losses.BinaryFocalCrossentropy(name="hierarchy_loss", from_logits=True)
@@ -353,7 +408,10 @@ def train(
     workers=32,
     use_multiprocessing=True,
     do_transform=False,
-    save_paths=True,
+    save_paths_and_config=True,
+    use_necks=False,
+    neck_filters=16,
+    neck_layers=4,
 ):
     if mixed_precision:
         print("setting mixed_precision")
@@ -386,6 +444,9 @@ def train(
         limit_loss=limit_loss,
         weight_decay=weight_decay,
         activation=activation,
+        use_necks=use_necks,
+        neck_filters=neck_filters,
+        neck_layers=neck_layers,
         **network_parameters,
     )
 
@@ -394,7 +455,7 @@ def train(
         model.load_weights(model_name)
 
     print("model.summary()")
-
+    print(model.summary())
 
     train_paths, val_paths = get_training_and_validation_datasets(
         dataset, split=train_dev_split
@@ -406,8 +467,8 @@ def train(
         )[0]
 
 
-    if save_paths:
-        for p, n in zip([train_paths, val_paths], ["train_paths", "val_paths"]):
+    if save_paths_and_config:
+        for p, n in zip([train_paths, val_paths, targets_config], ["train_paths", "val_paths", "targets_config"]):
             f = open(f"{experiments_dir}/{distinguished_name}_{n}.pickle", "wb")
             pickle.dump(p, f)
             f.close()
@@ -483,7 +544,7 @@ def train(
 
     callbacks = [checkpointer, nanterminator, lrreducer, tensorboard]
 
-    pprint.pprint(f"targets_config\n{targets_config}")
+
     print(f"train_gen: {train_gen}")
     print(f"epochs: {epochs}")
     print(f"val_gen: {val_gen}")
@@ -551,14 +612,18 @@ def main():
     parser.add_argument("--backend", default="tensorflow", type=str, help="backend")
 
     targets_config, task_concepts = get_candidates()
+    pprint.pprint(f"targets_config\n{targets_config}")
+    pprint.pprint(f"task_concepts\n{task_concepts}")
+    # pprint.pprint(target_config)
+    # print("task_concepts", task_concepts)
 
-    for candidate in targets_config:
-        parser.add_argument(
-            f'--{candidate["name"]}_{candidate["task"]}',
-            default=1 if candidate in default_active else 0,
-            type=int,
-            help=f"learn {candidate}",
-        )
+    # for candidate in targets_config:
+    #     parser.add_argument(
+    #         f'--{candidate["name"]}_{candidate["task"]}',
+    #         default=1 if candidate in default_active else 0,
+    #         type=int,
+    #         help=f"learn {candidate}",
+    #     )
 
     parser.add_argument(
         "-r",
@@ -725,6 +790,26 @@ def main():
         help="do not do random transform as part of data augmentation.",
     )
 
+    parser.add_argument(
+        "--use_necks",
+        action="store_true",
+        help="use necks",
+    )
+
+    parser.add_argument(
+        "--neck_filters",
+        default=16,
+        type=int,
+        help="neck filters",
+    )
+
+    parser.add_argument(
+        "--neck_layers",
+        default=4,
+        type=int,
+        help="neck layers",
+    )
+
     args = parser.parse_args()
     print("args", args)
 
@@ -806,6 +891,9 @@ def main():
         workers=args.workers,
         use_multiprocessing=not args.not_multiprocessing,
         do_transform=not args.dont_transform,
+        use_necks=args.use_necks,
+        neck_filters=args.neck_filters,
+        neck_layers=args.neck_layers,
     )
 
 
