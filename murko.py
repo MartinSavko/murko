@@ -107,7 +107,11 @@ params = {
     "encoded_shape": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "hierarchy": {
         "loss": "categorical_focal_crossentropy",
-        "metrics": "MeanIoU",
+        "metrics": "OneHotMeanIoU",
+    },
+    "classification": {
+        "loss": "categorical_crossentropy",
+        "metrics": "CategoricalAccuracy",
     },
     "encoder": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
     "point": {"loss": "mean_squared_error", "metrics": "mean_absolute_error"},
@@ -536,6 +540,13 @@ def get_num_segmentation_classes(target_config):
     return num_segmentation_classes
 
 
+def get_neck_name(target_config):
+    neck_name = target_config["task"]
+    if "aether" in target_config["name"]:
+        neck_name += "_aether"
+    return neck_name
+
+
 def get_uncompiled_tiramisu(
     nfilters=48,
     filter_size=3,
@@ -590,6 +601,9 @@ def get_uncompiled_tiramisu(
     bn_momentum=0.9,
     bn_epsilon=1.1e-5,
     input_dropout=0.0,
+    use_necks=False,
+    neck_filters=16,
+    neck_layers=4,
 ):
     tasks = [f'{tc["name"]}_{tc["task"]}' for tc in targets_config]
     print("get_uncompiled_tiramisu tasks", tasks)
@@ -673,6 +687,17 @@ def get_uncompiled_tiramisu(
                 x_up.shape,
             )
 
+    # NECKS
+    if use_necks:
+        necks = {}
+        for target_config in targets_config:
+            neck_name = get_neck_name(target_config)
+            if neck_name not in necks:
+                necks[neck_name], _ = get_dense_block(
+                    x_up, neck_filters, neck_layers, filter_size=filter_size, **boilerplate
+                )
+        print(f"necks\n{necks.keys()}")
+
     # OUTPUTS
     outputs = []
     regression_neck = None
@@ -683,16 +708,26 @@ def get_uncompiled_tiramisu(
             or target_config["task"] == "point"
             or target_config["task"] == "encoder"
             or "distance_transform" in target_config["task"]
-            or target_config["task"] == "hierarchy"
+            or target_config["task"] in ["hierarchy", "classification"]
         ):
-            output = keras.layers.Conv2D(
-                target_config["channels"],
-                1,
-                activation=target_config["activation"],
-                padding="same",
-                dtype="float32",
-                name=f'{target_config["name"]}_{target_config["task"]}',
-            )(x_up)
+            if use_necks:
+                output = keras.layers.Conv2D(
+                    target_config["channels"],
+                    1,
+                    activation=target_config["activation"],
+                    padding="same",
+                    dtype="float32",
+                    name=f'{target_config["name"]}_{target_config["task"]}',
+                )(necks[target_config["task"]])
+            else:
+                output = keras.layers.Conv2D(
+                    target_config["channels"],
+                    1,
+                    activation=target_config["activation"],
+                    padding="same",
+                    dtype="float32",
+                    name=f'{target_config["name"]}_{target_config["task"]}',
+                )(x_up)
 
             # output = get_convolutional_layer(x_up, 'Conv2D', 1, filter_size=1, padding=padding, use_bias=use_bias, kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer, weight_decay=weight_decay, weight_standardization=weight_standardization, activation="sigmoid", dtype="float32", name=target_config['name'])
 
@@ -718,8 +753,11 @@ def get_uncompiled_tiramisu(
             output = keras.layers.Dense(
                 3, activation="sigmoid", dtype="float32", name=target_config["name"]
             )(regression_neck)
+
         outputs.append(output)
+
     model = keras.Model(inputs=inputs, outputs=outputs, name=name)
+
     return model
 
 
