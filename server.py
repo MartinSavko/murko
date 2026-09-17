@@ -28,6 +28,7 @@ from sample import get_resized_image
 from utils import get_descriptions, plot_analysis
 from config import luts
 
+
 def print_memory_use():
     # https://stackoverflow.com/questions/44327803/memory-leak-with-tensorflow
     pid = os.getpid()
@@ -36,7 +37,9 @@ def print_memory_use():
     print("memory use: %.3f GB" % memoryUse)
 
 
-def get_model(model_name="model.h5", model_img_size=(128, 128), gpu="0", integrate=True):
+def get_model(
+    model_name="model.h5", model_img_size=(128, 128), gpu="0", integrate=True
+):
     _start_load = time.time()
 
     if "CUDA_VISIBLE_DEVICES" not in os.environ:
@@ -64,7 +67,9 @@ def get_model(model_name="model.h5", model_img_size=(128, 128), gpu="0", integra
     output_names = model.output_names
     if integrate:
         inputs = keras.layers.Input((None, None, 3))
-        resized = keras.layers.Resizing(model_img_size[0], model_img_size[1], interpolation='bilinear')(inputs)
+        resized = keras.layers.Resizing(
+            model_img_size[0], model_img_size[1], interpolation="bilinear"
+        )(inputs)
         rescaled = keras.layers.Rescaling(scale=1.0 / 255)(resized)
         outputs = model(rescaled)
         model = keras.Model(inputs=inputs, outputs=outputs)
@@ -87,13 +92,55 @@ def get_model(model_name="model.h5", model_img_size=(128, 128), gpu="0", integra
     return model
 
 
+def validate_to_predict(to_predict):
+    if isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
+                to_predict = [simplejpeg.decode_jpeg(to_predict)]
+
+    elif isinstance(to_predict, str) and (
+        to_predict.lower().endswith(".jpg")
+        or to_predict.lower().endswith(".jpeg")
+    ):
+        image_paths = [to_predict[:]]
+        to_predict = [simplejpeg.decode_jpeg(open(to_predict, "rb").read())]
+
+    elif isinstance(to_predict, str) and to_predict.lower().endswith(".png"):
+        image_paths = [to_predict[:]]
+        to_predict = [imread(to_predict)]
+
+    elif isinstance(to_predict, list) and os.path.isfile(to_predict[0]):
+        image_paths = to_predict[:]
+        to_predict = [
+            simplejpeg.decode_jpeg(open(item, "rb").read())
+            for item in to_predict
+        ]
+
+    elif (
+        isinstance(to_predict, list)
+        and isinstance(to_predict[0], bytes)
+        and simplejpeg.is_jpeg(to_predict[0])
+    ):
+        to_predict = [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
+
+    elif (
+        isinstance(to_predict, list)
+        and isinstance(to_predict[0], np.ndarray)
+        and len(to_predict[0].shape) != 3
+    ):
+        to_predict = [simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict]
+    
+    to_predict = np.array(to_predict)
+    if len(to_predict.shape) == 3:
+        to_predict = np.expand_dims(to_predict, 0)
+    
+    return to_predict
+
 def serve(
     port=8901,
     model_name="model.keras",
     gpu="0",
     batch_size=1,
     model_img_size=(128, 128),
-    min_size = 32,
+    min_size=32,
     debug=True,
     default_hierarchy_output_name="hierarchy_detailed_hierarchy",
     integrate=True,
@@ -109,9 +156,9 @@ def serve(
 
     notion_indices = dict([(item, k) for k, item in enumerate(model.output_names)])
 
-    print(5*"\n")
+    print(5 * "\n")
     print(f"notion_indices\n{notion_indices}")
-    print(5*"\n")
+    print(5 * "\n")
 
     context = zmq.Context()
     socket = context.socket(zmq.REP)
@@ -134,36 +181,12 @@ def serve(
             if debug:
                 print("debug type(to_predict)", type(to_predict))
 
-            if isinstance(to_predict, bytes) and simplejpeg.is_jpeg(to_predict):
-                to_predict = [simplejpeg.decode_jpeg(to_predict)]
-
-            elif isinstance(to_predict, str) and (
-                to_predict.lower().endswith(".jpg")
-                or to_predict.lower().endswith(".jpeg")
-            ):
-                image_paths = [to_predict[:]]
-                to_predict = [simplejpeg.decode_jpeg(open(to_predict, "rb").read())]
-
-            elif isinstance(to_predict, str) and to_predict.lower().endswith(".png"):
-                image_paths = [to_predict[:]]
-                to_predict = [imread(to_predict)]
-
-            elif isinstance(to_predict, list) and os.path.isfile(to_predict[0]):
-                image_paths = to_predict[:]
-                to_predict = [
-                    simplejpeg.decode_jpeg(open(item, "rb").read())
-                    for item in to_predict
-                ]
-
-            elif isinstance(to_predict, list) and len(to_predict[0].shape) != 3:
-                to_predict = [
-                    simplejpeg.decode_jpeg(jpeg) for jpeg in to_predict
-                ]
-
-            original_image_shape = to_predict[0].shape
-            analysis["original_image_shape"] = original_image_shape
+            to_predict = validate_to_predict(to_predict)
+            
             if debug:
                 print("to_predict type before prep", type(to_predict[0]))
+
+            to_predict_unresized = to_predict
 
             if not integrate:
                 to_predict_unresized = to_predict.copy()
@@ -174,10 +197,12 @@ def serve(
                 ]
 
                 _end_prep = time.time()
-                print(f"images rescaled and resized in {_end_prep - _start_prep:.3f} seconds")
-            else:
-                to_predict_unresized = to_predict
+                print(
+                    f"images rescaled and resized in {_end_prep - _start_prep:.3f} seconds"
+                )
 
+            original_image_shape = to_predict_unresized[0].shape[:2]
+            analysis["original_image_shape"] = original_image_shape
             to_predict = np.array(to_predict)
 
             if len(to_predict.shape) == 3:
@@ -187,11 +212,14 @@ def serve(
                 print("to_predict type after prep", type(to_predict[0]))
                 print("to_predict.shape", to_predict.shape)
 
+            print(f"preparations took {time.time() - _start:.3f} seconds")
+            _predict_start = time.time()
+
             all_predictions = model.predict(
                 to_predict, batch_size=min([len(to_predict), batch_size])
             )
 
-            duration = time.time() - _start
+            duration = time.time() - _predict_start
             N = len(all_predictions[0])
             print(
                 "%d predictions took %.3f seconds (%.3f per image)"
@@ -207,7 +235,10 @@ def serve(
             lut = luts[lut_hierarchy_key]
 
             analysis["descriptions"] = descriptions
-            analysis["predictions"] = all_predictions
+            if "raw_predictions" in request and request["raw_predictions"]:
+                analysis["predictions"] = all_predictions
+            else:
+                analysis["predictions"] = None
             if "description" in request and request["description"] is not False:
                 _start_description = time.time()
                 try:
@@ -231,7 +262,9 @@ def serve(
                     analysis = all_predictions
 
                 if "save" in request and request["save"]:
-                    plot_analysis(to_predict_unresized, analysis, image_paths=image_paths)
+                    plot_analysis(
+                        to_predict_unresized, analysis, image_paths=image_paths
+                    )
 
             del all_predictions
             if descriptions:
@@ -273,7 +306,11 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--gpu", default="0", type=str, help="gpu to use")
 
     parser.add_argument(
-        "-i", "--integrate", action="store_true", help="integrate resize and scale layers")
+        "-i",
+        "--integrate",
+        action="store_true",
+        help="integrate resize and scale layers",
+    )
 
     args = parser.parse_args()
     model_img_size = eval(args.model_img_size)
