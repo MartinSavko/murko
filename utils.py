@@ -20,8 +20,11 @@ import random
 import cv2 as cv
 import seaborn as sns
 
-import largestinteriorrectangle as lir
-
+try:
+    import largestinteriorrectangle as lir
+except:
+    lir = None
+    
 from keypoints import (
     get_orientation_and_direction,
     principal_axes,
@@ -1300,7 +1303,7 @@ def get_descriptions(
         description["start_likely"] = (
             epioa_cil / prediction_shape
         )  # description[area_of_interest]['epioa']
-        description["start_explorable"] = (
+        description["start_possible"] = (
             description[explorable]["epioa"] / prediction_shape
         )
         descriptions.append(description)
