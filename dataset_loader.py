@@ -21,11 +21,7 @@ from keras.utils import to_categorical
 
 from sample import Sample
 from candidates import get_candidates
-
-from utils import (
-    label2rgb,
-)
-
+from utils import label2rgb
 from config import luts
 
 def timeit(func):
@@ -310,11 +306,13 @@ def get_targets(
                 target = np.zeros(
                     shape=img.shape[:2] + (tc["channels"],), dtype=tc["dtype"]
                 )
+
         elif tc["task"] == "encoder":
             if tc["name"] == "identity":
                 target = img
             elif tc["name"] == "identity_bw":
                 target = img.mean(axis=2, keepdims=True)
+
         elif tc["task"] == "hierarchy":
             flat_hierarchy = sample.get_flat_hierarchy(
                 points=points,
@@ -323,6 +321,7 @@ def get_targets(
                 notions=tc["concepts"],
             )
             target = to_categorical(flat_hierarchy, num_classes=len(tc["concepts"]))
+
         elif tc["task"] == "global_classification":
             target = sample.get_global_classification_target(
                 points=points,
@@ -331,6 +330,16 @@ def get_targets(
                 notions=tc["concepts"],
                 focus=masks[tc["focus"]],
             )
+
+        elif tc["task"] == "classification":
+            if tc["name"] == "support_type":
+                st = sample.get_support_type()
+                if st is None: st = "void"
+                i = tc["concepts"].index(st)
+                shape = img.shape[:2] + (tc["channels"],)
+                target = np.zeros(shape, dtype="uint8")
+                target[:,:,i] = 1
+
         else:
             target = getattr(sample, f'get_{tc["name"]}')(points=points)
 
@@ -392,41 +401,44 @@ def plot_image_and_targets(
     axs[l].set_title("Input image")
     l += 1
     for k, (target, config) in enumerate(zip(targets, targets_config)):
-        if len(target.shape) == 4:
-            target = target[0]
-        if config["channels"] in [1, 3] and config["task"] != "hierarchy":
-            if (
-                threshold is not None
-                and config["channels"] == 1
-                and config["name"] != "identity_bw"
-                and "binary_segment" in config["task"]
-            ):
+        try:
+            if len(target.shape) == 4:
+                target = target[0]
+            if config["channels"] in [1, 3] and config["task"] not in["hierarchy", "classification"]:
+                if (
+                    threshold is not None
+                    and config["channels"] == 1
+                    and config["name"] != "identity_bw"
+                    and "binary_segment" in config["task"]
+                ):
+                    if verbose:
+                        print(f"config\n{config}")
+                        print(f"target", target.shape, target.dtype)
+                    target = (target >= threshold).astype("uint8")
+                    target = label2rgb(target[:,:,0], luts[f'{config["name"]}_{config["task"]}'])
+
+                elif "binary_segment" in config["task"]:
+                    if verbose:
+                        print(f"config\n{config}")
+                        print(f"target", target.shape, target.dtype)
+                    target = label2rgb(target[:,:,0].astype("uint8"), luts[f'{config["name"]}_{config["task"]}'])
+
+                if config["name"] == "identity_bw":
+                    axs[k + l].imshow(target, cmap="gray")
+                else:
+                    axs[k + l].imshow(target)
+            elif config["task"] == "hierarchy":
+                label = np.argmax(target, axis=2).astype("uint8")
                 if verbose:
                     print(f"config\n{config}")
-                    print(f"target", target.shape, target.dtype)
-                target = (target >= threshold).astype("uint8")
-                target = label2rgb(target[:,:,0], luts[f'{config["name"]}_{config["task"]}'])
+                    print(f"label", label.shape, label.dtype)
+                axs[k + l].imshow(label2rgb(label, luts[config["name"]]))
 
-            elif "binary_segment" in config["task"]:
-                if verbose:
-                    print(f"config\n{config}")
-                    print(f"target", target.shape, target.dtype)
-                target = label2rgb(target[:,:,0].astype("uint8"), luts[f'{config["name"]}_{config["task"]}'])
-
-            if config["name"] == "identity_bw":
-                axs[k + l].imshow(target, cmap="gray")
-            else:
-                axs[k + l].imshow(target)
-        elif config["task"] == "hierarchy":
-            label = np.argmax(target, axis=2).astype("uint8")
-            if verbose:
-                print(f"config\n{config}")
-                print(f"label", label.shape, label.dtype)
-            axs[k + l].imshow(label2rgb(label, luts[config["name"]]))
-
-        title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "").replace("area_of_interest", "aoi").replace("distance_transform", "dt").replace("binary_segment", "")
-        axs[k + l].set_title(title)
-
+            title = f'{config["name"]} {config["task"]}'.replace("hierarchy_", "").replace("area_of_interest", "aoi").replace("distance_transform", "dt").replace("binary_segment", "")
+            axs[k + l].set_title(title)
+        except:
+            traceback.print_exc()
+            print(f"config\n{config}\n failed, please check !")
     for ax in axs:
         ax.set_axis_off()
 
