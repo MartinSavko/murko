@@ -149,7 +149,7 @@ def get_lut(
         "crystal_direct": "muted pink",
         "void": "cool grey",
     },
-    verbose=True,
+    verbose=False,
 ):
     lut = np.zeros((256, 1, 3))
     for k, notion in enumerate(notions):
