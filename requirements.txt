@@ -10,4 +10,5 @@ simplejpeg
 seaborn
 psutil
 labelme
-
+largestinteriorrectangle
+peakutils
