@@ -14,7 +14,7 @@ import tensorflow as tf
 from tensorflow import keras
 import copy
 import pprint
-
+import numpy as np
 from utils import plot_history
 
 from murko import (
@@ -33,7 +33,7 @@ from dataset_loader import (
 )
 
 from candidates import get_candidates
-
+from objects_of_interest import get_objects_of_interest
 
 # from Bing 2026-09-16
 # query: masking loss function Keras
@@ -114,6 +114,77 @@ def get_validation_dataset(seed=1337, num_val_samples=150):
     val_target_img_paths = target_img_paths[-num_val_samples:]
     return val_paths, val_target_img_paths
 
+def check_directory(directory):
+    if os.path.isdir(directory):
+        pass
+    else:
+        os.makedirs(directory)
+
+def save_pickled_file(filename, object_to_pickle, mode="wb"):
+    check_directory(os.path.dirname(filename))
+    f = open(filename, mode)
+    pickle.dump(object_to_pickle, f)
+    f.close()
+
+def get_pickled_file(filename, mode="rb"):
+    try:
+        try:
+            pickled_file = pickle.load(open(filename, mode))
+        except:
+            pickled_file = pickle.load(open(filename, mode), encoding="latin1")
+    except IOError:
+        pickled_file = None
+    return pickled_file
+
+def okay_for_validation(path):
+    okay = True
+    print("path", path)
+    ooi = get_objects_of_interest(path)
+    labels = ooi["labels"]
+    if (
+        "capillary" in labels
+        or "foreground" in labels and len(labels) <= 2
+    ):
+        okay = False
+    return okay
+
+def prepare_train_and_validation_datasets(directory, split=0.2, valmax=100, force=False):
+
+    train_name, valid_name = [os.path.join(directory, f"{n}_paths.pickle") for n in ["train", "valid"]]
+
+    if force or not os.path.isfile(train_name) or not os.path.isfile(valid_name):
+
+
+        t, v = get_training_and_validation_datasets([directory], split=split, valmax=valmax)
+
+        not_wanted_for_validation = []
+        replacements_for_validation = []
+        for p in v:
+            if not okay_for_validation(p):
+                not_wanted_for_validation.append(p)
+                np.random.shuffle(t)
+                for _p in t:
+                    if okay_for_validation(_p):
+                        replacements_for_validation.append(_p)
+                        break
+
+        print('not_wanted_for_validation', not_wanted_for_validation)
+        print('replacements_for_validation', replacements_for_validation)
+
+        for nwfv in not_wanted_for_validation[::-1]:
+            del v[v.index(nwfv)]
+            t.append(nwfv)
+        for rfv in replacements_for_validation:
+            del t[t.index(rfv)]
+            v.append(rfv)
+
+        for p, n in zip([t, v], [train_name, valid_name]):
+            save_pickled_file(n, p)
+
+    else:
+        t, v = [get_pickled_file(n) for n in [train_name, valid_name]]
+
+    return t, v
 
 def get_family(name):
     fname = os.path.realpath(name)
@@ -163,7 +234,7 @@ def get_paths_for_families(families_subset_list, sample_families):
 
 
 def get_training_and_validation_datasets(
-    directories, seed=12345, split=0.2,
+    directories, seed=12345, split=0.2, valmax=100, verbose=True,
 ):
     sample_families = get_sample_families(directories)
     sample_families_names = sorted(sample_families.keys())
@@ -173,15 +244,20 @@ def get_training_and_validation_datasets(
     train = int((1 - split) * total)
     train_families = sample_families_names[:train]
     valid_families = sample_families_names[train:]
-    print("total %d" % total)
-    print("train", train)
-    print("train_families: %d" % len(train_families))
-    print("valid_families: %d" % len(valid_families))
+    if verbose:
+        print("total %d" % total)
+        print("train", train)
+        print("train_families: %d" % len(train_families))
+        print("valid_families: %d" % len(valid_families))
 
     train_paths = get_paths_for_families(train_families, sample_families)
-    random.Random(seed).shuffle(train_paths)
-    val_paths = get_paths_for_families(valid_families, sample_families)
-    random.Random(seed).shuffle(val_paths)
+    val_paths = []
+    while valid_families and len(val_paths) < valmax:
+        family = valid_families.pop(0)
+        for individual in sample_families[family]:
+            val_paths.append(individual)
+
+    train_paths += get_paths_for_families(valid_families, sample_families)
 
     return train_paths, val_paths
 
@@ -423,10 +499,10 @@ def train(
 
     tasks = [tc["name"] for tc in targets_config]
     distinguished_name = "%s_%s" % (network, name)
-    model_name = os.path.join(results_dir, "%s.keras" % distinguished_name)
-    history_name = os.path.join(results_dir, "%s.history" % distinguished_name)
-    checkpoint_filepath = "%s_{batch:06d}_{loss:.4f}.keras" % distinguished_name
-    tensorboard_dir = os.path.join(results_dir, "%s_logs" % distinguished_name)
+    model_name = os.path.join(results_dir, "model.keras")
+    history_name = os.path.join(results_dir, "history.pickle")
+    checkpoint_filepath = os.path.join(results_dir, "model_{batch:06d}_{loss:.4f}.keras")
+    tensorboard_dir = os.path.join(results_dir, "logs")
 
     network_parameters = networks[network]
 
@@ -455,11 +531,15 @@ def train(
         model.load_weights(model_name)
 
     print("model.summary()")
-    print(model.summary())
+    # print(model.summary())
 
-    train_paths, val_paths = get_training_and_validation_datasets(
-        dataset, split=train_dev_split
-    )
+    train_paths, val_paths = [], []
+    for d in dataset:
+        t, v = prepare_train_and_validation_datasets(
+            d, split=train_dev_split
+        )
+        train_paths += t
+        val_paths += v
 
     if train_dataset != []:
         train_paths += get_training_and_validation_datasets(
@@ -814,40 +894,43 @@ def main():
     print("args", args)
 
     pixel_budget = int(args.pixel_budget * args.pixel_budget_modifier)
-    model_img_size = get_img_size_as_scale_of_pixel_budget(args.resize_factor)
-    val_model_img_size = eval(args.val_model_img_size)
-    if args.batch_size == -1 and args.resize_factor != -1:
-        model_img_size = get_img_size_as_scale_of_pixel_budget(args.resize_factor)
-        if args.ratio == 1.0:
-            model_img_size = (model_img_size[0], model_img_size[0])
-        batch_size = get_dynamic_batch_size(model_img_size, pixel_budget)
-        dynamic_batch_size = False
-    elif args.batch_size == -1:
-        dynamic_batch_size = True
-        model_img_size = -1
-        batch_size = args.batch_size
-    else:
-        model_img_size = eval(args.model_img_size)
-        val_model_img_size = model_img_size
-        batch_size = min(args.batch_size, get_dynamic_batch_size(model_img_size, pixel_budget))
-        dynamic_batch_size = False
+    # model_img_size = eval(args.model_img_size) #get_img_size_as_scale_of_pixel_budget(args.resize_factor)
+    # # val_model_img_size = eval(args.val_model_img_size)
+    # val_model_img_size = model_img_size
+    # if args.batch_size == -1 and args.resize_factor != -1:
+    #     # model_img_size = get_img_size_as_scale_of_pixel_budget(args.resize_factor)
+    #     # if args.ratio == 1.0:
+    #     #     model_img_size = (model_img_size[0], model_img_size[0])
+    #     batch_size = get_dynamic_batch_size(model_img_size, pixel_budget)
+    #     dynamic_batch_size = False
+    # elif args.batch_size == -1:
+    #     dynamic_batch_size = True
+    #     # model_img_size = -1
+    #     # batch_size = args.batch_size
+    # else:
+    model_img_size = eval(args.model_img_size)
+    val_model_img_size = model_img_size
+    batch_size = max(3, get_dynamic_batch_size(model_img_size, pixel_budget))
+    dynamic_batch_size = False
     print("model_img_size", model_img_size)
     print("val model_img_size", val_model_img_size)
     print("batch_size", batch_size)
-    print("name: %s" % args.name)
-    #sys.exit()
+    name = args.name + f"_b_{batch_size}"
+    print("name: %s" % name)
+
+    # sys.exit()
     # save the current version of the murko under a name corresponding to the
     # output model name
-    experiments_dir = os.path.join(args.base, "experiments")
-    results_dir = os.path.join(args.base, "results")
+    experiments_dir = os.path.join(args.base, "experiments", f"{args.network}_{name}")
+    results_dir = os.path.join(args.base, "experiments", f"{args.network}_{name}")
     for d in [experiments_dir, results_dir]:
         if not os.path.isdir(d):
             os.makedirs(d)
 
     for tool in ["murko", "train", "sample", "objects_of_interest", "regionprops", "dataset_loader"]:
-        os.system(f"cp {tool}.py {experiments_dir}/{args.network}_{args.name}_{tool}.py")
+        os.system(f"cp {tool}.py {experiments_dir}/{tool}.py")
 
-    f = open(f"{experiments_dir}/{args.network}_{args.name}.args", "wb")
+    f = open(f"{experiments_dir}/args.pickle", "wb")
     pickle.dump(args, f)
     f.close()
 
@@ -864,7 +947,7 @@ def main():
         filter_size=args.filter_size,
         batch_size=batch_size,
         targets_config=targets_config,
-        name=args.name,
+        name=name,
         mixed_precision=args.mixed_precision,
         augment=bool(args.augment),
         train_images=args.train_images,
