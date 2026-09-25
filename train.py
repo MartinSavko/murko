@@ -154,7 +154,6 @@ def prepare_train_and_validation_datasets(directory, split=0.2, valmax=100, forc
 
     if force or not os.path.isfile(train_name) or not os.path.isfile(valid_name):
 
-
         t, v = get_training_and_validation_datasets([directory], split=split, valmax=valmax)
 
         not_wanted_for_validation = []
@@ -419,7 +418,7 @@ def train(
     experiments_dir="./experiments",
     results_dir="./results",
     epochs=25,
-    patience=3,
+    patience=2,
     mixed_precision=False,
     name="start",
     source_weights=None,
@@ -463,7 +462,7 @@ def train(
     valid_images=1000,
     scale_click=False,
     click_radius=320e-3,
-    learning_rate=0.001,
+    learning_rate=0.0005,
     pixel_budget=768 * 992,
     normalization_type="GroupNormalization",
     validation_scale=0.4,
